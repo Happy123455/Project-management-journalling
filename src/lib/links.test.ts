@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractLinks } from "./links";
+import { extractLinks, linesMentioning, uniqueNames } from "./links";
 
 describe("extractLinks", () => {
   it("finds wikilinks with and without aliases", () => {
@@ -19,5 +19,15 @@ describe("extractLinks", () => {
 
   it("deduplicates", () => {
     expect(extractLinks("#a #a [[X]] [[X]]")).toEqual({ wikilinks: ["X"], tags: ["a"] });
+  });
+
+  it("picks the lines that mention a page or tag", () => {
+    const text = "met [[Ravi]] today\nlunch\n#work with [[ravi|R]]\n#workshop";
+    expect(linesMentioning(text, "wikilink", "Ravi")).toEqual(["met [[Ravi]] today", "#work with [[ravi|R]]"]);
+    expect(linesMentioning(text, "tag", "work")).toEqual(["#work with [[ravi|R]]"]);
+  });
+
+  it("dedupes names ignoring letter case", () => {
+    expect(uniqueNames(["ravi", "Ravi", "Anu"])).toEqual(["Anu", "ravi"]);
   });
 });
