@@ -177,6 +177,37 @@ function ReadAloudSettings() {
   );
 }
 
+/** Android: the floating bubble over other apps. */
+function BubbleSettings() {
+  const bubble = window.JournalBubble;
+  const [on, setOn] = useState(() => bubble?.enabled() ?? false);
+  // Coming back from Android's "Display over other apps" screen.
+  useEffect(() => {
+    const check = () => bubble && setOn(bubble.enabled());
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [bubble]);
+  if (!bubble) return null;
+  return (
+    <section className="settings-section">
+      <h2>Floating bubble</h2>
+      <label className="settings-toggle">
+        <input type="checkbox" checked={on} onChange={(e) => setOn(bubble.setEnabled(e.target.checked))} />
+        Show floating bubble
+      </label>
+      <p className="hint">
+        A small glass drop that floats over your other apps. Tap it to circle-capture the screen, write a quick note, paste the
+        clipboard or record a voice note into today. Drag it anywhere; drop it on ✕ or long-press to hide it.
+        {!bubble.canDraw() && " Turning it on opens Android's \"Display over other apps\" setting once: allow Dynamic Journal there, then come back."}
+      </p>
+    </section>
+  );
+}
+
 /** ⚙︎ Settings: AI provider, keys, toggles, this month's use, and AI changes. */
 export function SettingsPanel({ store, onClose }: { store: JournalStore | null; onClose: () => void }) {
   const [s, setS] = useState<AiSettings>(loadAiSettings);
@@ -227,6 +258,8 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
             {modelFor(s, "organise") !== DEFAULT_MODELS[s.provider].organise ? " (custom)" : ""}. AI only runs when you tap or finish a paragraph.
           </p>
         </section>
+
+        <BubbleSettings />
 
         <section className="settings-section">
           <h2>Read aloud</h2>

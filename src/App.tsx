@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
-import type { JSONContent } from "@tiptap/react";
+import type { Editor, JSONContent } from "@tiptap/react";
 import { MonthCalendar, YearPanel } from "./calendar/Calendar";
 import { DueReminders, Upcoming } from "./calendar/Upcoming";
 import { BacklinkList, PageView, TagView, type LinkHandlers } from "./pages/LinkViews";
@@ -15,7 +15,7 @@ import { SettingsPanel } from "./settings/SettingsPanel";
 import { ReadAloudPlayer } from "./ReadAloudPlayer";
 import { repairLostLinks } from "./lib/repairLinks";
 import { ChatView } from "./ChatView";
-import { VoiceRecorder } from "./editor/VoiceRecorder";
+import { openVoiceRecorder, VoiceRecorder } from "./editor/VoiceRecorder";
 import { MemeKit } from "./editor/MemeKit";
 import { ProjectList } from "./projects/ProjectPanel";
 import { searchTerms } from "./lib/search";
@@ -179,7 +179,7 @@ function App() {
 
   // Shared in from other apps (Android share sheet), or a quick note from the shortcut/tile:
   // add it to today's note and show today; for a quick note, open the keyboard at the end.
-  const quickNote = useRef(false);
+  const quickNote = useRef<false | "note" | "voice">(false);
   useEffect(() => {
     if (!store) return;
     const receive = async () => {
@@ -191,7 +191,7 @@ function App() {
       if (!result) return;
       if (result.added) showToast(result.added === 1 ? "Added to today" : `Added ${result.added} items to today`);
       if (result.skipped.length) showToast(`Too large to add: ${result.skipped.join(", ")}`, "error");
-      quickNote.current = result.quickNote;
+      quickNote.current = result.voice ? "voice" : result.quickNote ? "note" : false;
       setRoute({ kind: "day" });
       setDay(today);
       setPageVersion((n) => n + 1);
@@ -488,12 +488,16 @@ function App() {
                     setText(t);
                     // A quick note: put the cursor at the end and bring up the keyboard.
                     if (quickNote.current) {
+                      const voice = quickNote.current === "voice";
                       quickNote.current = false;
                       setCalendarCollapsed(true);
                       requestAnimationFrame(() => {
-                        const editor = document.querySelector<HTMLElement & { editor?: { commands: { focus: (p: string) => void } } }>(".tiptap")?.editor;
-                        editor?.commands.focus("end");
-                        window.JournalShare?.showKeyboard();
+                        const editor = document.querySelector<HTMLElement & { editor?: Editor }>(".tiptap")?.editor;
+                        if (!editor) return;
+                        editor.commands.focus("end");
+                        // From the bubble's 🎙: straight into recording.
+                        if (voice) openVoiceRecorder(editor, "voice");
+                        else window.JournalShare?.showKeyboard();
                       });
                     }
                   }}

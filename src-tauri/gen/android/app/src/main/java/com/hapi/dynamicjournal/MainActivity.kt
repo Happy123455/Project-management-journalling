@@ -42,6 +42,15 @@ class MainActivity : TauriActivity() {
 
   companion object {
     const val QUICK_NOTE = "com.hapi.dynamicjournal.QUICK_NOTE"
+    /** From the floating bubble: open today and start a voice note. */
+    const val VOICE_NOTE = "com.hapi.dynamicjournal.VOICE_NOTE"
+    private var current: java.lang.ref.WeakReference<MainActivity>? = null
+
+    /** Something is waiting to be added to today (e.g. a bubble note): tell the page if it's open. */
+    fun notifyShared() {
+      val activity = current?.get() ?: return
+      activity.webView?.post { activity.webView?.evaluateJavascript("window.dispatchEvent(new Event('journal:shared'))", null) }
+    }
     /** Shared files bigger than this are skipped (they'd go through the page as text). */
     private const val MAX_SHARED_BYTES = 60L * 1024 * 1024
   }
@@ -52,6 +61,8 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    current = java.lang.ref.WeakReference(this)
+    if (BubbleService.enabled(this)) BubbleService.setEnabled(this, true)
     handleIntent(intent)
   }
 
@@ -66,8 +77,8 @@ class MainActivity : TauriActivity() {
   private fun handleIntent(intent: Intent?) {
     if (intent == null) return
     val action = intent.action
-    if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE && action != QUICK_NOTE) return
-    val payload = JSONObject().put("quickNote", action == QUICK_NOTE)
+    if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE && action != QUICK_NOTE && action != VOICE_NOTE) return
+    val payload = JSONObject().put("quickNote", action == QUICK_NOTE || action == VOICE_NOTE).put("voice", action == VOICE_NOTE)
     val text = listOfNotNull(intent.getStringExtra(Intent.EXTRA_SUBJECT), intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString())
       .filter { it.isNotBlank() }
       .distinct()
@@ -116,6 +127,7 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(ShareBridge(), "JournalShare")
     webView.addJavascriptInterface(SecretsBridge(), "JournalSecrets")
     webView.addJavascriptInterface(speech, "JournalSpeech")
+    webView.addJavascriptInterface(BubbleBridge(), "JournalBubble")
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->
       val split = payload.partition { it.uri != null }
@@ -255,7 +267,35 @@ class MainActivity : TauriActivity() {
   }
 
   /** Lets the page take what was shared in, and open the keyboard for a quick note. */
+  /** Settings → Floating bubble. */
+  inner class BubbleBridge {
+    @JavascriptInterface fun enabled(): Boolean = BubbleService.enabled(this@MainActivity) && android.provider.Settings.canDrawOverlays(this@MainActivity)
+    @JavascriptInterface fun canDraw(): Boolean = android.provider.Settings.canDrawOverlays(this@MainActivity)
+
+    /** Turns it on (asking for "Display over other apps" first if needed) or off. Returns whether it's on. */
+    @JavascriptInterface fun setEnabled(on: Boolean): Boolean {
+      if (on && !android.provider.Settings.canDrawOverlays(this@MainActivity)) {
+        // Remember the wish; onResume turns it on once the permission is granted.
+        getSharedPreferences("bubble", Context.MODE_PRIVATE).edit().putBoolean("enabled", true).apply()
+        startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+        return false
+      }
+      BubbleService.setEnabled(this@MainActivity, on)
+      return on
+    }
+  }
+
+  override fun onResume() {
+    super.onResume()
+    if (BubbleService.enabled(this) && android.provider.Settings.canDrawOverlays(this)) BubbleService.setEnabled(this, true)
+    // Notes added from the bubble while the journal was in the background.
+    notifyShared()
+  }
+
   inner class ShareBridge {
+    @JavascriptInterface
+    fun takeNotes(): String = BubbleService.takeNotes(this@MainActivity)
+
     /** The waiting share as JSON (see handleIntent), or "" when there is none. Taking it clears it. */
     @JavascriptInterface
     fun take(): String {

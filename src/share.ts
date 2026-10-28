@@ -1,17 +1,22 @@
 import { appendBlocks, asBlocks, textBlocks } from "./lib/append";
 import { docText } from "./lib/words";
+import { formatTimestamp } from "./lib/timestamp";
 import { mediaNode } from "./editor/attachments";
 import type { JournalStore } from "./store";
 
 declare global {
   interface Window {
     /** Android: shares and quick-note launches (MainActivity.kt ShareBridge). */
-    JournalShare?: { take(): string; showKeyboard(): void };
+    JournalShare?: { take(): string; showKeyboard(): void; takeNotes?(): string };
+    /** Android: Settings → Floating bubble (MainActivity.kt BubbleBridge). */
+    JournalBubble?: { enabled(): boolean; canDraw(): boolean; setEnabled(on: boolean): boolean };
   }
 }
 
 interface SharePayload {
   quickNote: boolean;
+  /** Opened from the bubble's 🎙: start a voice note. */
+  voice?: boolean;
   text?: string;
   files: { name: string; mime: string; data: string }[];
   skipped: string[];
@@ -19,6 +24,7 @@ interface SharePayload {
 
 export interface ShareResult {
   quickNote: boolean;
+  voice: boolean;
   added: number;
   skipped: string[];
 }
@@ -26,9 +32,12 @@ export interface ShareResult {
 /** Takes whatever was shared into the app (if anything) and adds it to the end of `day`'s note. */
 export async function takeShare(store: JournalStore, day: string): Promise<ShareResult | null> {
   const raw = window.JournalShare?.take();
-  if (!raw) return null;
-  const share = JSON.parse(raw) as SharePayload;
+  // Notes typed in the floating bubble, each with the time it was written.
+  const notes = JSON.parse(window.JournalShare?.takeNotes?.() || "[]") as { text: string; at: number }[];
+  if (!raw && !notes.length) return null;
+  const share: SharePayload = raw ? JSON.parse(raw) : { quickNote: false, files: [], skipped: [] };
   const blocks = share.text ? textBlocks(share.text) : [];
+  for (const n of notes) blocks.push(...textBlocks(`${formatTimestamp(new Date(n.at))} ${n.text}`));
   const media = [];
   for (const f of share.files) {
     const bytes = Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0));
@@ -40,5 +49,5 @@ export async function takeShare(store: JournalStore, day: string): Promise<Share
     const content = appendBlocks(page?.content ?? null, blocks);
     await store.saveDay({ day, content, plainText: docText(content) });
   }
-  return { quickNote: share.quickNote, added: share.files.length + (share.text ? 1 : 0), skipped: share.skipped };
+  return { quickNote: share.quickNote, voice: !!share.voice, added: share.files.length + (share.text ? 1 : 0) + notes.length, skipped: share.skipped };
 }
