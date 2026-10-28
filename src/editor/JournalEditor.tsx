@@ -125,7 +125,8 @@ export function JournalEditor({
   return (
     <div className="editor">
       {editor && !touch && (
-        <div className="toolbar">
+        // Keep focus in the editor so Enter after a toolbar click types, not re-clicks (from #2).
+        <div className="toolbar" onMouseDown={(e) => e.preventDefault()}>
           <ToolbarButtons editor={editor} />
         </div>
       )}
