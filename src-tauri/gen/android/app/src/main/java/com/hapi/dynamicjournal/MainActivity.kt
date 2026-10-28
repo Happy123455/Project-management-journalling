@@ -6,6 +6,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.documentfile.provider.DocumentFile
+import android.provider.OpenableColumns
+import android.view.inputmethod.InputMethodManager
 import org.json.JSONArray
 import android.os.Bundle
 import android.util.Base64
@@ -27,14 +29,80 @@ class MainActivity : TauriActivity() {
     webView?.evaluateJavascript("window.__journalSyncPicked && window.__journalSyncPicked(${uri != null})", null)
   }
 
+  companion object {
+    const val QUICK_NOTE = "com.hapi.dynamicjournal.QUICK_NOTE"
+    /** Shared files bigger than this are skipped (they'd go through the page as text). */
+    private const val MAX_SHARED_BYTES = 60L * 1024 * 1024
+  }
+
+  /** What was shared in (or a quick-note request), waiting for the page to take it. */
+  @Volatile private var pendingShare: String? = null
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    handleIntent(intent)
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleIntent(intent)
+    webView?.evaluateJavascript("window.dispatchEvent(new Event('journal:shared'))", null)
+  }
+
+  /** Turns a share or a quick-note launch into JSON {quickNote, text, files:[{name, mime, data}], skipped}. */
+  private fun handleIntent(intent: Intent?) {
+    if (intent == null) return
+    val action = intent.action
+    if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE && action != QUICK_NOTE) return
+    val payload = JSONObject().put("quickNote", action == QUICK_NOTE)
+    val text = listOfNotNull(intent.getStringExtra(Intent.EXTRA_SUBJECT), intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString())
+      .filter { it.isNotBlank() }
+      .distinct()
+      .joinToString("\n")
+    if (text.isNotEmpty()) payload.put("text", text)
+    val uris = mutableListOf<Uri>()
+    intent.clipData?.let { clip -> for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { uris.add(it) } }
+    @Suppress("DEPRECATION")
+    if (uris.isEmpty()) {
+      (intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))?.let { uris.add(it) }
+      intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.let { uris.addAll(it) }
+    }
+    val files = JSONArray()
+    val skipped = JSONArray()
+    for (uri in uris.distinct()) {
+      val name = displayName(uri) ?: "shared"
+      val size = fileSize(uri)
+      if (size != null && size > MAX_SHARED_BYTES) {
+        skipped.put(name)
+        continue
+      }
+      val item = readUri(uri) ?: continue
+      files.put(JSONObject().put("name", name).put("mime", item.first).put("data", item.second))
+    }
+    payload.put("files", files).put("skipped", skipped)
+    pendingShare = payload.toString()
+    // Handled once: don't add it again if the activity is recreated.
+    intent.action = null
+  }
+
+  private fun displayName(uri: Uri): String? = try {
+    contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+  } catch (e: Exception) {
+    null
+  }
+
+  private fun fileSize(uri: Uri): Long? = try {
+    contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else null }
+  } catch (e: Exception) {
+    null
   }
 
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
     webView.addJavascriptInterface(SyncBridge(), "JournalSync")
+    webView.addJavascriptInterface(ShareBridge(), "JournalShare")
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->
       val split = payload.partition { it.uri != null }
@@ -63,7 +131,7 @@ class MainActivity : TauriActivity() {
 
   /** (mime, base64 bytes) of a content URI, or null when it can't be read. */
   private fun readUri(uri: android.net.Uri): Pair<String, String>? {
-    val mime = contentResolver.getType(uri) ?: return null
+    val mime = contentResolver.getType(uri) ?: "application/octet-stream"
     val bytes = try {
       contentResolver.openInputStream(uri)?.use { it.readBytes() }
     } catch (e: Exception) {
@@ -171,5 +239,25 @@ class MainActivity : TauriActivity() {
 
     @JavascriptInterface
     fun exists(path: String): Boolean = find(path, create = false, isDir = false) != null
+  }
+
+  /** Lets the page take what was shared in, and open the keyboard for a quick note. */
+  inner class ShareBridge {
+    /** The waiting share as JSON (see handleIntent), or "" when there is none. Taking it clears it. */
+    @JavascriptInterface
+    fun take(): String {
+      val share = pendingShare ?: return ""
+      pendingShare = null
+      return share
+    }
+
+    @JavascriptInterface
+    fun showKeyboard() {
+      runOnUiThread {
+        val view = webView ?: return@runOnUiThread
+        view.requestFocus()
+        (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+      }
+    }
   }
 }

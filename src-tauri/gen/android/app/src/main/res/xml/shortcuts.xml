@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon: "Quick note" opens today's note ready to type. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="quick_note"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/quick_note"
+        android:shortcutLongLabel="@string/quick_note_long">
+        <intent
+            android:action="com.hapi.dynamicjournal.QUICK_NOTE"
+            android:targetPackage="com.hapi.dynamicjournal"
+            android:targetClass="com.hapi.dynamicjournal.MainActivity" />
+    </shortcut>
+</shortcuts>

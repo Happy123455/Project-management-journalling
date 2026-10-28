@@ -21,7 +21,8 @@ import { JournalEditor } from "./editor/JournalEditor";
 import { CaptureHost } from "./editor/CaptureHost";
 import { PdfHost } from "./editor/PdfHost";
 import { PhotoHost } from "./editor/PhotoHost";
-import { showError } from "./lib/toast";
+import { showError, showToast } from "./lib/toast";
+import { takeShare } from "./share";
 import { Toasts } from "./Toasts";
 import { PullToToday } from "./PullToToday";
 import { extractLinks } from "./lib/links";
@@ -160,6 +161,32 @@ function App() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  // Shared in from other apps (Android share sheet), or a quick note from the shortcut/tile:
+  // add it to today's note and show today; for a quick note, open the keyboard at the end.
+  const quickNote = useRef(false);
+  useEffect(() => {
+    if (!store) return;
+    const receive = async () => {
+      await flush();
+      const result = await takeShare(store, today).catch((e) => {
+        showError("Couldn't add what was shared", e);
+        return null;
+      });
+      if (!result) return;
+      if (result.added) showToast(result.added === 1 ? "Added to today" : `Added ${result.added} items to today`);
+      if (result.skipped.length) showToast(`Too large to add: ${result.skipped.join(", ")}`, "error");
+      quickNote.current = result.quickNote;
+      setRoute({ kind: "day" });
+      setDay(today);
+      setPageVersion((n) => n + 1);
+      setSyncTick((n) => n + 1);
+    };
+    void receive();
+    window.addEventListener("journal:shared", receive);
+    return () => window.removeEventListener("journal:shared", receive);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store]);
 
   const dayYear = Number(day.slice(0, 4));
   useEffect(() => {
@@ -414,8 +441,20 @@ function App() {
                   key={day}
                   initialContent={page?.content ?? null}
                   onChange={onChange}
-                  onReady={setText}
                   onReminder={pickReminderDay}
+                  onReady={(t) => {
+                    setText(t);
+                    // A quick note: put the cursor at the end and bring up the keyboard.
+                    if (quickNote.current) {
+                      quickNote.current = false;
+                      setCalendarCollapsed(true);
+                      requestAnimationFrame(() => {
+                        const editor = document.querySelector<HTMLElement & { editor?: { commands: { focus: (p: string) => void } } }>(".tiptap")?.editor;
+                        editor?.commands.focus("end");
+                        window.JournalShare?.showKeyboard();
+                      });
+                    }
+                  }}
                   onOpenLink={handlers.onOpenLink}
                   onOpenTag={handlers.onOpenTag}
                   pageNames={pageNames}
