@@ -326,7 +326,8 @@ class MainActivity : TauriActivity() {
     }
   }
 
-  private val speech = SpeechBridge()
+  // Created with the WebView, after the activity has its context (a field initialiser runs too early).
+  private val speech by lazy { SpeechBridge() }
 
   override fun onDestroy() {
     speech.shutdown()
@@ -384,8 +385,10 @@ class MainActivity : TauriActivity() {
         ?.firstOrNull()
     }
 
-    private val kokoro = KokoroSpeech(this@MainActivity) { json ->
-      webView?.post { webView?.evaluateJavascript("window.__journalVoiceProgress && window.__journalVoiceProgress($json)", null) }
+    private val kokoro by lazy {
+      KokoroSpeech(this@MainActivity) { json ->
+        webView?.post { webView?.evaluateJavascript("window.__journalVoiceProgress && window.__journalVoiceProgress($json)", null) }
+      }
     }
 
     /** Kokoro when its voice is downloaded, else (or if it fails to load) the system voice. */

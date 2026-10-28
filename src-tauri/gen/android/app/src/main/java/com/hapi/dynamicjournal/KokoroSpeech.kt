@@ -31,8 +31,9 @@ class KokoroSpeech(private val context: Context, private val emit: (String) -> U
     private const val URL_BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
   }
 
-  private val root = File(context.noBackupFilesDir, "voices")
-  private val prefs = context.getSharedPreferences("speech", Context.MODE_PRIVATE)
+  // Lazy: nothing touches storage until read aloud or Settings first asks.
+  private val root by lazy { File(context.noBackupFilesDir, "voices") }
+  private val prefs by lazy { context.getSharedPreferences("speech", Context.MODE_PRIVATE) }
   @Volatile private var tts: OfflineTts? = null
   @Volatile private var loaded: String? = null
   @Volatile var downloading: String? = null
