@@ -5,10 +5,11 @@ import { extractLinks, uniqueNames } from "../lib/links";
 import { matchText, searchTerms } from "../lib/search";
 import { dayKey } from "../lib/timestamp";
 import { countWords, docText } from "../lib/words";
-import { deviceId, newId } from "./ids";
+import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
 import { Serial } from "./serial";
 import type { JSONContent } from "@tiptap/react";
 import { fileEventBody, newFileRecord } from "./files";
+import { eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
 import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
 
 interface BlockRow {
@@ -31,6 +32,16 @@ interface EventRow {
   created_at: string;
 }
 
+/** Every table that holds journal data (not the migrations table). */
+const JOURNAL_TABLES = ["blocks", "block_types", "links", "files", "events"];
+
+/** Replaces every journal table with the one in the backup database at `path` (already quote-escaped). */
+export const restoreSql = (path: string) => `ATTACH DATABASE '${path}' AS backup;
+BEGIN;
+${JOURNAL_TABLES.map((t) => `DELETE FROM main.${t};\nINSERT INTO main.${t} SELECT * FROM backup.${t};`).join("\n")}
+COMMIT;
+DETACH DATABASE backup;`;
+
 interface FileRow {
   id: string;
   path: string;
@@ -47,6 +58,18 @@ const toFile = (r: FileRow): FileRecord => ({
   size: r.size,
   hash: r.hash,
   path: r.path,
+  createdAt: r.created_at,
+});
+
+const toEvent = (r: EventRow): JournalEvent => ({
+  id: r.id,
+  deviceId: r.device_id,
+  actor: r.actor,
+  blockId: r.block_id,
+  op: r.op,
+  before: r.before,
+  after: r.after,
+  parentEventIds: JSON.parse(r.parent_event_ids),
   createdAt: r.created_at,
 });
 
@@ -83,7 +106,11 @@ export class SqliteStore implements JournalStore {
     return this.writes.run(() => this.saveFileNow(input));
   }
 
-  private constructor(private db: Database, private device: string) {}
+  private constructor(private db: Database, private device: string) {
+    this.deviceId = device;
+  }
+
+  readonly deviceId: string;
 
   static async open(): Promise<SqliteStore> {
     return new SqliteStore(await Database.load("sqlite:journal.db"), deviceId());
@@ -102,7 +129,7 @@ export class SqliteStore implements JournalStore {
     const after = JSON.stringify(content);
     const existing = await this.getDay(day);
     if (existing && JSON.stringify(existing.content) === after) return existing;
-    const id = existing?.id ?? newId();
+    const id = existing?.id ?? dayBlockId(day);
 
     if (existing) {
       await this.db.execute("UPDATE blocks SET content = $1, updated_at = $2 WHERE id = $3", [after, now, id]);
@@ -172,7 +199,7 @@ export class SqliteStore implements JournalStore {
     const existing = await this.getPage(title);
     if (existing) return existing;
     const now = new Date().toISOString();
-    const page: NamedPage = { id: newId(), title: title.trim(), content: { type: "doc", content: [{ type: "paragraph" }] }, updatedAt: now };
+    const page: NamedPage = { id: pageBlockId(title), title: title.trim(), content: { type: "doc", content: [{ type: "paragraph" }] }, updatedAt: now };
     await this.db.execute(
       `INSERT INTO blocks (id, parent_id, sort_order, type, type_version, day, content, props, created_at, updated_at)
        VALUES ($1, NULL, 0, 'page', 1, NULL, $2, $3, $4, $4)`,
@@ -290,6 +317,125 @@ export class SqliteStore implements JournalStore {
     return fs.readFile(file.path, { baseDir: fs.BaseDirectory.AppData });
   }
 
+  restore(entries: { name: string; bytes: Uint8Array }[], source: string) {
+    return this.writes.run(async () => {
+      const db = entries.find((e) => e.name === "journal.db");
+      if (!db) throw new Error("This backup comes from the browser preview, not the app.");
+      const fs = await import("@tauri-apps/plugin-fs");
+      const { appDataDir, join } = await import("@tauri-apps/api/path");
+      const base = { baseDir: fs.BaseDirectory.AppData };
+      await fs.mkdir("backups", { ...base, recursive: true });
+      await fs.writeFile("backups/restore.db", db.bytes, base);
+      // Copy the backup's tables over ours. It's one batch so it runs on one pooled connection
+      // (ATTACH only applies to the connection that ran it), inside one transaction so a
+      // failure leaves the journal as it was.
+      const path = (await join(await appDataDir(), "backups/restore.db")).replace(/'/g, "''");
+      try {
+        await this.db.execute(restoreSql(path));
+      } catch (e) {
+        await this.db.execute("ROLLBACK; DETACH DATABASE backup;").catch(() => {});
+        throw e;
+      } finally {
+        await fs.remove("backups/restore.db", base).catch(() => {});
+      }
+      for (const e of entries.filter((e) => e.name.startsWith("attachments/") && !e.name.endsWith("/"))) {
+        await fs.mkdir(e.name.slice(0, e.name.lastIndexOf("/")), { ...base, recursive: true });
+        await fs.writeFile(e.name, e.bytes, base);
+      }
+      const [days] = await this.db.select<{ n: number }[]>("SELECT count(*) AS n FROM blocks WHERE type = 'day'");
+      const [files] = await this.db.select<{ n: number }[]>("SELECT count(*) AS n FROM files");
+      await this.logEvent("journal", "me", "restore", null, JSON.stringify({ source, days: days.n, files: files.n }), new Date().toISOString());
+    });
+  }
+
+  async syncRecords() {
+    const rows = await this.db.select<(EventRow & { type: string | null; day: string | null; props: string | null; file_path: string | null })[]>(
+      `SELECT e.*, b.type, b.day, b.props, f.path AS file_path FROM events e
+       LEFT JOIN blocks b ON b.id = e.block_id
+       LEFT JOIN files f ON f.id = e.block_id
+       WHERE e.device_id = $1 AND e.op != 'restore'
+       ORDER BY e.created_at, e.rowid`,
+      [this.device],
+    );
+    const files = new Map((await this.listFiles()).map((f) => [f.id, f]));
+    const records: SyncRecord[] = [];
+    for (const r of rows) {
+      const event = toEvent(r);
+      let meta: BlockMeta | null = null;
+      if (r.type === "day" && r.day) meta = { kind: "block", type: "day", day: r.day };
+      else if (r.type === "page" && r.props) meta = { kind: "block", type: "page", title: JSON.parse(r.props).title };
+      else if (r.file_path && files.has(r.block_id)) meta = { kind: "file", file: files.get(r.block_id)! };
+      if (meta) records.push({ event, meta });
+    }
+    return records;
+  }
+
+  async localBlockId(meta: BlockMeta) {
+    if (meta.kind === "file") return meta.file.id;
+    if (meta.type === "day") return (await this.getDay(meta.day))?.id ?? null;
+    return (await this.getPage(meta.title))?.id ?? null;
+  }
+
+  async syncState(blockIds: string[]): Promise<LocalState> {
+    const latest: LocalState["latest"] = new Map();
+    for (const id of blockIds) latest.set(id, { content: null, props: null });
+    if (blockIds.length) {
+      const marks = blockIds.map((_, i) => `$${i + 1}`).join(",");
+      const rows = await this.db.select<EventRow[]>(`SELECT * FROM events WHERE block_id IN (${marks})`, blockIds);
+      for (const r of rows) {
+        const e = toEvent(r);
+        const which = e.op === "props" ? "props" : e.op === "create" || e.op === "update" ? "content" : null;
+        const slot = latest.get(e.blockId);
+        if (!which || !slot) continue;
+        const key = eventKey(e);
+        const cur = slot[which];
+        if (!cur || key.join("\u0000") > cur.join("\u0000")) slot[which] = key;
+      }
+    }
+    const ids = await this.db.select<{ id: string }[]>("SELECT id FROM events");
+    const fileIds = await this.db.select<{ id: string }[]>("SELECT id FROM files");
+    return { eventIds: new Set(ids.map((r) => r.id)), latest, fileIds: new Set(fileIds.map((r) => r.id)) };
+  }
+
+  applySync(plan: MergePlan, blobs: Map<string, Uint8Array>) {
+    return this.writes.run(async () => {
+      for (const { event: e } of plan.events) {
+        await this.db.execute(
+          `INSERT OR IGNORE INTO events (id, device_id, actor, block_id, op, before, after, parent_event_ids, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [e.id, e.deviceId, e.actor, e.blockId, e.op, e.before, e.after, JSON.stringify(e.parentEventIds), e.createdAt],
+        );
+      }
+      for (const b of plan.blocks) {
+        if (b.meta.kind !== "block") continue;
+        const type = b.meta.type;
+        const day = b.meta.type === "day" ? b.meta.day : null;
+        const startProps = b.meta.type === "page" ? JSON.stringify({ title: b.meta.title }) : "{}";
+        await this.db.execute(
+          `INSERT OR IGNORE INTO blocks (id, parent_id, sort_order, type, type_version, day, content, props, created_at, updated_at)
+           VALUES ($1, NULL, 0, $2, 1, $3, '{"type":"doc","content":[]}', $4, $5, $5)`,
+          [b.blockId, type, day, startProps, b.updatedAt],
+        );
+        if (b.content) await this.db.execute("UPDATE blocks SET content = $1, updated_at = $2 WHERE id = $3", [b.content, b.updatedAt, b.blockId]);
+        // A page's props hold its title; remote props only update reminder flags on days.
+        if (b.props && type === "day") await this.db.execute("UPDATE blocks SET props = $1, updated_at = $2 WHERE id = $3", [b.props, b.updatedAt, b.blockId]);
+        if (b.content) await this.setLinks(b.blockId, docText(JSON.parse(b.content)), b.updatedAt);
+      }
+      const fs = await import("@tauri-apps/plugin-fs");
+      const base = { baseDir: fs.BaseDirectory.AppData };
+      for (const f of plan.files) {
+        const bytes = blobs.get(f.hash);
+        if (!bytes) continue;
+        await fs.mkdir(f.path.slice(0, f.path.lastIndexOf("/")), { ...base, recursive: true });
+        await fs.writeFile(f.path, bytes, base);
+        await this.db.execute(
+          "INSERT OR IGNORE INTO files (id, path, mime, size, hash, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+          [f.id, f.path, f.mime, f.size, f.hash, f.createdAt],
+        );
+      }
+    });
+  }
+
   async exportFiles() {
     const fs = await import("@tauri-apps/plugin-fs");
     const { appDataDir, join } = await import("@tauri-apps/api/path");
@@ -342,16 +488,6 @@ export class SqliteStore implements JournalStore {
       "SELECT * FROM events WHERE block_id = $1 ORDER BY created_at, rowid",
       [blockId],
     );
-    return rows.map((r) => ({
-      id: r.id,
-      deviceId: r.device_id,
-      actor: r.actor,
-      blockId: r.block_id,
-      op: r.op,
-      before: r.before,
-      after: r.after,
-      parentEventIds: JSON.parse(r.parent_event_ids),
-      createdAt: r.created_at,
-    }));
+    return rows.map(toEvent);
   }
 }

@@ -4,6 +4,9 @@ import { MonthCalendar, YearPanel } from "./calendar/Calendar";
 import { DueReminders, Upcoming } from "./calendar/Upcoming";
 import { BacklinkList, PageView, TagView, type LinkHandlers } from "./pages/LinkViews";
 import { DaysList, Drawer, InfoTabs } from "./panels/Panels";
+import { RestoreButton } from "./panels/Restore";
+import { SyncStatus } from "./sync/SyncStatus";
+import { useSync } from "./sync/useSync";
 import { countsByDay, SearchPanel, toResults, type SearchResult } from "./search/SearchPanel";
 import { fileKind } from "./lib/files";
 import { mediaIdsIn } from "./lib/media";
@@ -39,6 +42,10 @@ function App() {
   // What the main area shows: today's/any day's page, a named page, or a tag.
   const [route, setRoute] = useState<{ kind: "day" } | { kind: "page"; page: NamedPage } | { kind: "tag"; tag: string }>({ kind: "day" });
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Bumped when another device's changes arrive, so lists and calendars reload.
+  const [syncTick, setSyncTick] = useState(0);
+  // Bumped to reopen the current page in the editor with what arrived (only when not typing).
+  const [pageVersion, setPageVersion] = useState(0);
   // Search: the query stays active (calendars in yellow) after closing the panel, until cleared.
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -58,6 +65,13 @@ function App() {
       .catch((e) => showError("Could not open the journal", e));
   }, []);
 
+  const sync = useSync(store, () => {
+    setSyncTick((n) => n + 1);
+    // Show what arrived on the open page, unless it's being typed in right now.
+    const typing = !!pending.current || !!document.activeElement?.closest?.(".tiptap");
+    if (!typing) setPageVersion((n) => n + 1);
+  });
+
   const flush = useCallback(async () => {
     window.clearTimeout(timer.current);
     const next = pending.current;
@@ -66,6 +80,7 @@ function App() {
     try {
       await store.saveDay(next);
       setStatus("Saved");
+      sync.afterSaved();
       setDays(await store.listDays());
     } catch (e) {
       setStatus("");
@@ -82,11 +97,18 @@ function App() {
       setPage(p);
       setContent(p?.content ?? null);
     });
-    store.listDays().then((d) => !cancelled && setDays(d));
     return () => {
       cancelled = true;
     };
-  }, [store, day]);
+  }, [store, day, pageVersion]);
+
+  useEffect(() => {
+    let cancelled = false;
+    store?.listDays().then((d) => !cancelled && setDays(d));
+    return () => {
+      cancelled = true;
+    };
+  }, [store, day, syncTick]);
 
   // Daily automatic backup on the Mac: when the journal opens, then hourly while it stays open.
   useEffect(() => {
@@ -123,7 +145,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [store, dayYear, yearShown]);
+  }, [store, dayYear, yearShown, syncTick]);
 
   const today = dayKey(new Date());
   const [reminders, setReminders] = useState<DayPage[]>([]);
@@ -285,6 +307,10 @@ function App() {
       <aside className="sidebar">
         <h2>Days</h2>
         <DaysList days={days} day={day} today={today} onPick={goTo} />
+        <div className="sidebar-actions">
+          <SyncStatus status={sync.status} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
+          <RestoreButton store={store} onBeforeRestore={flush} />
+        </div>
       </aside>
 
       <main className="page">
@@ -376,6 +402,10 @@ function App() {
           }}
         />
         {infoTabs}
+        <div className="sidebar-actions">
+          <SyncStatus status={sync.status} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
+          <RestoreButton store={store} onBeforeRestore={flush} />
+        </div>
       </Drawer>
 
       {searchOpen && <SearchPanel query={query} onQuery={setQuery} results={results} onPick={openHit} onClose={() => setSearchOpen(false)} />}

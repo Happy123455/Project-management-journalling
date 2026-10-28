@@ -1,4 +1,5 @@
 import type { JSONContent } from "@tiptap/react";
+import type { BlockMeta, LocalState, MergePlan, SyncRecord } from "../sync/merge";
 
 /** Flags kept in a day block's `props`. */
 export interface DayProps {
@@ -66,7 +67,7 @@ export interface JournalEvent {
   actor: string; // "me" or the name of an AI client
   blockId: string;
   /** "props" events hold the block's props as before/after instead of its content. */
-  op: "create" | "update" | "props";
+  op: "create" | "update" | "props" | "restore";
   before: string | null;
   after: string;
   parentEventIds: string[];
@@ -112,4 +113,21 @@ export interface JournalStore {
   fileBytes(id: string): Promise<Uint8Array | null>;
   /** Everything needed to restore the journal: the database (or its JSON in the browser) plus every attachment. */
   exportFiles(): Promise<{ name: string; bytes: Uint8Array }[]>;
+  /**
+   * Replaces the whole journal with a backup made by exportFiles (from the same kind of store),
+   * then records a "restore" event naming where it came from.
+   */
+  restore(entries: { name: string; bytes: Uint8Array }[], source: string): Promise<void>;
+
+  // ───── Sync (see src/sync) ─────
+  /** This install's device id. */
+  readonly deviceId: string;
+  /** This device's own events (not restores), each with what its block is. */
+  syncRecords(): Promise<SyncRecord[]>;
+  /** The local id of the day page / named page each meta names, where one exists. */
+  localBlockId(meta: BlockMeta): Promise<string | null>;
+  /** Known event ids, files, and the newest applied content/props event for these blocks. */
+  syncState(blockIds: string[]): Promise<LocalState>;
+  /** Adds the plan's events, updates its blocks and stores its files (bytes by hash). Idempotent. */
+  applySync(plan: MergePlan, blobs: Map<string, Uint8Array>): Promise<void>;
 }

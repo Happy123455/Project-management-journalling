@@ -172,6 +172,29 @@ describe("MemoryStore", () => {
       expect((await store.listFiles()).map((f) => f.id)).toEqual([b.id, a.id]);
     });
 
+    it("restores a backup over the current journal and logs it", async () => {
+      const store = new MemoryStore(undefined, "phone");
+      await store.saveDay({ day: "2026-10-28", content: doc("kept"), plainText: "kept" });
+      const file = await store.saveFile({ name: "a.png", mime: "image/png", bytes: new Uint8Array([9, 9]) });
+      const backup = await store.exportFiles();
+
+      await store.saveDay({ day: "2026-10-28", content: doc("changed later"), plainText: "" });
+      await store.saveDay({ day: "2026-10-29", content: doc("new day"), plainText: "" });
+      await store.restore(backup, "dynamic-journal-2026-10-28.zip");
+
+      expect((await store.getDay("2026-10-28"))?.content).toEqual(doc("kept"));
+      expect(await store.getDay("2026-10-29")).toBeNull();
+      expect(await store.fileBytes(file.id)).toEqual(new Uint8Array([9, 9]));
+      const [event] = await store.eventsFor("journal");
+      expect(event.op).toBe("restore");
+      expect(JSON.parse(event.after)).toEqual({ source: "dynamic-journal-2026-10-28.zip", days: 1, files: 1 });
+    });
+
+    it("refuses a backup made by the app (SQLite) in the browser store", async () => {
+      const store = new MemoryStore(undefined, "phone");
+      await expect(store.restore([{ name: "journal.db", bytes: new Uint8Array([1]) }], "x.zip")).rejects.toThrow(/app/);
+    });
+
     it("keeps one copy of identical files", async () => {
       const store = new MemoryStore(undefined, "phone");
       const bytes = new Uint8Array([1, 2, 3]);
