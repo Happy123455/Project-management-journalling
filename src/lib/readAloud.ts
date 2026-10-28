@@ -7,9 +7,51 @@
 
 declare global {
   interface Window {
-    JournalSpeech?: { speak(text: string, rate: number, id: string): void; stop(): void };
+    JournalSpeech?: {
+      speak(text: string, rate: number, id: string): void;
+      stop(): void;
+      /** Kokoro voices (Android): JSON VoiceInfo. */
+      voiceInfo?(): string;
+      downloadVoice?(model: string): void;
+      removeVoice?(model: string): void;
+      setVoiceModel?(model: string): void;
+      setVoice?(voice: number): void;
+    };
+    __journalVoiceProgress?: (p: VoiceProgress) => void;
     __journalSpeech?: (event: "range" | "done" | "error", id: string, index?: number) => void;
   }
+}
+
+export interface VoiceInfo {
+  models: { id: string; sizeMb: number; installed: boolean }[];
+  model: string;
+  voice: number;
+  downloading: string | null;
+  /** Voices in the loaded model (0 until it has spoken once). */
+  speakers: number;
+}
+export interface VoiceProgress {
+  model: string;
+  state: "downloading" | "done" | "error";
+  received: number;
+  total: number;
+  message: string;
+}
+
+/** Kokoro model names as shown in Settings. */
+export const MODEL_NAMES: Record<string, string> = {
+  "kokoro-int8-en-v0_19": "Kokoro English",
+  "kokoro-int8-multi-lang-v1_1": "Kokoro multi-language (incl. Hindi)",
+};
+/** The English model's voices, in speaker-id order. */
+export const KOKORO_EN_VOICES = [
+  "Default (US)", "Bella (US)", "Nicole (US)", "Sarah (US)", "Sky (US)",
+  "Adam (US)", "Michael (US)", "Emma (UK)", "Isabella (UK)", "George (UK)", "Lewis (UK)",
+];
+
+export function voiceInfo(): VoiceInfo | null {
+  const raw = window.JournalSpeech?.voiceInfo?.();
+  return raw ? (JSON.parse(raw) as VoiceInfo) : null;
 }
 
 export type ReadStatus = "idle" | "playing" | "paused";

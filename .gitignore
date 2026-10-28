@@ -25,3 +25,6 @@ dist-ssr
 
 # The meme kit is copied in by scripts/import-meme-kit.mjs (large media, not committed)
 public/meme-kit/
+
+# sherpa-onnx for Kokoro read-aloud, fetched by scripts/fetch-sherpa-onnx.sh (large, not committed)
+src-tauri/gen/android/app/libs/sherpa-onnx-*.aar

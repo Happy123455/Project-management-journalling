@@ -384,8 +384,31 @@ class MainActivity : TauriActivity() {
         ?.firstOrNull()
     }
 
+    private val kokoro = KokoroSpeech(this@MainActivity) { json ->
+      webView?.post { webView?.evaluateJavascript("window.__journalVoiceProgress && window.__journalVoiceProgress($json)", null) }
+    }
+
+    /** Kokoro when its voice is downloaded, else (or if it fails to load) the system voice. */
     @JavascriptInterface
-    fun speak(text: String, rate: Float, id: String) = withTts { engine ->
+    fun speak(text: String, rate: Float, id: String) {
+      tts?.stop()
+      if (!kokoro.available()) return systemSpeak(text, rate, id)
+      kokoro.speak(text, rate, id) { event, run, index ->
+        if (event == "error") systemSpeak(text, rate, run) else emit(event, run, index)
+      }
+    }
+
+    @JavascriptInterface fun voiceInfo(): String = kokoro.info()
+    @JavascriptInterface fun downloadVoice(model: String) = kokoro.download(model)
+    @JavascriptInterface fun removeVoice(model: String) = kokoro.remove(model)
+    @JavascriptInterface fun setVoiceModel(model: String) {
+      kokoro.model = model
+    }
+    @JavascriptInterface fun setVoice(voice: Int) {
+      kokoro.voice = voice
+    }
+
+    private fun systemSpeak(text: String, rate: Float, id: String) = withTts { engine ->
       engine.stop()
       engine.setSpeechRate(rate)
       // Long text goes in chunks the engine accepts, split after a sentence or a space.
@@ -405,10 +428,12 @@ class MainActivity : TauriActivity() {
 
     @JavascriptInterface
     fun stop() {
+      kokoro.stop()
       tts?.stop()
     }
 
     fun shutdown() {
+      kokoro.shutdown()
       tts?.shutdown()
       tts = null
       ready = false
