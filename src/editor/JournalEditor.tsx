@@ -10,6 +10,7 @@ import { hasEmbeds } from "../lib/embeds";
 import { AttachmentFile, AttachmentImage, AttachmentMedia, insertFiles, mediaLeafText, pasteEmbeds, upgradeOldMedia } from "./attachments";
 import { JournalCodeBlock } from "./codeBlock";
 import { FindHighlight, findKey } from "./findHighlight";
+import { LogBlock } from "./logBlock";
 import { KeyboardBar, useTouchDevice } from "./KeyboardBar";
 import { LinkSuggest } from "./linkSuggest";
 import { SlashMenu } from "./slashMenu";
@@ -129,6 +130,7 @@ export function JournalEditor({
       Timestamp,
       TimestampChip,
       FindHighlight,
+      LogBlock,
       SlashMenu.configure({ onReminder: () => onReminder?.() }),
     ],
     content: initialContent ?? "",

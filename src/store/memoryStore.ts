@@ -7,8 +7,9 @@ import { countWords, docText } from "../lib/words";
 import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
 import { Serial } from "./serial";
 import { fileEventBody, fromBase64, newFileRecord, toBase64 } from "./files";
-import { eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
-import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
+import { eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
+import { withPatch } from "./props";
+import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
 import type { JSONContent } from "@tiptap/react";
 
 interface Snapshot {
@@ -127,14 +128,36 @@ export class MemoryStore implements JournalStore {
 
   async getPage(title: string) {
     const want = title.trim().toLowerCase();
-    return Object.values(this.named).find((p) => p.title.toLowerCase() === want) ?? null;
+    const page = Object.values(this.named).find((p) => p.title.toLowerCase() === want);
+    return page ? { ...page, props: page.props ?? {} } : null;
+  }
+
+  setPageProps(id: string, patch: Partial<PageProps>, actor = "me") {
+    return this.writes.run(async () => {
+      const page = this.named[id];
+      if (!page) throw new Error(`No page ${id}`);
+      const before = page.props ?? {};
+      const props = withPatch(before, patch);
+      const now = new Date().toISOString();
+      // Events carry the title too, so another device can tell which page it is.
+      this.logEvent(id, actor, "props", JSON.stringify({ title: page.title, ...before }), JSON.stringify({ title: page.title, ...props }), now);
+      this.named[id] = { ...page, props, updatedAt: now };
+      this.persist();
+      return this.named[id];
+    });
+  }
+
+  async projects() {
+    return Object.values(this.named)
+      .filter((p) => p.props?.project)
+      .sort((a, b) => a.title.localeCompare(b.title));
   }
 
   private async ensurePageNow(title: string, actor = "me") {
     const existing = await this.getPage(title);
     if (existing) return existing;
     const now = new Date().toISOString();
-    const page: NamedPage = { id: pageBlockId(title), title: title.trim(), content: { type: "doc", content: [{ type: "paragraph" }] }, updatedAt: now };
+    const page: NamedPage = { id: pageBlockId(title), title: title.trim(), content: { type: "doc", content: [{ type: "paragraph" }] }, props: {}, updatedAt: now };
     this.logEvent(page.id, actor, "create", null, JSON.stringify({ title: page.title, content: page.content }), now);
     this.named[page.id] = page;
     this.persist();
@@ -289,7 +312,7 @@ export class MemoryStore implements JournalStore {
       for (const r of plan.events) if (!known.has(r.event.id)) this.data.events.push(r.event);
       for (const b of plan.blocks) {
         if (b.meta.kind !== "block") continue;
-        const content = b.content ? JSON.parse(b.content) : undefined;
+        const content = b.content ? eventDocument(b.content) : undefined;
         const props = b.props ? JSON.parse(b.props) : undefined;
         if (b.meta.type === "day") {
           const cur = this.data.pages[b.meta.day];
@@ -298,8 +321,9 @@ export class MemoryStore implements JournalStore {
           this.setLinks(page.id, docText(this.data.pages[b.meta.day].content));
         } else {
           const cur = this.named[b.blockId];
-          const page: NamedPage = cur ?? { id: b.blockId, title: b.meta.title, content: { type: "doc", content: [] }, updatedAt: b.updatedAt };
-          this.named[b.blockId] = { ...page, content: content ?? page.content, updatedAt: b.updatedAt };
+          const page: NamedPage = cur ?? { id: b.blockId, title: b.meta.title, content: { type: "doc", content: [] }, props: {}, updatedAt: b.updatedAt };
+          const { title: _title, ...pageProps } = (props ?? page.props ?? {}) as PageProps & { title?: string };
+          this.named[b.blockId] = { ...page, content: content ?? page.content, props: pageProps, updatedAt: b.updatedAt };
           this.setLinks(b.blockId, docText(this.named[b.blockId].content));
         }
       }

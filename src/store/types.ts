@@ -1,5 +1,6 @@
 import type { JSONContent } from "@tiptap/react";
 import type { BlockMeta, LocalState, MergePlan, SyncRecord } from "../sync/merge";
+import type { ProjectInfo } from "../lib/projects";
 
 /** Flags kept in a day block's `props`. */
 export interface DayProps {
@@ -23,7 +24,13 @@ export interface NamedPage {
   id: string;
   title: string;
   content: JSONContent;
+  /** Extra facts about the page, e.g. { project: { status: "active" } }. */
+  props: PageProps;
   updatedAt: string;
+}
+
+export interface PageProps {
+  project?: ProjectInfo;
 }
 
 export type LinkKind = "wikilink" | "tag";
@@ -105,6 +112,10 @@ export interface JournalStore {
   /** The named page with this title, created (with an event) if it doesn't exist yet. */
   ensurePage(title: string, actor?: string): Promise<NamedPage>;
   savePage(input: { id: string; content: JSONContent; plainText: string; actor?: string }): Promise<NamedPage>;
+  /** Changes a named page's props (with a "props" event); `undefined` values remove a prop. */
+  setPageProps(id: string, patch: Partial<PageProps>, actor?: string): Promise<NamedPage>;
+  /** Named pages that are projects, by title. */
+  projects(): Promise<NamedPage[]>;
   /** Pages and days that link to `target` or carry the tag `target` (any letter case), newest day first. */
   references(kind: LinkKind, target: string): Promise<Reference[]>;
   /** Every link and tag in the journal, with the day or page it's on. */

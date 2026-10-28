@@ -9,8 +9,9 @@ import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
 import { Serial } from "./serial";
 import type { JSONContent } from "@tiptap/react";
 import { fileEventBody, newFileRecord } from "./files";
-import { eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
-import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
+import { eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
+import { withPatch } from "./props";
+import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
 
 interface BlockRow {
   id: string;
@@ -72,6 +73,11 @@ const toEvent = (r: EventRow): JournalEvent => ({
   parentEventIds: JSON.parse(r.parent_event_ids),
   createdAt: r.created_at,
 });
+
+const toNamed = (r: { id: string; props: string; content: string; updated_at: string }): NamedPage => {
+  const { title, ...props } = JSON.parse(r.props);
+  return { id: r.id, title, content: JSON.parse(r.content), props, updatedAt: r.updated_at };
+};
 
 const toPage = (row: BlockRow): DayPage => ({
   id: row.id,
@@ -192,14 +198,37 @@ export class SqliteStore implements JournalStore {
       [title.trim()],
     );
     const r = rows[0];
-    return r ? { id: r.id, title: JSON.parse(r.props).title, content: JSON.parse(r.content), updatedAt: r.updated_at } : null;
+    return r ? toNamed(r) : null;
+  }
+
+  setPageProps(id: string, patch: Partial<PageProps>, actor = "me") {
+    return this.writes.run(async () => {
+      const [row] = await this.db.select<{ id: string; props: string; content: string; updated_at: string }[]>(
+        "SELECT id, props, content, updated_at FROM blocks WHERE id = $1 AND type = 'page'",
+        [id],
+      );
+      if (!row) throw new Error(`No page ${id}`);
+      const { title, ...before } = JSON.parse(row.props) as PageProps & { title: string };
+      const after = { title, ...withPatch(before, patch) };
+      const now = new Date().toISOString();
+      await this.db.execute("UPDATE blocks SET props = $1, updated_at = $2 WHERE id = $3", [JSON.stringify(after), now, id]);
+      await this.logEvent(id, actor, "props", row.props, JSON.stringify(after), now);
+      return toNamed({ ...row, props: JSON.stringify(after), updated_at: now });
+    });
+  }
+
+  async projects() {
+    const rows = await this.db.select<{ id: string; props: string; content: string; updated_at: string }[]>(
+      "SELECT id, props, content, updated_at FROM blocks WHERE type = 'page' AND json_extract(props, '$.project') IS NOT NULL",
+    );
+    return rows.map(toNamed).sort((a, b) => a.title.localeCompare(b.title));
   }
 
   private async ensurePageNow(title: string, actor = "me") {
     const existing = await this.getPage(title);
     if (existing) return existing;
     const now = new Date().toISOString();
-    const page: NamedPage = { id: pageBlockId(title), title: title.trim(), content: { type: "doc", content: [{ type: "paragraph" }] }, updatedAt: now };
+    const page: NamedPage = { id: pageBlockId(title), title: title.trim(), content: { type: "doc", content: [{ type: "paragraph" }] }, props: {}, updatedAt: now };
     await this.db.execute(
       `INSERT INTO blocks (id, parent_id, sort_order, type, type_version, day, content, props, created_at, updated_at)
        VALUES ($1, NULL, 0, 'page', 1, NULL, $2, $3, $4, $4)`,
@@ -215,14 +244,14 @@ export class SqliteStore implements JournalStore {
       [id],
     );
     if (!rows[0]) throw new Error(`No page ${id}`);
-    const title = JSON.parse(rows[0].props).title;
+    const { title, ...props } = JSON.parse(rows[0].props);
     const after = JSON.stringify(content);
-    if (rows[0].content === after) return { id, title, content, updatedAt: rows[0].updated_at };
+    if (rows[0].content === after) return { id, title, content, props, updatedAt: rows[0].updated_at };
     const now = new Date().toISOString();
     await this.db.execute("UPDATE blocks SET content = $1, updated_at = $2 WHERE id = $3", [after, now, id]);
     await this.logEvent(id, actor, "update", rows[0].content, after, now);
     await this.setLinks(id, plainText, now);
-    return { id, title, content, updatedAt: now };
+    return { id, title, content, props, updatedAt: now };
   }
 
   async references(kind: LinkKind, target: string): Promise<Reference[]> {
@@ -428,10 +457,11 @@ export class SqliteStore implements JournalStore {
            VALUES ($1, NULL, 0, $2, 1, $3, '{"type":"doc","content":[]}', $4, $5, $5)`,
           [b.blockId, type, day, startProps, b.updatedAt],
         );
-        if (b.content) await this.db.execute("UPDATE blocks SET content = $1, updated_at = $2 WHERE id = $3", [b.content, b.updatedAt, b.blockId]);
-        // A page's props hold its title; remote props only update reminder flags on days.
-        if (b.props && type === "day") await this.db.execute("UPDATE blocks SET props = $1, updated_at = $2 WHERE id = $3", [b.props, b.updatedAt, b.blockId]);
-        if (b.content) await this.setLinks(b.blockId, docText(JSON.parse(b.content)), b.updatedAt);
+        const doc = b.content ? eventDocument(b.content) : null;
+        if (doc) await this.db.execute("UPDATE blocks SET content = $1, updated_at = $2 WHERE id = $3", [JSON.stringify(doc), b.updatedAt, b.blockId]);
+        // Day props hold reminder flags; page props hold the title and project info.
+        if (b.props) await this.db.execute("UPDATE blocks SET props = $1, updated_at = $2 WHERE id = $3", [b.props, b.updatedAt, b.blockId]);
+        if (doc) await this.setLinks(b.blockId, docText(doc), b.updatedAt);
       }
       const fs = await import("@tauri-apps/plugin-fs");
       const base = { baseDir: fs.BaseDirectory.AppData };

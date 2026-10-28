@@ -10,6 +10,8 @@ import { useSync } from "./sync/useSync";
 import { countsByDay, SearchPanel, toResults, type SearchResult } from "./search/SearchPanel";
 import { FindBar } from "./search/FindBar";
 import { GraphView } from "./graph/GraphView";
+import { NewProject } from "./projects/NewProject";
+import { ProjectList } from "./projects/ProjectPanel";
 import { searchTerms } from "./lib/search";
 import { fileKind } from "./lib/files";
 import { mediaIdsIn } from "./lib/media";
@@ -334,6 +336,7 @@ function App() {
   return (
     <div className="app" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
       <aside className="sidebar">
+        {store && <ProjectList store={store} refreshKey={`${syncTick}:${days.length}:${route.kind}`} onOpen={(t) => void handlers.onOpenLink(t)} />}
         <h2>Days</h2>
         <DaysList days={days} day={day} today={today} onPick={goTo} />
         <div className="sidebar-actions">
@@ -353,6 +356,7 @@ function App() {
             handlers={handlers}
             pageNames={pageNames}
             find={find?.where === `page:${route.page.title}` ? find : null}
+            onPageChanged={(page) => setRoute({ kind: "page", page })}
             onFindCount={(count) => setFind((f) => (f && f.count !== count ? { ...f, count, index: Math.min(f.index, Math.max(0, count - 1)) } : f))}
           />
         ) : route.kind === "tag" && store ? (
@@ -427,6 +431,16 @@ function App() {
       <aside className="links-panel">{infoTabs}</aside>
 
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
+        {store && (
+          <ProjectList
+            store={store}
+            refreshKey={`${syncTick}:${days.length}:${route.kind}`}
+            onOpen={(t) => {
+              setDrawerOpen(false);
+              void handlers.onOpenLink(t);
+            }}
+          />
+        )}
         <h2>Days</h2>
         <DaysList
           days={days}
@@ -464,6 +478,7 @@ function App() {
         />
       )}
 
+      <NewProject store={store} />
       <PdfHost />
       <CaptureHost />
       <PhotoHost />

@@ -230,4 +230,16 @@ describe("MemoryStore", () => {
       { day: "2026-10-20", title: null, target: "work", kind: "tag" },
     ]);
   });
+
+  it("marks a page as a project, logs it, and lists projects", async () => {
+    const store = new MemoryStore(undefined, "phone");
+    const p = await store.ensurePage("Project X");
+    await store.ensurePage("Ravi");
+    const updated = await store.setPageProps(p.id, { project: { status: "active" } });
+    expect(updated.props).toEqual({ project: { status: "active" } });
+    expect((await store.projects()).map((x) => x.title)).toEqual(["Project X"]);
+    await store.setPageProps(p.id, { project: undefined });
+    expect(await store.projects()).toEqual([]);
+    expect((await store.eventsFor(p.id)).map((e) => e.op)).toEqual(["create", "props", "props"]);
+  });
 });

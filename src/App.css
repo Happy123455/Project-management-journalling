@@ -380,6 +380,29 @@ button:hover { background: var(--panel); }
 .search-active { display: flex; gap: 6px; margin-bottom: 8px; }
 .search-active-query { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-color: rgba(234, 179, 8, 0.6); }
 
+/* Projects */
+.project-panel { margin-top: 16px; padding: 12px; border-radius: 16px; background: var(--glass); border: 1px solid var(--glass-edge); }
+.project-panel h3 { font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+.project-status { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.project-status button { border-radius: 999px; font-size: 13px; padding: 3px 12px; }
+.project-status button.active.status-active { color: #fff; background: #16a34a; border-color: #16a34a; }
+.project-status button.active.status-paused { color: #1f1d1a; background: #f59e0b; border-color: #f59e0b; }
+.project-status button.active.status-done { color: #fff; background: #6366f1; border-color: #6366f1; }
+.project-tasks { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.project-task { display: flex; align-items: center; gap: 8px; }
+.project-task input { width: 18px; height: 18px; accent-color: rgb(var(--heat-rgb)); flex: none; }
+.project-task-text { flex: 1; min-width: 0; }
+.project-task.done .project-task-text { color: var(--muted); text-decoration: line-through; }
+.project-task-where { font-size: 11px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.project-list h2 { font-size: 13px; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+.project-list ul { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 4px; }
+.project-list button { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; padding: 5px 10px; }
+.project-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-count { font-size: 12px; color: var(--muted); }
+.project-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #16a34a; }
+.project-dot.status-paused { background: #f59e0b; }
+.project-name-input { width: 100%; font: inherit; font-size: 16px; padding: 8px 10px; margin-bottom: 8px; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; }
+
 /* Graph view */
 .graph-view { position: fixed; inset: 0; z-index: 25; display: flex; flex-direction: column; background: var(--bg); animation: drop-in 0.35s var(--spring); }
 .graph-bar {

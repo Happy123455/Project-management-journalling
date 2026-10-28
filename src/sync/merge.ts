@@ -1,3 +1,4 @@
+import type { JSONContent } from "@tiptap/react";
 import type { FileRecord, JournalEvent } from "../store/types";
 
 /**
@@ -84,6 +85,15 @@ export function planMerge(local: LocalState, incoming: SyncRecord[]): MergePlan 
     blocks.push({ blockId, meta: w.meta, content: w.content?.event.after, props: w.props?.event.after, updatedAt: newest });
   }
   return { events: fresh, blocks, files };
+}
+
+/**
+ * The document in a content event. Day events hold it directly; a named page's create event
+ * holds { title, content }.
+ */
+export function eventDocument(after: string): JSONContent {
+  const parsed = JSON.parse(after);
+  return parsed?.type === "doc" ? parsed : (parsed?.content ?? { type: "doc", content: [] });
 }
 
 /** A device's month file, e.g. "2026-10" for events/<device>/2026-10.jsonl. */

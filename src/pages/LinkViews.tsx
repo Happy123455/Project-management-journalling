@@ -4,6 +4,7 @@ import { JournalEditor } from "../editor/JournalEditor";
 import { linesMentioning } from "../lib/links";
 import { dayTitle } from "../lib/timestamp";
 import { showError } from "../lib/toast";
+import { ProjectPanel } from "../projects/ProjectPanel";
 import { docText } from "../lib/words";
 import type { JournalStore, LinkKind, NamedPage, Reference } from "../store";
 
@@ -60,7 +61,7 @@ function References({ store, kind, target, exclude, handlers, refreshKey }: {
 }
 
 /** A person, project or topic: its own notes on top, then every day that mentions it (its history). */
-export function PageView({ store, page, onBack, handlers, pageNames, find, onFindCount }: {
+export function PageView({ store, page, onBack, handlers, pageNames, find, onFindCount, onPageChanged }: {
   store: JournalStore;
   page: NamedPage;
   onBack: () => void;
@@ -68,6 +69,7 @@ export function PageView({ store, page, onBack, handlers, pageNames, find, onFin
   pageNames: () => Promise<string[]>;
   find?: { terms: string[]; index: number } | null;
   onFindCount?: (count: number) => void;
+  onPageChanged: (page: NamedPage) => void;
 }) {
   const pending = useRef<{ content: JSONContent; plainText: string } | null>(null);
   const timer = useRef<number | undefined>(undefined);
@@ -101,8 +103,13 @@ export function PageView({ store, page, onBack, handlers, pageNames, find, onFin
     <>
       <header className="page-header">
         <button type="button" onClick={back} aria-label="Back">‹</button>
-        <h1>📄 {page.title}</h1>
+        <h1>{page.props.project ? "📌" : "📄"} {page.title}</h1>
         <span className="status">{status}</span>
+        {!page.props.project && (
+          <button type="button" onClick={async () => onPageChanged(await store.setPageProps(page.id, { project: { status: "active" } }))} title="Track this as a project">
+            📌 Project
+          </button>
+        )}
       </header>
       <div className="page-notes">
       <JournalEditor
@@ -128,6 +135,9 @@ export function PageView({ store, page, onBack, handlers, pageNames, find, onFin
         onFindCount={onFindCount}
       />
       </div>
+      {page.props.project && (
+        <ProjectPanel store={store} page={page} refreshKey={saves} onChanged={onPageChanged} onOpenDay={handlers.onOpenDay} />
+      )}
       <section className="history">
         <h2>Mentioned in</h2>
         <References store={store} kind="wikilink" target={page.title} exclude={page.id} handlers={handlers} refreshKey={saves} />

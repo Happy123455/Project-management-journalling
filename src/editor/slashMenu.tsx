@@ -44,6 +44,13 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       chain.run();
       openCapture(editor);
       return true;
+    case "project":
+      chain.run();
+      window.dispatchEvent(new CustomEvent("journal:new-project", { detail: { editor } }));
+      return true;
+    case "log":
+      // A list whose items each start with the time; Enter adds the next timestamped entry.
+      return chain.toggleBulletList().insertContent(formatTimestamp(new Date()) + " ").run();
   }
 }
 
