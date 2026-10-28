@@ -3,6 +3,7 @@ import type { JSONContent } from "@tiptap/react";
 import { JournalEditor } from "../editor/JournalEditor";
 import { linesMentioning } from "../lib/links";
 import { dayTitle } from "../lib/timestamp";
+import { showError } from "../lib/toast";
 import { docText } from "../lib/words";
 import type { JournalStore, LinkKind, NamedPage, Reference } from "../store";
 
@@ -81,7 +82,8 @@ export function PageView({ store, page, onBack, handlers, pageNames }: {
       setStatus("Saved");
       setSaves((n) => n + 1);
     } catch (e) {
-      setStatus(`Save failed: ${e}`);
+      setStatus("");
+      showError("Save failed", e);
     }
   }, [store, page.id]);
 

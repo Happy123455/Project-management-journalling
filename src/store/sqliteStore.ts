@@ -2,12 +2,14 @@ import Database from "@tauri-apps/plugin-sql";
 import { idFromRef } from "../lib/embeds";
 import { safeFileName } from "../lib/files";
 import { extractLinks, uniqueNames } from "../lib/links";
+import { matchText, searchTerms } from "../lib/search";
 import { dayKey } from "../lib/timestamp";
 import { countWords, docText } from "../lib/words";
 import { deviceId, newId } from "./ids";
+import { Serial } from "./serial";
 import type { JSONContent } from "@tiptap/react";
 import { fileEventBody, newFileRecord } from "./files";
-import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, Reference, SaveDayInput, SaveFileInput } from "./types";
+import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
 
 interface BlockRow {
   id: string;
@@ -58,6 +60,29 @@ const toPage = (row: BlockRow): DayPage => ({
 
 /** The app's real store: journal.db in the app data folder (schema in src-tauri/src/lib.rs). */
 export class SqliteStore implements JournalStore {
+  /** Writes run one at a time (see Serial). */
+  private writes = new Serial();
+
+  saveDay(input: SaveDayInput) {
+    return this.writes.run(() => this.saveDayNow(input));
+  }
+
+  completeReminder(day: string, actor?: string) {
+    return this.writes.run(() => this.completeReminderNow(day, actor));
+  }
+
+  ensurePage(title: string, actor?: string) {
+    return this.writes.run(() => this.ensurePageNow(title, actor));
+  }
+
+  savePage(input: { id: string; content: JSONContent; plainText: string; actor?: string }) {
+    return this.writes.run(() => this.savePageNow(input));
+  }
+
+  saveFile(input: SaveFileInput) {
+    return this.writes.run(() => this.saveFileNow(input));
+  }
+
   private constructor(private db: Database, private device: string) {}
 
   static async open(): Promise<SqliteStore> {
@@ -72,7 +97,7 @@ export class SqliteStore implements JournalStore {
     return rows[0] ? toPage(rows[0]) : null;
   }
 
-  async saveDay({ day, content, plainText, actor = "me" }: SaveDayInput) {
+  private async saveDayNow({ day, content, plainText, actor = "me" }: SaveDayInput) {
     const now = new Date().toISOString();
     const after = JSON.stringify(content);
     const existing = await this.getDay(day);
@@ -128,7 +153,7 @@ export class SqliteStore implements JournalStore {
     return rows.map(toPage).filter((p) => docText(p.content).trim());
   }
 
-  async completeReminder(day: string, actor = "me") {
+  private async completeReminderNow(day: string, actor = "me") {
     const page = await this.getDay(day);
     if (!page?.props.reminder || page.props.reminderDone) return;
     await this.setProps(page.id, actor, page.props, { ...page.props, reminderDone: true }, new Date().toISOString());
@@ -143,7 +168,7 @@ export class SqliteStore implements JournalStore {
     return r ? { id: r.id, title: JSON.parse(r.props).title, content: JSON.parse(r.content), updatedAt: r.updated_at } : null;
   }
 
-  async ensurePage(title: string, actor = "me") {
+  private async ensurePageNow(title: string, actor = "me") {
     const existing = await this.getPage(title);
     if (existing) return existing;
     const now = new Date().toISOString();
@@ -157,7 +182,7 @@ export class SqliteStore implements JournalStore {
     return page;
   }
 
-  async savePage({ id, content, plainText, actor = "me" }: { id: string; content: JSONContent; plainText: string; actor?: string }) {
+  private async savePageNow({ id, content, plainText, actor = "me" }: { id: string; content: JSONContent; plainText: string; actor?: string }) {
     const rows = await this.db.select<{ props: string; content: string; updated_at: string }[]>(
       "SELECT props, content, updated_at FROM blocks WHERE id = $1 AND type = 'page'",
       [id],
@@ -196,7 +221,7 @@ export class SqliteStore implements JournalStore {
     return uniqueNames(rows.map((r) => r.name).filter(Boolean));
   }
 
-  async saveFile(input: SaveFileInput) {
+  private async saveFileNow(input: SaveFileInput) {
     const record = await newFileRecord(input);
     const same = await this.db.select<FileRow[]>("SELECT * FROM files WHERE hash = $1 LIMIT 1", [record.hash]);
     if (same[0]) return toFile(same[0]);
@@ -215,6 +240,36 @@ export class SqliteStore implements JournalStore {
   async getFile(id: string) {
     const rows = await this.db.select<FileRow[]>("SELECT * FROM files WHERE id = $1", [id]);
     return rows[0] ? toFile(rows[0]) : null;
+  }
+
+  async search(query: string) {
+    const terms = searchTerms(query);
+    if (!terms.length) return [];
+    // SQL narrows to blocks whose stored JSON mentions every word; the exact check runs on the text.
+    const where = terms.map((_, i) => `lower(content) LIKE '%' || $${i + 1} || '%'`).join(" AND ");
+    const rows = await this.db.select<{ id: string; type: string; day: string | null; props: string; content: string }[]>(
+      `SELECT id, type, day, props, content FROM blocks WHERE type IN ('day', 'page') AND ${where} ORDER BY day DESC`,
+      terms,
+    );
+    const hits: SearchHit[] = [];
+    for (const r of rows.filter((r) => r.type === "day")) {
+      const text = docText(JSON.parse(r.content));
+      if (matchText(text, terms)) hits.push({ kind: "day", blockId: r.id, day: r.day, title: null, text });
+    }
+    // Pages also match on their title, which isn't in the content, so check every page.
+    for (const r of await this.db.select<{ id: string; props: string; content: string }[]>("SELECT id, props, content FROM blocks WHERE type = 'page'")) {
+      const title = JSON.parse(r.props).title as string;
+      const text = `${title}\n${docText(JSON.parse(r.content))}`;
+      if (matchText(text, terms)) hits.push({ kind: "page", blockId: r.id, day: null, title, text });
+    }
+    for (const f of await this.listFiles()) {
+      if (matchText(f.name, terms)) hits.push({ kind: "file", file: f });
+    }
+    return hits;
+  }
+
+  async listFiles() {
+    return (await this.db.select<FileRow[]>("SELECT * FROM files ORDER BY created_at DESC")).map(toFile);
   }
 
   async findFile(ref: string) {

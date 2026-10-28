@@ -23,6 +23,17 @@ describe("MemoryStore", () => {
     expect(second.parentEventIds).toEqual([first.id]);
   });
 
+  it("handles overlapping saves of a new day as one page (no duplicate create)", async () => {
+    const store = new MemoryStore(undefined, "phone");
+    const [a, b] = await Promise.all([
+      store.saveDay({ day: "2026-10-28", content: doc("a"), plainText: "a" }),
+      store.saveDay({ day: "2026-10-28", content: doc("ab"), plainText: "ab" }),
+    ]);
+    expect(b.id).toBe(a.id);
+    expect((await store.eventsFor(a.id)).map((e) => e.op)).toEqual(["create", "update"]);
+    expect((await store.getDay("2026-10-28"))?.content).toEqual(doc("ab"));
+  });
+
   it("persists through storage", async () => {
     const mem = new Map<string, string>();
     const storage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
@@ -151,6 +162,16 @@ describe("MemoryStore", () => {
       expect(await store.findFile("other.pdf")).toBeNull();
     });
 
+    it("lists every file, newest first", async () => {
+      vi.useFakeTimers({ toFake: ["Date"], now: new Date(2026, 9, 1) });
+      const store = new MemoryStore(undefined, "phone");
+      const a = await store.saveFile({ name: "a.png", mime: "image/png", bytes: new Uint8Array([1]) });
+      vi.setSystemTime(new Date(2026, 9, 2));
+      const b = await store.saveFile({ name: "b.pdf", mime: "application/pdf", bytes: new Uint8Array([2]) });
+      vi.useRealTimers();
+      expect((await store.listFiles()).map((f) => f.id)).toEqual([b.id, a.id]);
+    });
+
     it("keeps one copy of identical files", async () => {
       const store = new MemoryStore(undefined, "phone");
       const bytes = new Uint8Array([1, 2, 3]);
@@ -159,5 +180,19 @@ describe("MemoryStore", () => {
       expect(b.id).toBe(a.id);
       expect(await store.eventsFor(a.id)).toHaveLength(1);
     });
+  });
+
+  it("searches days, pages and file names for every word", async () => {
+    const store = new MemoryStore(undefined, "phone");
+    await store.saveDay({ day: "2026-10-20", content: doc("met Ravi about the plan"), plainText: "" });
+    await store.saveDay({ day: "2026-10-25", content: doc("RAVI called, plan is done"), plainText: "" });
+    await store.saveDay({ day: "2026-10-26", content: doc("only Ravi"), plainText: "" });
+    const page = await store.ensurePage("Plan B");
+    await store.savePage({ id: page.id, content: doc("ask ravi"), plainText: "" });
+    await store.saveFile({ name: "ravi plan.pdf", mime: "application/pdf", bytes: new Uint8Array([1]) });
+
+    const hits = await store.search("ravi plan");
+    expect(hits.map((h) => (h.kind === "file" ? h.file.name : (h.day ?? h.title)))).toEqual(["2026-10-25", "2026-10-20", "Plan B", "ravi_plan.pdf"]);
+    expect(await store.search("   ")).toEqual([]);
   });
 });

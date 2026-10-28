@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type Editor, type NodeViewProps } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { qrContent } from "../lib/capture";
 import { embedText, parseEmbeds } from "../lib/embeds";
+import { placeBar } from "../lib/placement";
 import { fileKind, formatSize } from "../lib/files";
 import type { FileRecord, JournalStore } from "../store";
 
@@ -17,7 +18,7 @@ export function setAttachmentStore(s: JournalStore) {
 }
 
 /** A displayable URL for a stored file (cached for the session). */
-function fileUrl(id: string): Promise<string> {
+export function fileUrl(id: string): Promise<string> {
   let url = urls.get(id);
   if (!url) {
     url = (async () => {
@@ -30,7 +31,7 @@ function fileUrl(id: string): Promise<string> {
   return url;
 }
 
-function useFileUrl(id: string | null) {
+export function useFileUrl(id: string | null) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -182,49 +183,138 @@ const ALIGNS: { value: Align; label: string }[] = [
   { value: "free", label: "Free" },
 ];
 
-/** Drag from `start`, reporting how far the pointer moved, until it's released. */
-function dragFrom(event: ReactPointerEvent, onMove: (dx: number, dy: number) => void) {
+/**
+ * Follows a press until it's released: reports how far it moved, then calls `onEnd`.
+ * Works the same for mouse, pen and finger.
+ */
+function dragFrom(event: ReactPointerEvent, onMove: (dx: number, dy: number) => void, onEnd: () => void) {
   event.preventDefault();
   event.stopPropagation();
   const x0 = event.clientX;
   const y0 = event.clientY;
-  const move = (e: PointerEvent) => onMove(e.clientX - x0, e.clientY - y0);
+  const move = (e: PointerEvent) => {
+    e.preventDefault();
+    onMove(e.clientX - x0, e.clientY - y0);
+  };
   const up = () => {
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", up);
+    onEnd();
   };
-  window.addEventListener("pointermove", move);
+  window.addEventListener("pointermove", move, { passive: false });
   window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", up);
 }
 
+/** Pixels the status bar covers at the top (the CSS safe-area inset, measured with a probe). */
+function safeTop(): number {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;visibility:hidden;padding-top:env(safe-area-inset-top, 0px)";
+  document.body.appendChild(probe);
+  const px = parseFloat(getComputedStyle(probe).paddingTop) || 0;
+  probe.remove();
+  return px;
+}
+
+/** Media node views let the editor ignore presses on their handles and bars, so drags aren't eaten. */
+export const mediaNodeViewOptions = {
+  stopEvent: ({ event }: { event: Event }) =>
+    !!(event.target as HTMLElement | null)?.closest?.(".attach-resize, .attach-toolbar, .attach-draggable"),
+};
+
 /** Shared frame for photos, videos and PDFs: width, placement, the resize handle and the placement toolbar. */
-function PlacedMedia({ node, updateAttributes, selected, editor, children }: NodeViewProps & { children: ReactNode }) {
+function PlacedMedia({ node, updateAttributes, selected, editor, getPos, children }: NodeViewProps & { children: ReactNode }) {
   const { width, align, x, y } = node.attrs as { width: number | null; align: Align; x: number; y: number };
   const box = useRef<HTMLSpanElement>(null);
+  const bar = useRef<HTMLSpanElement>(null);
   const editable = editor.isEditable;
+  // While dragging, the size and position change on screen only; the page is saved once at the end.
+  const [live, setLive] = useState<{ width?: number; dx: number; dy: number } | null>(null);
+  const [barAt, setBarAt] = useState<{ x: number; y: number } | null>(null);
+  const showTools = selected && editable;
+  const draggable = showTools && align === "free";
+  // Saving the new size or position replaces the node; select it again so it can be dragged again.
+  const commit = (attrs: Record<string, unknown>) => {
+    updateAttributes(attrs);
+    const pos = getPos();
+    if (typeof pos === "number") editor.commands.setNodeSelection(pos);
+  };
 
   const resize = (e: ReactPointerEvent) => {
     const start = box.current?.getBoundingClientRect().width ?? 200;
-    dragFrom(e, (dx) => updateAttributes({ width: Math.max(60, Math.round(start + dx)) }));
+    let next = start;
+    dragFrom(
+      e,
+      (dx) => {
+        next = Math.max(60, Math.min(window.innerWidth - 16, Math.round(start + dx)));
+        setLive({ width: next, dx: 0, dy: 0 });
+      },
+      () => {
+        setLive(null);
+        commit({ width: next });
+      },
+    );
   };
   const move = (e: ReactPointerEvent) => {
-    if (align !== "free" || !selected) return;
-    dragFrom(e, (dx, dy) => updateAttributes({ x: x + dx, y: y + dy }));
+    if (!draggable) return;
+    let moved = { dx: 0, dy: 0 };
+    dragFrom(
+      e,
+      (dx, dy) => {
+        moved = { dx, dy };
+        setLive({ dx, dy });
+      },
+      () => {
+        setLive(null);
+        if (moved.dx || moved.dy) commit({ x: x + moved.dx, y: y + moved.dy });
+      },
+    );
   };
 
+  // Keep the placement bar on screen: above the picture, slid in from the edges, or below it.
+  useLayoutEffect(() => {
+    if (!showTools) return setBarAt(null);
+    const place = () => {
+      const target = box.current?.getBoundingClientRect();
+      const size = bar.current?.getBoundingClientRect();
+      if (!target || !size) return;
+      const vv = window.visualViewport;
+      const p = placeBar(target, size, { width: vv?.width ?? window.innerWidth, height: vv?.height ?? window.innerHeight, top: safeTop() });
+      setBarAt({ x: p.x, y: p.y });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    window.visualViewport?.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+      window.visualViewport?.removeEventListener("resize", place);
+    };
+  }, [showTools, width, align, x, y, live]);
+
+  const shownWidth = live?.width ?? width;
+  const dx = x + (live?.dx ?? 0);
+  const dy = y + (live?.dy ?? 0);
   return (
     <NodeViewWrapper
       as="span"
-      className={`attach-image align-${align}${selected ? " selected" : ""}`}
-      style={{ width: width ? `${width}px` : undefined, transform: align === "free" ? `translate(${x}px, ${y}px)` : undefined }}
+      className={`attach-image align-${align}${selected ? " selected" : ""}${live ? " dragging" : ""}`}
+      style={{ width: shownWidth ? `${shownWidth}px` : undefined, transform: align === "free" ? `translate(${dx}px, ${dy}px)` : undefined }}
       data-drag-handle={align === "free" ? undefined : ""}
     >
-      <span ref={box} className="attach-image-box" onPointerDown={move}>
+      <span ref={box} className={draggable ? "attach-image-box attach-draggable" : "attach-image-box"} onPointerDown={move}>
         {children}
-        {selected && editable && <span className="attach-resize" onPointerDown={resize} aria-label="Resize" />}
+        {showTools && <span className="attach-resize" onPointerDown={resize} aria-label="Resize" />}
       </span>
-      {selected && editable && (
-        <span className="attach-toolbar" contentEditable={false}>
+      {showTools && (
+        <span
+          ref={bar}
+          className="attach-toolbar"
+          contentEditable={false}
+          style={barAt ? { left: barAt.x, top: barAt.y, transform: "none" } : { visibility: "hidden" }}
+        >
           {ALIGNS.map((a) => (
             <button
               key={a.value}
@@ -243,11 +333,32 @@ function PlacedMedia({ node, updateAttributes, selected, editor, children }: Nod
   );
 }
 
+/** Ask the app to show a photo full screen (the viewer lives in App). */
+export function showPhoto(url: string, kind: "image" | "video" = "image") {
+  window.dispatchEvent(new CustomEvent("journal:open-photo", { detail: { url, kind } }));
+}
+
 function ImageView(props: NodeViewProps) {
   const { url, failed } = useFileUrl(props.node.attrs.fileId);
+  const lastTap = useRef(0);
+  // Double-click (Mac) or double-tap (phone) opens the photo full screen.
+  const onTapEnd = (e: ReactPointerEvent) => {
+    if (e.pointerType !== "touch" || !url) return;
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      lastTap.current = 0;
+      showPhoto(url);
+    } else {
+      lastTap.current = now;
+    }
+  };
   return (
     <PlacedMedia {...props}>
-      {url ? <img src={url} alt="" draggable={false} /> : <span className="attach-missing">{failed ? "Image not found" : "Loading…"}</span>}
+      {url ? (
+        <img src={url} alt="" draggable={false} onDoubleClick={() => showPhoto(url)} onPointerUp={onTapEnd} />
+      ) : (
+        <span className="attach-missing">{failed ? "Image not found" : "Loading…"}</span>
+      )}
     </PlacedMedia>
   );
 }
@@ -278,7 +389,7 @@ export const AttachmentImage = Node.create({
     return ["img", mergeAttributes(HTMLAttributes, mediaData(node.attrs))];
   },
   addNodeView() {
-    return ReactNodeViewRenderer(ImageView);
+    return ReactNodeViewRenderer(ImageView, mediaNodeViewOptions);
   },
 });
 
@@ -371,7 +482,7 @@ export const AttachmentMedia = Node.create({
     return ["span", mergeAttributes(HTMLAttributes, { "data-media": node.attrs.kind, ...mediaData(node.attrs) }), node.attrs.name];
   },
   addNodeView() {
-    return ReactNodeViewRenderer(MediaView);
+    return ReactNodeViewRenderer(MediaView, mediaNodeViewOptions);
   },
 });
 

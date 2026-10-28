@@ -41,10 +41,17 @@ function ToolbarButtons({ editor }: { editor: Editor }) {
       italic: e.isActive("italic"),
       highlight: e.isActive("highlight"),
       code: e.isActive("codeBlock"),
+      canUndo: e.can().undo(),
+      canRedo: e.can().redo(),
     }),
   });
 
-  const buttons: { key: keyof typeof active | "timestamp"; label: string; title: string; run: () => void }[] = [
+  const history = [
+    { key: "undo", label: "↶", title: "Undo (Cmd/Ctrl+Z)", enabled: active.canUndo, run: () => editor.chain().focus().undo().run() },
+    { key: "redo", label: "↷", title: "Redo (Cmd/Ctrl+Shift+Z)", enabled: active.canRedo, run: () => editor.chain().focus().redo().run() },
+  ];
+
+  const buttons: { key: Exclude<keyof typeof active, "canUndo" | "canRedo"> | "timestamp"; label: string; title: string; run: () => void }[] = [
     { key: "bullet", label: "•", title: "Bullet list", run: () => editor.chain().focus().toggleBulletList().run() },
     { key: "task", label: "☑", title: "Task list", run: () => editor.chain().focus().toggleTaskList().run() },
     { key: "ordered", label: "1.", title: "Numbered list", run: () => editor.chain().focus().toggleOrderedList().run() },
@@ -62,6 +69,21 @@ function ToolbarButtons({ editor }: { editor: Editor }) {
 
   return (
     <>
+      {history.map((b) => (
+        <button
+          key={b.key}
+          type="button"
+          title={b.title}
+          aria-label={b.title}
+          disabled={!b.enabled}
+          className={`tool tool-${b.key}`}
+          onPointerDown={(e) => e.preventDefault()}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={b.run}
+        >
+          {b.label}
+        </button>
+      ))}
       {buttons.map((b) => (
         <button
           key={b.key}

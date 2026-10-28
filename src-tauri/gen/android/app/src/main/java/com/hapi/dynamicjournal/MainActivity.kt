@@ -55,6 +55,20 @@ class MainActivity : TauriActivity() {
   }
 
   inner class ClipboardBridge {
+    /**
+     * The clipboard as text, as JSON {focused, text}. Android only shares the clipboard with
+     * the app whose window has focus; before that "focused" is false and the page retries.
+     * coerceToText also covers rich text (HTML) and links, which the Tauri plugin refuses.
+     */
+    @JavascriptInterface
+    fun text(): String {
+      val focused = hasWindowFocus()
+      val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+      val clip = if (focused) clipboard.primaryClip else null
+      val text = if (clip != null && clip.itemCount > 0) clip.getItemAt(0).coerceToText(this@MainActivity)?.toString() else null
+      return JSONObject().put("focused", focused).put("text", text ?: JSONObject.NULL).toString()
+    }
+
     /** The clipboard's first image or video as JSON {mime, data}, or "" when there is none. */
     @JavascriptInterface
     fun media(): String {

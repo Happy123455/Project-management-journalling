@@ -54,6 +54,11 @@ export interface SaveFileInput {
   actor?: string;
 }
 
+/** A day or page whose text contains every search word, or a file whose name does. */
+export type SearchHit =
+  | { kind: "day" | "page"; blockId: string; day: string | null; title: string | null; text: string }
+  | { kind: "file"; file: FileRecord };
+
 /** One entry in the append-only timeline. Sync and the nexus view build on this. */
 export interface JournalEvent {
   id: string;
@@ -98,6 +103,10 @@ export interface JournalStore {
   /** Stores an attachment (with a create event); the same bytes stored twice give back the first record. */
   saveFile(input: SaveFileInput): Promise<FileRecord>;
   getFile(id: string): Promise<FileRecord | null>;
+  /** Days and pages containing every search word (any letter case), newest day first, then file-name matches. */
+  search(query: string): Promise<SearchHit[]>;
+  /** Every stored file, newest first. */
+  listFiles(): Promise<FileRecord[]>;
   /** The file an embed points at: "attachments/<id>/<name>", or a bare file name (any letter case, newest first). */
   findFile(ref: string): Promise<FileRecord | null>;
   fileBytes(id: string): Promise<Uint8Array | null>;
