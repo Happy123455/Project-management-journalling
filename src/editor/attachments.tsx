@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as Reac
 import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type Editor, type NodeViewProps } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { qrContent } from "../lib/capture";
+import { AlphaVideo } from "./AlphaVideo";
 import { embedText, parseEmbeds } from "../lib/embeds";
 import { placeBar } from "../lib/placement";
 import { fileKind, formatSize } from "../lib/files";
@@ -463,8 +464,10 @@ function MediaView(props: NodeViewProps) {
           <span className="attach-missing">{failed ? "Recording not found" : "Loading…"}</span>
         )
       ) : url ? (
-        // Meme clips loop silently like GIFs; other videos get the normal controls.
-        name.startsWith("meme-") || /^gif-/.test(name) ? (
+        // Meme clips loop silently like GIFs; green-screen ones are drawn see-through; other videos get controls.
+        name.startsWith("greenscreen-") ? (
+          <AlphaVideo src={url} />
+        ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
           <video src={url} autoPlay loop muted playsInline />
         ) : (
           <video src={url} controls playsInline preload="metadata" />
@@ -512,8 +515,10 @@ function FileView({ node }: NodeViewProps) {
   return (
     <NodeViewWrapper className={`attach-file kind-${kind}`} data-drag-handle="">
       {kind === "video" && url ? (
-        // Meme clips loop silently like GIFs; other videos get the normal controls.
-        name.startsWith("meme-") || /^gif-/.test(name) ? (
+        // Meme clips loop silently like GIFs; green-screen ones are drawn see-through; other videos get controls.
+        name.startsWith("greenscreen-") ? (
+          <AlphaVideo src={url} />
+        ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
           <video src={url} autoPlay loop muted playsInline />
         ) : (
           <video src={url} controls playsInline preload="metadata" />

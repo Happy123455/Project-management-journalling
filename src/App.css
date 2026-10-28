@@ -990,3 +990,57 @@ button:hover { background: var(--glass-strong); }
 .read-aloud .read-rate {
   font-variant-numeric: tabular-nums;
 }
+
+/* Green-screen memes: see-through over the page. The source video stays rendered (but invisible)
+   so every WebView keeps decoding its frames for the canvas. */
+.alpha-video {
+  position: relative;
+  display: block;
+}
+.attach-image .alpha-video video {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.alpha-video canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: transparent;
+}
+
+/* Meme kit categories */
+.meme-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 12px 8px;
+  scrollbar-width: none;
+}
+.meme-chips button {
+  flex: none;
+  padding: 4px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.meme-chips button.active {
+  background: var(--accent, #8b5cf6);
+  color: #fff;
+}
+.meme-star {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  color: #facc15;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.meme-sound-name .meme-star {
+  position: static;
+  margin-right: 4px;
+}
+.meme-tile {
+  -webkit-touch-callout: none;
+  user-select: none;
+}
