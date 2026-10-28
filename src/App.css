@@ -1,0 +1,78 @@
+:root {
+  --bg: #fbfaf8;
+  --panel: #f2f0ec;
+  --text: #1f1d1a;
+  --muted: #6f6a62;
+  --border: #e2ded6;
+  --accent: #4a6cf7;
+  --tag: #a35a00;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1a18;
+    --panel: #232220;
+    --text: #ecebe8;
+    --muted: #9c978f;
+    --border: #34322e;
+    --accent: #8ea4ff;
+    --tag: #f0a54a;
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+button:hover { background: var(--panel); }
+
+.app {
+  display: grid;
+  grid-template-columns: 180px 1fr 220px;
+  min-height: 100vh;
+}
+
+.sidebar, .links-panel {
+  background: var(--panel);
+  padding: 16px;
+  border-right: 1px solid var(--border);
+}
+.links-panel { border-right: none; border-left: 1px solid var(--border); }
+.sidebar h2, .links-panel h2 { font-size: 13px; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+.links-panel h3 { font-size: 14px; margin: 16px 0 4px; }
+.links-panel ul, .day-list { list-style: none; padding: 0; margin: 0; }
+.day-list button { border: none; width: 100%; text-align: left; padding: 4px 8px; }
+.day-list button.active { background: var(--bg); font-weight: 600; }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+
+.page { padding: 24px 40px; max-width: 820px; width: 100%; margin: 0 auto; }
+.page-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.page-header h1 { font-size: 22px; margin: 0 8px; }
+.status { margin-left: auto; color: var(--muted); font-size: 13px; }
+.loading { color: var(--muted); }
+
+.toolbar { display: flex; gap: 6px; margin-bottom: 8px; }
+.editor-body .tiptap { min-height: 60vh; outline: none; }
+.editor-body .tiptap p { margin: 0.35em 0; }
+
+.wikilink { color: var(--accent); }
+.tag { color: var(--tag); }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar, .links-panel { display: none; }
+  .page { padding: 16px; }
+}
