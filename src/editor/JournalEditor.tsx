@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EditorContent, useEditor, useEditorState, type Editor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
@@ -9,6 +9,8 @@ import { LinkHighlight } from "./linkHighlight";
 import { hasEmbeds } from "../lib/embeds";
 import { AttachmentFile, AttachmentImage, AttachmentMedia, insertFiles, mediaLeafText, pasteEmbeds, upgradeOldMedia } from "./attachments";
 import { JournalCodeBlock } from "./codeBlock";
+import { BlockInfoExtension } from "./blockInfo";
+import { BlockInfoPanel } from "./BlockInfoPanel";
 import { isLoneUrl, LinkCard } from "./linkCard";
 import { FindHighlight, findKey } from "./findHighlight";
 import { LogBlock } from "./logBlock";
@@ -38,7 +40,7 @@ interface Props {
 }
 
 /** Formatting buttons, shared by the top toolbar (Mac) and the bar above the phone keyboard. */
-function ToolbarButtons({ editor }: { editor: Editor }) {
+function ToolbarButtons({ editor, onInfo }: { editor: Editor; onInfo: () => void }) {
   const active = useEditorState({
     editor,
     selector: ({ editor: e }) => ({
@@ -59,7 +61,7 @@ function ToolbarButtons({ editor }: { editor: Editor }) {
     { key: "redo", label: "↷", title: "Redo (Cmd/Ctrl+Shift+Z)", enabled: active.canRedo, run: () => editor.chain().focus().redo().run() },
   ];
 
-  const buttons: { key: Exclude<keyof typeof active, "canUndo" | "canRedo"> | "timestamp"; label: string; title: string; run: () => void }[] = [
+  const buttons: { key: Exclude<keyof typeof active, "canUndo" | "canRedo"> | "timestamp" | "info"; label: string; title: string; run: () => void }[] = [
     { key: "bullet", label: "•", title: "Bullet list", run: () => editor.chain().focus().toggleBulletList().run() },
     { key: "task", label: "☑", title: "Task list", run: () => editor.chain().focus().toggleTaskList().run() },
     { key: "ordered", label: "1.", title: "Numbered list", run: () => editor.chain().focus().toggleOrderedList().run() },
@@ -67,6 +69,7 @@ function ToolbarButtons({ editor }: { editor: Editor }) {
     { key: "italic", label: "I", title: "Italic (Cmd/Ctrl+I)", run: () => editor.chain().focus().toggleItalic().run() },
     { key: "highlight", label: "H", title: "Highlight (Cmd/Ctrl+Shift+H)", run: () => editor.chain().focus().toggleHighlight().run() },
     { key: "code", label: "</>", title: "Code block (or type ``` and Enter)", run: () => editor.chain().focus().toggleCodeBlock().run() },
+    { key: "info", label: "ⓘ", title: "Block info", run: onInfo },
     {
       key: "timestamp",
       label: "🕒",
@@ -98,8 +101,8 @@ function ToolbarButtons({ editor }: { editor: Editor }) {
           type="button"
           title={b.title}
           aria-label={b.title}
-          aria-pressed={b.key === "timestamp" ? undefined : active[b.key]}
-          className={`tool tool-${b.key}${b.key !== "timestamp" && active[b.key] ? " active" : ""}`}
+          aria-pressed={b.key === "timestamp" || b.key === "info" ? undefined : active[b.key]}
+          className={`tool tool-${b.key}${b.key !== "timestamp" && b.key !== "info" && active[b.key] ? " active" : ""}`}
           // Keep the editor focused so the phone keyboard stays open.
           onPointerDown={(e) => e.preventDefault()}
           onMouseDown={(e) => e.preventDefault()}
@@ -116,6 +119,7 @@ export function JournalEditor({
   initialContent, onChange, onReady, onReminder, onOpenLink, onOpenTag, pageNames, autofocus = true, find, onFindCount,
 }: Props) {
   const touch = useTouchDevice();
+  const [infoOpen, setInfoOpen] = useState(false);
   const editorRef = useRef<Editor | null>(null);
   const editor = useEditor({
     extensions: [
@@ -134,6 +138,7 @@ export function JournalEditor({
       TimestampChip,
       FindHighlight,
       LogBlock,
+      BlockInfoExtension,
       SlashMenu.configure({ onReminder: () => onReminder?.() }),
     ],
     content: initialContent ?? "",
@@ -223,14 +228,15 @@ export function JournalEditor({
       {editor && !touch && (
         // Keep focus in the editor so Enter after a toolbar click types, not re-clicks (from #2).
         <div className="toolbar" onMouseDown={(e) => e.preventDefault()}>
-          <ToolbarButtons editor={editor} />
+          <ToolbarButtons editor={editor} onInfo={() => setInfoOpen(true)} />
         </div>
       )}
       <EditorContent editor={editor} className={touch ? "editor-body with-keyboard-bar" : "editor-body"} />
       {editor && <SmartPaste editor={editor} />}
+      {editor && infoOpen && <BlockInfoPanel editor={editor} onClose={() => setInfoOpen(false)} />}
       {editor && touch && (
         <KeyboardBar editor={editor}>
-          <ToolbarButtons editor={editor} />
+          <ToolbarButtons editor={editor} onInfo={() => setInfoOpen(true)} />
         </KeyboardBar>
       )}
     </div>

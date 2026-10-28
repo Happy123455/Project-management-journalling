@@ -426,6 +426,17 @@ button:hover { background: var(--panel); }
 .voice-meter span { display: block; height: 100%; background: #ef4444; transform-origin: left; transition: transform 0.08s linear; }
 .voice-time { font-size: 22px; font-variant-numeric: tabular-nums; color: #ef4444; }
 
+/* Block info: a small line under blocks that have properties */
+.editor-body .has-info::after {
+  content: "ⓘ " attr(data-info-label);
+  display: block;
+  margin: 1px 0 4px;
+  font-size: 11px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.editor-body li.has-info::after { margin-left: 0; }
+
 /* Meme kit */
 .meme-kit { max-height: calc(100vh - 30px); }
 .meme-grid { overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; padding: 2px; }
