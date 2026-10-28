@@ -965,3 +965,28 @@ button:hover { background: var(--glass-strong); }
     to { opacity: 1; transform: none; }
   }
 }
+
+/* Read aloud player */
+.read-aloud {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+.read-aloud button {
+  min-width: 40px;
+  min-height: 36px;
+  border-radius: 999px;
+}
+.read-aloud .read-rate {
+  font-variant-numeric: tabular-nums;
+}

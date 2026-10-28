@@ -12,6 +12,7 @@ import { JournalCodeBlock } from "./codeBlock";
 import { BlockInfoExtension } from "./blockInfo";
 import { BlockInfoPanel } from "./BlockInfoPanel";
 import { saveToInspiration } from "./inspiration";
+import { readAloud } from "../lib/readAloud";
 import { isLoneUrl, LinkCard } from "./linkCard";
 import { FindHighlight, findKey } from "./findHighlight";
 import { LogBlock } from "./logBlock";
@@ -62,7 +63,7 @@ function ToolbarButtons({ editor, onInfo }: { editor: Editor; onInfo: () => void
     { key: "redo", label: "↷", title: "Redo (Cmd/Ctrl+Shift+Z)", enabled: active.canRedo, run: () => editor.chain().focus().redo().run() },
   ];
 
-  const buttons: { key: Exclude<keyof typeof active, "canUndo" | "canRedo"> | "timestamp" | "info" | "inspire"; label: string; title: string; run: () => void }[] = [
+  const buttons: { key: Exclude<keyof typeof active, "canUndo" | "canRedo"> | "timestamp" | "info" | "inspire" | "read"; label: string; title: string; run: () => void }[] = [
     { key: "bullet", label: "•", title: "Bullet list", run: () => editor.chain().focus().toggleBulletList().run() },
     { key: "task", label: "☑", title: "Task list", run: () => editor.chain().focus().toggleTaskList().run() },
     { key: "ordered", label: "1.", title: "Numbered list", run: () => editor.chain().focus().toggleOrderedList().run() },
@@ -76,6 +77,15 @@ function ToolbarButtons({ editor, onInfo }: { editor: Editor; onInfo: () => void
       label: "✨",
       title: "Save this block to Inspiration",
       run: () => void saveToInspiration(editor, document.querySelector(".page-header h1")?.textContent?.trim() ?? ""),
+    },
+    {
+      key: "read",
+      label: "🔊",
+      title: "Read aloud (the selection, or this paragraph)",
+      run: () => {
+        const { from, to, empty, $from } = editor.state.selection;
+        readAloud(empty ? $from.parent.textContent || editor.getText({ blockSeparator: "\n" }) : editor.state.doc.textBetween(from, to, "\n", " "));
+      },
     },
     {
       key: "timestamp",

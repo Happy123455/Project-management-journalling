@@ -12,6 +12,7 @@ import { FindBar } from "./search/FindBar";
 import { GraphView } from "./graph/GraphView";
 import { NewProject } from "./projects/NewProject";
 import { SettingsPanel } from "./settings/SettingsPanel";
+import { ReadAloudPlayer } from "./ReadAloudPlayer";
 import { ChatView } from "./ChatView";
 import { VoiceRecorder } from "./editor/VoiceRecorder";
 import { MemeKit } from "./editor/MemeKit";
@@ -563,6 +564,7 @@ function App() {
         />
       )}
       <VoiceRecorder />
+      <ReadAloudPlayer />
       <MemeKit />
       {settingsOpen && <SettingsPanel store={store} onClose={() => setSettingsOpen(false)} />}
       <PdfHost />

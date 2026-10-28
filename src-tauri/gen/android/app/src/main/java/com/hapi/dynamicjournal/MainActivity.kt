@@ -17,6 +17,10 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONArray
 import android.os.Bundle
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
+import java.util.Locale
 import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -111,6 +115,7 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(SyncBridge(), "JournalSync")
     webView.addJavascriptInterface(ShareBridge(), "JournalShare")
     webView.addJavascriptInterface(SecretsBridge(), "JournalSecrets")
+    webView.addJavascriptInterface(speech, "JournalSpeech")
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->
       val split = payload.partition { it.uri != null }
@@ -318,6 +323,95 @@ class MainActivity : TauriActivity() {
     @JavascriptInterface
     fun remove(name: String) {
       prefs().edit().remove(name).apply()
+    }
+  }
+
+  private val speech = SpeechBridge()
+
+  override fun onDestroy() {
+    speech.shutdown()
+    super.onDestroy()
+  }
+
+  /** Read aloud with the best installed voice (Google's high-quality voices when downloaded). Pages: src/lib/readAloud.ts. */
+  inner class SpeechBridge {
+    private var tts: TextToSpeech? = null
+    private var ready = false
+    private var waiting: (() -> Unit)? = null
+
+    private fun emit(event: String, id: String, index: Int = 0) {
+      val js = "window.__journalSpeech && window.__journalSpeech('$event', ${JSONObject.quote(id)}, $index)"
+      webView?.post { webView?.evaluateJavascript(js, null) }
+    }
+
+    private fun withTts(action: (TextToSpeech) -> Unit) {
+      tts?.let { if (ready) return action(it) }
+      waiting = { tts?.let(action) }
+      if (tts != null) return
+      tts = TextToSpeech(this@MainActivity) { status ->
+        if (status != TextToSpeech.SUCCESS) return@TextToSpeech
+        val engine = tts ?: return@TextToSpeech
+        bestVoice(engine)?.let { engine.voice = it }
+        engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+          // Utterance ids are "<run>:<offset of this chunk>:<last?>".
+          override fun onStart(utteranceId: String) {}
+          override fun onRangeStart(utteranceId: String, start: Int, end: Int, frame: Int) {
+            val (run, offset) = utteranceId.split(":")
+            emit("range", run, offset.toInt() + start)
+          }
+          override fun onDone(utteranceId: String) {
+            val parts = utteranceId.split(":")
+            if (parts[2] == "1") emit("done", parts[0])
+          }
+          @Deprecated("Deprecated in Java")
+          override fun onError(utteranceId: String) = emit("error", utteranceId.split(":")[0])
+          override fun onError(utteranceId: String, errorCode: Int) = emit("error", utteranceId.split(":")[0])
+        })
+        ready = true
+        waiting?.invoke()
+        waiting = null
+      }
+    }
+
+    /** On-device first, then the highest quality, preferring the phone's own language and country. */
+    private fun bestVoice(engine: TextToSpeech): Voice? {
+      val locale = Locale.getDefault()
+      return engine.voices
+        ?.filter { it.locale.language == locale.language && !it.features.contains("notInstalled") }
+        ?.sortedWith(
+          compareBy<Voice>({ it.isNetworkConnectionRequired }, { -it.quality }, { it.locale.country != locale.country }, { it.latency }),
+        )
+        ?.firstOrNull()
+    }
+
+    @JavascriptInterface
+    fun speak(text: String, rate: Float, id: String) = withTts { engine ->
+      engine.stop()
+      engine.setSpeechRate(rate)
+      // Long text goes in chunks the engine accepts, split after a sentence or a space.
+      val max = TextToSpeech.getMaxSpeechInputLength() - 100
+      var start = 0
+      while (start < text.length) {
+        var end = minOf(text.length, start + max)
+        if (end < text.length) {
+          val cut = maxOf(text.lastIndexOf(". ", end), text.lastIndexOf("\n", end), text.lastIndexOf(' ', end))
+          if (cut > start) end = cut + 1
+        }
+        val last = if (end >= text.length) "1" else "0"
+        engine.speak(text.substring(start, end), TextToSpeech.QUEUE_ADD, null, "$id:$start:$last")
+        start = end
+      }
+    }
+
+    @JavascriptInterface
+    fun stop() {
+      tts?.stop()
+    }
+
+    fun shutdown() {
+      tts?.shutdown()
+      tts = null
+      ready = false
     }
   }
 }
