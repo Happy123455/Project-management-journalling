@@ -8,7 +8,25 @@
   "permissions": [
     "core:default",
     "opener:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "$APPDATA/attachments/**" }]
+    },
     "sql:default",
-    "sql:allow-execute"
+    "sql:allow-execute",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-read-image",
+    "fs:allow-appdata-read-recursive",
+    "fs:allow-appdata-write-recursive",
+    "dialog:allow-save",
+    {
+      "identifier": "fs:scope",
+      "allow": [{ "path": "$DOCUMENT/Dynamic Journal Backups" }, { "path": "$DOCUMENT/Dynamic Journal Backups/**" }]
+    },
+    "fs:allow-mkdir",
+    "fs:allow-write-file",
+    "fs:allow-read-dir",
+    "fs:allow-remove",
+    "fs:allow-exists"
   ]
 }

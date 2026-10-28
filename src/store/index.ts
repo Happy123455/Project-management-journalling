@@ -1,7 +1,7 @@
 import { MemoryStore } from "./memoryStore";
 import type { JournalStore } from "./types";
 
-export type { DayPage, JournalEvent, JournalStore } from "./types";
+export type { DayPage, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, Reference } from "./types";
 
 const inTauri = () => "__TAURI_INTERNALS__" in window;
 

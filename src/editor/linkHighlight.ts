@@ -20,10 +20,22 @@ function decorate(doc: PMNode): DecorationSet {
   return DecorationSet.create(doc, decorations);
 }
 
-/** Highlights [[wikilinks]] and #tags as you type, without changing the stored text. */
-export const LinkHighlight = Extension.create({
+export interface LinkHighlightOptions {
+  onOpenLink: (target: string) => void;
+  onOpenTag: (tag: string) => void;
+}
+
+/** Highlights [[wikilinks]] and #tags as you type, and opens them on tap; the stored text is unchanged. */
+export const LinkHighlight = Extension.create<LinkHighlightOptions>({
   name: "linkHighlight",
+  addOptions() {
+    return { onOpenLink: () => {}, onOpenTag: () => {} };
+  },
   addProseMirrorPlugins() {
+    const options = this.options;
+    // The link under the finger when the press starts. The first tap also focuses the editor,
+    // which shrinks the calendar and moves the text, so by the click the link may have moved away.
+    let pressed: { kind: "link" | "tag"; value: string } | null = null;
     return [
       new Plugin({
         key: new PluginKey("linkHighlight"),
@@ -34,6 +46,25 @@ export const LinkHighlight = Extension.create({
         props: {
           decorations(state) {
             return this.getState(state);
+          },
+          handleDOMEvents: {
+            pointerdown(_view, event) {
+              const el = (event.target as HTMLElement).closest?.(".wikilink, .tag");
+              pressed = !el
+                ? null
+                : el.classList.contains("wikilink")
+                  ? { kind: "link", value: el.getAttribute("data-target") ?? "" }
+                  : { kind: "tag", value: (el.textContent ?? "").replace(/^#/, "") };
+              return false;
+            },
+          },
+          handleClick() {
+            const target = pressed;
+            pressed = null;
+            if (!target) return false;
+            if (target.kind === "link") options.onOpenLink(target.value);
+            else options.onOpenTag(target.value);
+            return true;
           },
         },
       }),

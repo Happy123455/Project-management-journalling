@@ -1,14 +1,24 @@
-import { extractLinks } from "../lib/links";
+import { extractLinks, uniqueNames } from "../lib/links";
+import { dayKey } from "../lib/timestamp";
+import { countWords, docText } from "../lib/words";
 import { deviceId, newId } from "./ids";
-import type { DayPage, JournalEvent, JournalStore, SaveDayInput } from "./types";
+import { fileEventBody, fromBase64, newFileRecord, toBase64 } from "./files";
+import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, Reference, SaveDayInput, SaveFileInput } from "./types";
+import type { JSONContent } from "@tiptap/react";
 
 interface Snapshot {
   pages: Record<string, DayPage>;
+  /** Named pages by id. */
+  named?: Record<string, NamedPage>;
+  /** Attachments by id, with their bytes as base64. */
+  files?: Record<string, FileRecord & { data: string }>;
   events: JournalEvent[];
   links: { from: string; target: string; kind: "wikilink" | "tag" }[];
 }
 
 const KEY = "dynamic-journal.memory-store";
+
+const withoutData = ({ data: _data, ...record }: FileRecord & { data: string }): FileRecord => record;
 
 /**
  * Store used in a plain browser (`npm run dev`) and in tests.
@@ -23,34 +33,26 @@ export class MemoryStore implements JournalStore {
   }
 
   async getDay(day: string) {
-    return this.data.pages[day] ?? null;
+    const page = this.data.pages[day];
+    return page ? { ...page, props: page.props ?? {} } : null;
   }
 
   async saveDay({ day, content, plainText, actor = "me" }: SaveDayInput) {
     const now = new Date().toISOString();
-    const existing = this.data.pages[day];
+    const existing = await this.getDay(day);
     const after = JSON.stringify(content);
-    const page: DayPage = { id: existing?.id ?? newId(), day, content, updatedAt: now };
+    const page: DayPage = { id: existing?.id ?? newId(), day, content, props: existing?.props ?? {}, updatedAt: now };
     if (existing && JSON.stringify(existing.content) === after) return existing;
 
-    const last = [...this.data.events].reverse().find((e) => e.blockId === page.id);
-    this.data.events.push({
-      id: newId(),
-      deviceId: this.device,
-      actor,
-      blockId: page.id,
-      op: existing ? "update" : "create",
-      before: existing ? JSON.stringify(existing.content) : null,
-      after,
-      parentEventIds: last ? [last.id] : [],
-      createdAt: now,
-    });
+    this.logEvent(page.id, actor, existing ? "update" : "create", existing ? JSON.stringify(existing.content) : null, after, now);
+    // Writing on a day that hasn't come yet turns the page into a reminder.
+    if (day > dayKey(new Date()) && !page.props.reminder) {
+      const props = { ...page.props, reminder: true };
+      this.logEvent(page.id, actor, "props", JSON.stringify(page.props), JSON.stringify(props), now);
+      page.props = props;
+    }
 
-    const { wikilinks, tags } = extractLinks(plainText);
-    this.data.links = this.data.links.filter((l) => l.from !== page.id);
-    wikilinks.forEach((target) => this.data.links.push({ from: page.id, target, kind: "wikilink" }));
-    tags.forEach((target) => this.data.links.push({ from: page.id, target, kind: "tag" }));
-
+    this.setLinks(page.id, plainText);
     this.data.pages[day] = page;
     this.storage?.setItem(KEY, JSON.stringify(this.data));
     return page;
@@ -60,7 +62,139 @@ export class MemoryStore implements JournalStore {
     return Object.keys(this.data.pages).sort().reverse();
   }
 
+  async wordCounts(from: string, to: string) {
+    const counts: Record<string, number> = {};
+    for (const page of Object.values(this.data.pages)) {
+      if (page.day >= from && page.day <= to) counts[page.day] = countWords(docText(page.content));
+    }
+    return counts;
+  }
+
   async eventsFor(blockId: string) {
     return this.data.events.filter((e) => e.blockId === blockId);
+  }
+
+  async openReminders() {
+    return Object.values(this.data.pages)
+      .filter((p) => p.props?.reminder && !p.props.reminderDone && docText(p.content).trim())
+      .sort((a, b) => a.day.localeCompare(b.day));
+  }
+
+  async completeReminder(day: string, actor = "me") {
+    const page = await this.getDay(day);
+    if (!page?.props.reminder || page.props.reminderDone) return;
+    const props: DayProps = { ...page.props, reminderDone: true };
+    const now = new Date().toISOString();
+    this.logEvent(page.id, actor, "props", JSON.stringify(page.props), JSON.stringify(props), now);
+    this.data.pages[day] = { ...page, props, updatedAt: now };
+    this.storage?.setItem(KEY, JSON.stringify(this.data));
+  }
+
+  async getPage(title: string) {
+    const want = title.trim().toLowerCase();
+    return Object.values(this.named).find((p) => p.title.toLowerCase() === want) ?? null;
+  }
+
+  async ensurePage(title: string, actor = "me") {
+    const existing = await this.getPage(title);
+    if (existing) return existing;
+    const now = new Date().toISOString();
+    const page: NamedPage = { id: newId(), title: title.trim(), content: { type: "doc", content: [{ type: "paragraph" }] }, updatedAt: now };
+    this.logEvent(page.id, actor, "create", null, JSON.stringify({ title: page.title, content: page.content }), now);
+    this.named[page.id] = page;
+    this.persist();
+    return page;
+  }
+
+  async savePage({ id, content, plainText, actor = "me" }: { id: string; content: JSONContent; plainText: string; actor?: string }) {
+    const existing = this.named[id];
+    if (!existing) throw new Error(`No page ${id}`);
+    const after = JSON.stringify(content);
+    if (JSON.stringify(existing.content) === after) return existing;
+    const now = new Date().toISOString();
+    this.logEvent(id, actor, "update", JSON.stringify(existing.content), after, now);
+    const page = { ...existing, content, updatedAt: now };
+    this.named[id] = page;
+    this.setLinks(id, plainText);
+    this.persist();
+    return page;
+  }
+
+  async references(kind: LinkKind, target: string) {
+    const want = target.trim().toLowerCase();
+    const from = new Set(this.data.links.filter((l) => l.kind === kind && l.target.toLowerCase() === want).map((l) => l.from));
+    const refs: Reference[] = [
+      ...Object.values(this.data.pages).filter((p) => from.has(p.id)).map((p) => ({ blockId: p.id, day: p.day, title: null, content: p.content })),
+      ...Object.values(this.named).filter((p) => from.has(p.id)).map((p) => ({ blockId: p.id, day: null, title: p.title, content: p.content })),
+    ];
+    return refs.sort((a, b) => (b.day ?? "").localeCompare(a.day ?? ""));
+  }
+
+  async pageNames() {
+    const names = [...Object.values(this.named).map((p) => p.title), ...this.data.links.filter((l) => l.kind === "wikilink").map((l) => l.target)];
+    return uniqueNames(names);
+  }
+
+  async saveFile(input: SaveFileInput) {
+    const record = await newFileRecord(input);
+    const same = Object.values(this.files).find((f) => f.hash === record.hash);
+    if (same) return withoutData(same);
+    this.logEvent(record.id, input.actor ?? "me", "create", null, fileEventBody(record), record.createdAt);
+    this.files[record.id] = { ...record, data: toBase64(input.bytes) };
+    this.persist();
+    return record;
+  }
+
+  async getFile(id: string) {
+    const f = this.files[id];
+    return f ? withoutData(f) : null;
+  }
+
+  async fileBytes(id: string) {
+    const f = this.files[id];
+    return f ? fromBase64(f.data) : null;
+  }
+
+  async exportFiles() {
+    const { files, ...rest } = this.data;
+    const journal = { ...rest, files: Object.fromEntries(Object.entries(files ?? {}).map(([id, f]) => [id, withoutData(f)])) };
+    return [
+      { name: "journal.json", bytes: new TextEncoder().encode(JSON.stringify(journal)) },
+      ...Object.values(files ?? {}).map((f) => ({ name: f.path, bytes: fromBase64(f.data) })),
+    ];
+  }
+
+  private get files() {
+    return (this.data.files ??= {});
+  }
+
+  private get named() {
+    return (this.data.named ??= {});
+  }
+
+  private setLinks(blockId: string, plainText: string) {
+    const { wikilinks, tags } = extractLinks(plainText);
+    this.data.links = this.data.links.filter((l) => l.from !== blockId);
+    wikilinks.forEach((target) => this.data.links.push({ from: blockId, target, kind: "wikilink" }));
+    tags.forEach((target) => this.data.links.push({ from: blockId, target, kind: "tag" }));
+  }
+
+  private persist() {
+    this.storage?.setItem(KEY, JSON.stringify(this.data));
+  }
+
+  private logEvent(blockId: string, actor: string, op: JournalEvent["op"], before: string | null, after: string, now: string) {
+    const last = [...this.data.events].reverse().find((e) => e.blockId === blockId);
+    this.data.events.push({
+      id: newId(),
+      deviceId: this.device,
+      actor,
+      blockId,
+      op,
+      before,
+      after,
+      parentEventIds: last ? [last.id] : [],
+      createdAt: now,
+    });
   }
 }

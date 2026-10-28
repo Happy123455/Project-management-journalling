@@ -6,6 +6,12 @@ const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frida
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
+/** Finds one-click timestamps in text; groups 5 and 6 are the hour and minute. */
+export const TIMESTAMP_RE = new RegExp(
+  `\\b(\\d{1,2}),(${MONTHS.join("|")}),(\\d{4}) (${WEEKDAYS.join("|")}) \\((\\d{2}):(\\d{2}):(\\d{2})\\)`,
+  "g",
+);
+
 /** One-click timestamp, e.g. "27,October,2026 Tuesday (22:04:26)". */
 export function formatTimestamp(date: Date): string {
   const day = `${date.getDate()},${MONTHS[date.getMonth()]},${date.getFullYear()}`;
