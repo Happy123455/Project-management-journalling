@@ -6,6 +6,7 @@ import { filterSlashItems, type SlashId, type SlashItem } from "../lib/slashItem
 import { formatTimestamp } from "../lib/timestamp";
 import { openCapture, pickFiles } from "./attachments";
 import { openVoiceRecorder } from "./VoiceRecorder";
+import { openMemeKit } from "./MemeKit";
 
 export interface SlashMenuOptions {
   /** Called by the Reminder tile; the app opens a day picker for a future page. */
@@ -48,6 +49,14 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
     case "voice":
       chain.run();
       openVoiceRecorder(editor);
+      return true;
+    case "meme":
+      chain.run();
+      openMemeKit(editor, "memes");
+      return true;
+    case "sound":
+      chain.run();
+      openMemeKit(editor, "sounds");
       return true;
     case "project":
       chain.run();

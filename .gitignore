@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# The meme kit is copied in by scripts/import-meme-kit.mjs (large media, not committed)
+public/meme-kit/

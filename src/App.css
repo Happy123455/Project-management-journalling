@@ -426,6 +426,19 @@ button:hover { background: var(--panel); }
 .voice-meter span { display: block; height: 100%; background: #ef4444; transform-origin: left; transition: transform 0.08s linear; }
 .voice-time { font-size: 22px; font-variant-numeric: tabular-nums; color: #ef4444; }
 
+/* Meme kit */
+.meme-kit { max-height: calc(100vh - 30px); }
+.meme-grid { overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; padding: 2px; }
+.meme-tile { position: relative; aspect-ratio: 1; padding: 0; overflow: hidden; border-radius: 12px; }
+.meme-tile img, .meme-tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.meme-name { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 4px; font-size: 10px; color: #fff; background: rgba(0, 0, 0, 0.55); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meme-badge { position: absolute; top: 4px; left: 4px; padding: 0 5px; font-size: 9px; font-weight: 700; color: #fff; background: rgba(0, 0, 0, 0.6); border-radius: 4px; }
+.meme-sounds { list-style: none; padding: 0; margin: 0; overflow-y: auto; display: grid; gap: 4px; }
+.meme-sounds li { display: flex; gap: 6px; }
+.meme-sounds li > button:only-child { width: 100%; text-align: left; }
+.meme-play { width: 38px; flex: none; border-radius: 50%; padding: 0; }
+.meme-sound-name { flex: 1; text-align: left; }
+
 /* Settings */
 .settings-view { position: fixed; inset: 0; z-index: 26; display: flex; flex-direction: column; background: var(--bg); }
 .settings-title { font-size: 18px; margin: 0; }

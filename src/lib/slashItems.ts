@@ -1,7 +1,7 @@
 export type SlashId =
   | "heading" | "task" | "bullet" | "numbered" | "quote" | "code"
   | "divider" | "timestamp" | "link" | "tag" | "reminder"
-  | "attach" | "capture" | "project" | "log" | "voice";
+  | "attach" | "capture" | "project" | "log" | "voice" | "meme" | "sound";
 
 export interface SlashItem {
   id: SlashId;
@@ -26,6 +26,8 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: "reminder", label: "Reminder", icon: "🔔", keywords: ["future", "remind", "later", "date"] },
   { id: "attach", label: "Attach", icon: "📎", keywords: ["file", "pdf", "photo", "image", "upload", "document"] },
   { id: "voice", label: "Voice", icon: "🎙", keywords: ["audio", "record", "voice note", "mic"] },
+  { id: "meme", label: "Meme", icon: "😂", keywords: ["gif", "funny", "reaction", "sticker"] },
+  { id: "sound", label: "Sound", icon: "🔊", keywords: ["audio", "effect", "clip", "sfx"] },
   { id: "project", label: "Project", icon: "📌", keywords: ["tracker", "goal", "plan", "todo"] },
   { id: "log", label: "Log", icon: "🪵", keywords: ["timestamp", "entries", "diary", "time"] },
   { id: "capture", label: "Capture", icon: "📷", keywords: ["camera", "photo", "picture", "video", "record", "qr", "scan", "barcode"] },

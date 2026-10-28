@@ -463,7 +463,12 @@ function MediaView(props: NodeViewProps) {
           <span className="attach-missing">{failed ? "Recording not found" : "Loading…"}</span>
         )
       ) : url ? (
-        <video src={url} controls playsInline preload="metadata" />
+        // Meme clips loop silently like GIFs; other videos get the normal controls.
+        name.startsWith("meme-") || /^gif-/.test(name) ? (
+          <video src={url} autoPlay loop muted playsInline />
+        ) : (
+          <video src={url} controls playsInline preload="metadata" />
+        )
       ) : (
         <span className="attach-missing">{failed ? "Video not found" : "Loading…"}</span>
       )}
@@ -507,7 +512,12 @@ function FileView({ node }: NodeViewProps) {
   return (
     <NodeViewWrapper className={`attach-file kind-${kind}`} data-drag-handle="">
       {kind === "video" && url ? (
-        <video src={url} controls playsInline preload="metadata" />
+        // Meme clips loop silently like GIFs; other videos get the normal controls.
+        name.startsWith("meme-") || /^gif-/.test(name) ? (
+          <video src={url} autoPlay loop muted playsInline />
+        ) : (
+          <video src={url} controls playsInline preload="metadata" />
+        )
       ) : (
         <button type="button" className="attach-file-card" contentEditable={false} onClick={() => void openFile(fileId)}>
           <span className="attach-file-icon">{kind === "pdf" ? "📕" : kind === "video" ? "🎥" : "📎"}</span>
