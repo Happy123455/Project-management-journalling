@@ -380,6 +380,53 @@ button:hover { background: var(--panel); }
 .search-active { display: flex; gap: 6px; margin-bottom: 8px; }
 .search-active-query { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-color: rgba(234, 179, 8, 0.6); }
 
+/* Search matches inside the open note */
+.find-hit { background: rgba(234, 179, 8, 0.35); border-radius: 3px; }
+.find-current { background: rgba(234, 179, 8, 0.85); color: #1f1d1a; box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.5); }
+.find-bar {
+  position: fixed;
+  right: 12px;
+  bottom: max(72px, calc(env(safe-area-inset-bottom) + 64px));
+  z-index: 16;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid rgba(234, 179, 8, 0.5);
+  box-shadow: inset 0 1px 0 var(--glass-rim), var(--glass-shadow);
+  animation: drop-in 0.4s var(--spring);
+}
+.find-bar button { border-radius: 999px; width: 34px; height: 34px; padding: 0; }
+.find-bar .find-close { border: none; background: transparent; box-shadow: none; }
+.find-count { font-size: 13px; padding: 0 6px; min-width: 64px; text-align: center; }
+
+/* Pull up for today */
+.pull-today {
+  position: fixed;
+  left: 50%;
+  bottom: max(24px, calc(env(safe-area-inset-bottom) + 16px));
+  z-index: 30;
+  overflow: hidden;
+  min-width: 190px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px 0 var(--glass-rim), var(--glass-shadow);
+}
+.pull-today-fill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(var(--heat-rgb), 0.35); transition: width 0.05s linear; }
+.pull-today.ready .pull-today-fill { background: rgba(var(--heat-rgb), 0.6); }
+.pull-today-text { position: relative; }
+
 /* Restore and sync actions, and the confirm card */
 .sidebar-actions { display: grid; gap: 6px; margin-top: 16px; }
 .sidebar-actions button { width: 100%; text-align: left; font-size: 13px; padding: 6px 10px; }

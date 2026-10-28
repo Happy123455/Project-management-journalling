@@ -60,12 +60,14 @@ function References({ store, kind, target, exclude, handlers, refreshKey }: {
 }
 
 /** A person, project or topic: its own notes on top, then every day that mentions it (its history). */
-export function PageView({ store, page, onBack, handlers, pageNames }: {
+export function PageView({ store, page, onBack, handlers, pageNames, find, onFindCount }: {
   store: JournalStore;
   page: NamedPage;
   onBack: () => void;
   handlers: LinkHandlers;
   pageNames: () => Promise<string[]>;
+  find?: { terms: string[]; index: number } | null;
+  onFindCount?: (count: number) => void;
 }) {
   const pending = useRef<{ content: JSONContent; plainText: string } | null>(null);
   const timer = useRef<number | undefined>(undefined);
@@ -122,6 +124,8 @@ export function PageView({ store, page, onBack, handlers, pageNames }: {
         }}
         pageNames={pageNames}
         autofocus={false}
+        find={find}
+        onFindCount={onFindCount}
       />
       </div>
       <section className="history">

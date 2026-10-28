@@ -1,0 +1,14 @@
+# Code that wry adds into its Android web view class (RustWebView) at build time.
+# It tells keyboards like Gboard that the editor takes GIFs, stickers and images, and hands
+# what they insert (commitContent) to the listener set in MainActivity.onWebViewCreate.
+[env]
+WRY_RUSTWEBVIEW_CLASS_EXTENSION = """
+    override fun onCreateInputConnection(outAttrs: android.view.inputmethod.EditorInfo): android.view.inputmethod.InputConnection? {
+        val connection = super.onCreateInputConnection(outAttrs) ?: return null
+        androidx.core.view.inputmethod.EditorInfoCompat.setContentMimeTypes(
+            outAttrs,
+            arrayOf("image/gif", "image/png", "image/jpeg", "image/webp")
+        )
+        return androidx.core.view.inputmethod.InputConnectionCompat.createWrapper(this, connection, outAttrs)
+    }
+"""

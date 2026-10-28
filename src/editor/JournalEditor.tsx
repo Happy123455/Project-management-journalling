@@ -9,6 +9,7 @@ import { LinkHighlight } from "./linkHighlight";
 import { hasEmbeds } from "../lib/embeds";
 import { AttachmentFile, AttachmentImage, AttachmentMedia, insertFiles, mediaLeafText, pasteEmbeds, upgradeOldMedia } from "./attachments";
 import { JournalCodeBlock } from "./codeBlock";
+import { FindHighlight, findKey } from "./findHighlight";
 import { KeyboardBar, useTouchDevice } from "./KeyboardBar";
 import { LinkSuggest } from "./linkSuggest";
 import { SlashMenu } from "./slashMenu";
@@ -27,6 +28,10 @@ interface Props {
   /** Names for [[ autocomplete. */
   pageNames?: () => Promise<string[]>;
   autofocus?: boolean;
+  /** Search words to highlight in this note, and which match to scroll to. */
+  find?: { terms: string[]; index: number } | null;
+  /** How many matches the note has for `find`. */
+  onFindCount?: (count: number) => void;
 }
 
 /** Formatting buttons, shared by the top toolbar (Mac) and the bar above the phone keyboard. */
@@ -105,7 +110,7 @@ function ToolbarButtons({ editor }: { editor: Editor }) {
 }
 
 export function JournalEditor({
-  initialContent, onChange, onReady, onReminder, onOpenLink, onOpenTag, pageNames, autofocus = true,
+  initialContent, onChange, onReady, onReminder, onOpenLink, onOpenTag, pageNames, autofocus = true, find, onFindCount,
 }: Props) {
   const touch = useTouchDevice();
   const editorRef = useRef<Editor | null>(null);
@@ -123,6 +128,7 @@ export function JournalEditor({
       LinkSuggest.configure({ pageNames: () => pageNames?.() ?? Promise.resolve([]) }),
       Timestamp,
       TimestampChip,
+      FindHighlight,
       SlashMenu.configure({ onReminder: () => onReminder?.() }),
     ],
     content: initialContent ?? "",
@@ -164,6 +170,17 @@ export function JournalEditor({
   });
 
   editorRef.current = editor;
+
+  // Search hits: highlight them all, mark the current one and scroll it into the middle.
+  const findTerms = find?.terms.join("\u0000") ?? "";
+  const findIndex = find?.index ?? 0;
+  useEffect(() => {
+    if (!editor) return;
+    editor.view.dispatch(editor.state.tr.setMeta(findKey, { terms: findTerms ? findTerms.split("\u0000") : [], index: findIndex }));
+    onFindCount?.(findKey.getState(editor.state)?.matches.length ?? 0);
+    if (findTerms) requestAnimationFrame(() => editor.view.dom.querySelector(".find-current")?.scrollIntoView({ block: "center", behavior: "smooth" }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, findTerms, findIndex]);
 
   // GIFs and stickers from the phone keyboard: Android hands them over natively (MainActivity),
   // and some keyboards send them as an input event carrying the file.

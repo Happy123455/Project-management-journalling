@@ -8,6 +8,8 @@ import { RestoreButton } from "./panels/Restore";
 import { SyncStatus } from "./sync/SyncStatus";
 import { useSync } from "./sync/useSync";
 import { countsByDay, SearchPanel, toResults, type SearchResult } from "./search/SearchPanel";
+import { FindBar } from "./search/FindBar";
+import { searchTerms } from "./lib/search";
 import { fileKind } from "./lib/files";
 import { mediaIdsIn } from "./lib/media";
 import { autoBackup, exportBackup } from "./backup";
@@ -18,6 +20,7 @@ import { PdfHost } from "./editor/PdfHost";
 import { PhotoHost } from "./editor/PhotoHost";
 import { showError } from "./lib/toast";
 import { Toasts } from "./Toasts";
+import { PullToToday } from "./PullToToday";
 import { extractLinks } from "./lib/links";
 import { addDays, dayKey, dayTitle } from "./lib/timestamp";
 import { countWords, docText } from "./lib/words";
@@ -27,6 +30,11 @@ import "./App.css";
 const SAVE_DELAY_MS = 800;
 /** How close to the left edge a swipe must start to open the drawer (phone). */
 const EDGE_SWIPE_PX = 32;
+/**
+ * Which panel a swipe to the right opens (a swipe to the left opens the other one).
+ * "drawer": right → Days/Links/Tags/Media drawer, left → year view. Flip to "year" to swap.
+ */
+const SWIPE_RIGHT_OPENS: "drawer" | "year" = "drawer";
 
 function App() {
   const [store, setStore] = useState<JournalStore | null>(null);
@@ -50,9 +58,11 @@ function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[] | null>(null);
+  // Matches highlighted in the note opened from search: on which day/page, and which is current.
+  const [find, setFind] = useState<{ where: string; terms: string[]; index: number; count: number } | null>(null);
   // The current day's document, kept up to date while typing (for the Media tab).
   const [content, setContent] = useState<JSONContent | null>(null);
-  const swipe = useRef<{ x: number; y: number } | null>(null);
+  const swipe = useRef<{ x: number; y: number; onBar: boolean } | null>(null);
   const pending = useRef<{ day: string; content: JSONContent; plainText: string } | null>(null);
   const timer = useRef<number | undefined>(undefined);
 
@@ -135,6 +145,18 @@ function App() {
     }
   };
 
+  // Scrolling down into the writing area shrinks the month to its week.
+  useEffect(() => {
+    let lastY = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      if (y > lastY && y > 60) setCalendarCollapsed(true);
+      lastY = y;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   const dayYear = Number(day.slice(0, 4));
   useEffect(() => {
     if (!store) return;
@@ -179,10 +201,11 @@ function App() {
     [day, flush],
   );
 
-  const goTo = async (next: string) => {
+  const goTo = async (next: string, keepFind = false) => {
     await flush();
     setDay(next);
     setRoute({ kind: "day" });
+    if (!keepFind) setFind(null);
   };
 
   const handlers: LinkHandlers = {
@@ -229,7 +252,8 @@ function App() {
   // Phone gestures: swipe right from the left edge opens the drawer; swipe left closes it,
   // or (with the drawer closed) slides the year view in from the right.
   const onTouchStart = (e: TouchEvent) => {
-    swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    const onBar = !!(e.target as HTMLElement).closest?.(".month-calendar");
+    swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, onBar };
   };
   const onTouchEnd = (e: TouchEvent) => {
     const start = swipe.current;
@@ -239,8 +263,10 @@ function App() {
     const dy = e.changedTouches[0].clientY - start.y;
     if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
     if (drawerOpen) return dx < 0 && setDrawerOpen(false);
-    if (dx > 0 && start.x < EDGE_SWIPE_PX) return setDrawerOpen(true);
-    if (dx < 0 && route.kind === "day") openYear();
+    // On the calendar bar a swipe works from anywhere; elsewhere the drawer needs an edge swipe.
+    const opens = dx > 0 ? SWIPE_RIGHT_OPENS : SWIPE_RIGHT_OPENS === "drawer" ? "year" : "drawer";
+    if (opens === "drawer" && (start.onBar || (dx > 0 && start.x < EDGE_SWIPE_PX))) return setDrawerOpen(true);
+    if (opens === "year" && route.kind === "day") openYear();
   };
 
   useEffect(() => {
@@ -271,9 +297,10 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const openHit = async (hit: SearchHit) => {
+  const openHit = async (hit: SearchHit, match: number) => {
     setSearchOpen(false);
-    if (hit.kind === "day" && hit.day) return goTo(hit.day);
+    if (hit.kind !== "file") setFind({ where: hit.day ?? `page:${hit.title}`, terms: searchTerms(query), index: match, count: 0 });
+    if (hit.kind === "day" && hit.day) return goTo(hit.day, true);
     if (hit.kind === "page" && hit.title) return handlers.onOpenLink(hit.title);
     if (hit.kind === "file") {
       const kind = fileKind(hit.file.mime);
@@ -322,6 +349,8 @@ function App() {
             onBack={() => setRoute({ kind: "day" })}
             handlers={handlers}
             pageNames={pageNames}
+            find={find?.where === `page:${route.page.title}` ? find : null}
+            onFindCount={(count) => setFind((f) => (f && f.count !== count ? { ...f, count, index: Math.min(f.index, Math.max(0, count - 1)) } : f))}
           />
         ) : route.kind === "tag" && store ? (
           <TagView store={store} tag={route.tag} onBack={() => setRoute({ kind: "day" })} handlers={handlers} />
@@ -371,7 +400,9 @@ function App() {
             {page === undefined ? (
               <p className="loading">Loading…</p>
             ) : (
-              <div onFocus={() => setCalendarCollapsed(true)}>
+              // Only a real tap into the text shrinks the calendar; opening a day (which focuses
+              // the editor by itself) keeps the month open.
+              <div onPointerDown={() => setCalendarCollapsed(true)}>
                 <JournalEditor
                   key={day}
                   initialContent={page?.content ?? null}
@@ -381,6 +412,8 @@ function App() {
                   onOpenLink={handlers.onOpenLink}
                   onOpenTag={handlers.onOpenTag}
                   pageNames={pageNames}
+                  find={find?.where === day ? find : null}
+                  onFindCount={(count) => setFind((f) => (f && f.where === day && f.count !== count ? { ...f, count, index: Math.min(f.index, Math.max(0, count - 1)) } : f))}
                 />
               </div>
             )}
@@ -410,10 +443,15 @@ function App() {
 
       {searchOpen && <SearchPanel query={query} onQuery={setQuery} results={results} onPick={openHit} onClose={() => setSearchOpen(false)} />}
 
+      {find && find.where === (route.kind === "page" ? `page:${route.page.title}` : route.kind === "day" ? day : "") && (
+        <FindBar index={find.index} count={find.count} onMove={(index) => setFind({ ...find, index })} onClose={() => setFind(null)} />
+      )}
+
       <PdfHost />
       <CaptureHost />
       <PhotoHost />
       <Toasts />
+      <PullToToday enabled={route.kind === "day" && day !== today && !yearOpen && !drawerOpen} onToday={() => void goTo(today)} />
 
       <YearPanel
         year={yearShown}
