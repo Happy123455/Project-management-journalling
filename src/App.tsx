@@ -13,6 +13,7 @@ import { GraphView } from "./graph/GraphView";
 import { NewProject } from "./projects/NewProject";
 import { SettingsPanel } from "./settings/SettingsPanel";
 import { ReadAloudPlayer } from "./ReadAloudPlayer";
+import { repairLostLinks } from "./lib/repairLinks";
 import { ChatView } from "./ChatView";
 import { VoiceRecorder } from "./editor/VoiceRecorder";
 import { MemeKit } from "./editor/MemeKit";
@@ -74,6 +75,9 @@ function App() {
   const [find, setFind] = useState<{ where: string; terms: string[]; index: number; count: number } | null>(null);
   // The current day's document, kept up to date while typing (for the Media tab).
   const [content, setContent] = useState<JSONContent | null>(null);
+  // The day `page` and `content` were loaded for: the editor waits until it matches `day`, so it is
+  // never created for one day with another day's text.
+  const [loadedDay, setLoadedDay] = useState<string | null>(null);
   const swipe = useRef<{ x: number; y: number; onBar: boolean } | null>(null);
   const pending = useRef<{ day: string; content: JSONContent; plainText: string } | null>(null);
   const timer = useRef<number | undefined>(undefined);
@@ -82,6 +86,9 @@ function App() {
     openStore()
       .then((s) => {
         setAttachmentStore(s);
+        // Maintenance from the dev tools: restore [[links]] lost to the stale-reopen bug.
+        (window as unknown as { __journalRepairLinks?: (dryRun?: boolean) => unknown }).__journalRepairLinks = (dryRun = true) =>
+          repairLostLinks(s, undefined, dryRun);
         setStore(s);
       })
       .catch((e) => showError("Could not open the journal", e));
@@ -118,6 +125,7 @@ function App() {
       if (cancelled) return;
       setPage(p);
       setContent(p?.content ?? null);
+      setLoadedDay(day);
     });
     return () => {
       cancelled = true;
@@ -463,7 +471,7 @@ function App() {
               <Upcoming pages={reminders.filter((r) => r.day > today && r.day !== day).slice(0, 5)} onPick={goTo} />
             )}
 
-            {page === undefined ? (
+            {page === undefined || loadedDay !== day ? (
               <p className="loading">Loading…</p>
             ) : (
               // Only a real tap into the text shrinks the calendar; opening a day (which focuses
@@ -471,7 +479,9 @@ function App() {
               <div onPointerDown={() => setCalendarCollapsed(true)}>
                 <JournalEditor
                   key={`${day}:${pageVersion}`}
-                  initialContent={page?.content ?? null}
+                  // The latest text, not the copy loaded when the day opened: coming back from a
+                  // linked page (or search, tags…) remounts the editor and must show what was typed.
+                  initialContent={content}
                   onChange={onChange}
                   onReminder={pickReminderDay}
                   onReady={(t) => {
