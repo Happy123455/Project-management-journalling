@@ -12,4 +12,15 @@
             android:targetPackage="com.hapi.dynamicjournal"
             android:targetClass="com.hapi.dynamicjournal.MainActivity" />
     </shortcut>
+    <shortcut
+        android:shortcutId="circle_capture"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/circle_capture"
+        android:shortcutLongLabel="@string/circle_capture">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.hapi.dynamicjournal"
+            android:targetClass="com.hapi.dynamicjournal.CaptureActivity" />
+    </shortcut>
 </shortcuts>
