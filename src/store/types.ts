@@ -55,6 +55,14 @@ export interface SaveFileInput {
   actor?: string;
 }
 
+/** One link for the graph: a day or named page that links to a page or carries a tag. */
+export interface GraphLink {
+  day: string | null;
+  title: string | null;
+  target: string;
+  kind: LinkKind;
+}
+
 /** A day or page whose text contains every search word, or a file whose name does. */
 export type SearchHit =
   | { kind: "day" | "page"; blockId: string; day: string | null; title: string | null; text: string }
@@ -99,6 +107,8 @@ export interface JournalStore {
   savePage(input: { id: string; content: JSONContent; plainText: string; actor?: string }): Promise<NamedPage>;
   /** Pages and days that link to `target` or carry the tag `target` (any letter case), newest day first. */
   references(kind: LinkKind, target: string): Promise<Reference[]>;
+  /** Every link and tag in the journal, with the day or page it's on. */
+  graphLinks(): Promise<GraphLink[]>;
   /** Every page name known: named pages plus everything [[linked]] so far, for autocomplete. */
   pageNames(): Promise<string[]>;
   /** Stores an attachment (with a create event); the same bytes stored twice give back the first record. */

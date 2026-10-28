@@ -218,4 +218,16 @@ describe("MemoryStore", () => {
     expect(hits.map((h) => (h.kind === "file" ? h.file.name : (h.day ?? h.title)))).toEqual(["2026-10-25", "2026-10-20", "Plan B", "ravi_plan.pdf"]);
     expect(await store.search("   ")).toEqual([]);
   });
+
+  it("lists every link and tag with where it is, for the graph", async () => {
+    const store = new MemoryStore(undefined, "phone");
+    await store.saveDay({ day: "2026-10-20", content: doc("x"), plainText: "met [[Ravi]] #work" });
+    const p = await store.ensurePage("Ravi");
+    await store.savePage({ id: p.id, content: doc("y"), plainText: "see [[Project X]]" });
+    expect((await store.graphLinks()).sort((a, b) => a.target.localeCompare(b.target))).toEqual([
+      { day: null, title: "Ravi", target: "Project X", kind: "wikilink" },
+      { day: "2026-10-20", title: null, target: "Ravi", kind: "wikilink" },
+      { day: "2026-10-20", title: null, target: "work", kind: "tag" },
+    ]);
+  });
 });

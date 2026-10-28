@@ -380,6 +380,38 @@ button:hover { background: var(--panel); }
 .search-active { display: flex; gap: 6px; margin-bottom: 8px; }
 .search-active-query { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-color: rgba(234, 179, 8, 0.6); }
 
+/* Graph view */
+.graph-view { position: fixed; inset: 0; z-index: 25; display: flex; flex-direction: column; background: var(--bg); animation: drop-in 0.35s var(--spring); }
+.graph-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: max(10px, calc(env(safe-area-inset-top) + 6px)) 12px 8px;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--glass-edge);
+}
+.graph-layouts { display: flex; gap: 4px; }
+.graph-layouts button.active { color: rgb(var(--heat-rgb)); border-color: rgb(var(--heat-rgb)); }
+.graph-legend { margin-left: auto; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.graph-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-left: 6px; }
+.graph-legend-days { background: conic-gradient(hsl(220 75% 60%), hsl(310 75% 60%), hsl(40 75% 60%), hsl(130 75% 60%), hsl(220 75% 60%)); }
+.graph-canvas { flex: 1; width: 100%; touch-action: none; cursor: grab; }
+.graph-empty { position: absolute; top: 45%; left: 24px; right: 24px; text-align: center; color: var(--muted); }
+.graph-time {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px max(12px, env(safe-area-inset-bottom));
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-top: 1px solid var(--glass-edge);
+}
+.graph-time input { flex: 1; accent-color: rgb(var(--heat-rgb)); }
+.graph-date { font-size: 12px; color: var(--muted); min-width: 76px; text-align: right; }
+
 /* Search matches inside the open note */
 .find-hit { background: rgba(234, 179, 8, 0.35); border-radius: 3px; }
 .find-current { background: rgba(234, 179, 8, 0.85); color: #1f1d1a; box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.5); }

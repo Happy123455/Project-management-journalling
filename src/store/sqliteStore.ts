@@ -240,6 +240,18 @@ export class SqliteStore implements JournalStore {
     }));
   }
 
+  async graphLinks() {
+    const rows = await this.db.select<{ type: string; day: string | null; props: string; target: string; kind: "wikilink" | "tag" }[]>(
+      "SELECT b.type, b.day, b.props, l.target, l.kind FROM links l JOIN blocks b ON b.id = l.from_block",
+    );
+    return rows.map((r) => ({
+      day: r.type === "day" ? r.day : null,
+      title: r.type === "page" ? JSON.parse(r.props).title : null,
+      target: r.target,
+      kind: r.kind,
+    }));
+  }
+
   async pageNames() {
     const rows = await this.db.select<{ name: string }[]>(
       `SELECT json_extract(props, '$.title') AS name FROM blocks WHERE type = 'page'

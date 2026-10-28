@@ -9,6 +9,7 @@ import { SyncStatus } from "./sync/SyncStatus";
 import { useSync } from "./sync/useSync";
 import { countsByDay, SearchPanel, toResults, type SearchResult } from "./search/SearchPanel";
 import { FindBar } from "./search/FindBar";
+import { GraphView } from "./graph/GraphView";
 import { searchTerms } from "./lib/search";
 import { fileKind } from "./lib/files";
 import { mediaIdsIn } from "./lib/media";
@@ -50,6 +51,7 @@ function App() {
   // What the main area shows: today's/any day's page, a named page, or a tag.
   const [route, setRoute] = useState<{ kind: "day" } | { kind: "page"; page: NamedPage } | { kind: "tag"; tag: string }>({ kind: "day" });
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
   // Bumped when another device's changes arrive, so lists and calendars reload.
   const [syncTick, setSyncTick] = useState(0);
   // Bumped to reopen the current page in the editor with what arrived (only when not typing).
@@ -335,6 +337,7 @@ function App() {
         <h2>Days</h2>
         <DaysList days={days} day={day} today={today} onPick={goTo} />
         <div className="sidebar-actions">
+          <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))}>🕸 Graph view</button>
           <SyncStatus status={sync.status} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
           <RestoreButton store={store} onBeforeRestore={flush} />
         </div>
@@ -436,6 +439,7 @@ function App() {
         />
         {infoTabs}
         <div className="sidebar-actions">
+          <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))}>🕸 Graph view</button>
           <SyncStatus status={sync.status} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
           <RestoreButton store={store} onBeforeRestore={flush} />
         </div>
@@ -445,6 +449,19 @@ function App() {
 
       {find && find.where === (route.kind === "page" ? `page:${route.page.title}` : route.kind === "day" ? day : "") && (
         <FindBar index={find.index} count={find.count} onMove={(index) => setFind({ ...find, index })} onClose={() => setFind(null)} />
+      )}
+
+      {graphOpen && store && (
+        <GraphView
+          store={store}
+          onClose={() => setGraphOpen(false)}
+          onOpen={(n) => {
+            setGraphOpen(false);
+            if (n.kind === "day" && n.day) void goTo(n.day);
+            else if (n.kind === "tag") void handlers.onOpenTag(n.label.replace(/^#/, ""));
+            else void handlers.onOpenLink(n.label);
+          }}
+        />
       )}
 
       <PdfHost />

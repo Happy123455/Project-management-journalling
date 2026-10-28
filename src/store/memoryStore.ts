@@ -165,6 +165,16 @@ export class MemoryStore implements JournalStore {
     return refs.sort((a, b) => (b.day ?? "").localeCompare(a.day ?? ""));
   }
 
+  async graphLinks() {
+    const byId = new Map<string, { day: string | null; title: string | null }>();
+    for (const p of Object.values(this.data.pages)) byId.set(p.id, { day: p.day, title: null });
+    for (const p of Object.values(this.named)) byId.set(p.id, { day: null, title: p.title });
+    return this.data.links.flatMap((l) => {
+      const where = byId.get(l.from);
+      return where ? [{ ...where, target: l.target, kind: l.kind }] : [];
+    });
+  }
+
   async pageNames() {
     const names = [...Object.values(this.named).map((p) => p.title), ...this.data.links.filter((l) => l.kind === "wikilink").map((l) => l.target)];
     return uniqueNames(names);
