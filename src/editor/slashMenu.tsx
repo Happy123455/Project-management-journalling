@@ -5,6 +5,7 @@ import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from "@
 import { filterSlashItems, type SlashId, type SlashItem } from "../lib/slashItems";
 import { formatTimestamp } from "../lib/timestamp";
 import { openCapture, pickFiles } from "./attachments";
+import { openVoiceRecorder } from "./VoiceRecorder";
 
 export interface SlashMenuOptions {
   /** Called by the Reminder tile; the app opens a day picker for a future page. */
@@ -43,6 +44,10 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
     case "capture":
       chain.run();
       openCapture(editor);
+      return true;
+    case "voice":
+      chain.run();
+      openVoiceRecorder(editor);
       return true;
     case "project":
       chain.run();

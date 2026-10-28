@@ -403,6 +403,16 @@ button:hover { background: var(--panel); }
 .project-dot.status-paused { background: #f59e0b; }
 .project-name-input { width: 100%; font: inherit; font-size: 16px; padding: 8px 10px; margin-bottom: 8px; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; }
 
+/* Voice notes and sounds */
+.audio-note { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-edge); line-height: 1.2; }
+.audio-note audio { height: 34px; max-width: 100%; }
+.audio-icon { font-size: 18px; }
+.attach-image.align-inline .audio-note { min-width: 220px; }
+.voice-card { text-align: center; }
+.voice-meter { height: 10px; border-radius: 999px; background: var(--border); overflow: hidden; margin: 12px 0; }
+.voice-meter span { display: block; height: 100%; background: #ef4444; transform-origin: left; transition: transform 0.08s linear; }
+.voice-time { font-size: 22px; font-variant-numeric: tabular-nums; color: #ef4444; }
+
 /* Settings */
 .settings-view { position: fixed; inset: 0; z-index: 26; display: flex; flex-direction: column; background: var(--bg); }
 .settings-title { font-size: 18px; margin: 0; }

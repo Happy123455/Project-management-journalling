@@ -12,6 +12,7 @@ import { FindBar } from "./search/FindBar";
 import { GraphView } from "./graph/GraphView";
 import { NewProject } from "./projects/NewProject";
 import { SettingsPanel } from "./settings/SettingsPanel";
+import { VoiceRecorder } from "./editor/VoiceRecorder";
 import { ProjectList } from "./projects/ProjectPanel";
 import { searchTerms } from "./lib/search";
 import { fileKind } from "./lib/files";
@@ -545,6 +546,7 @@ function App() {
       )}
 
       <NewProject store={store} />
+      <VoiceRecorder />
       {settingsOpen && <SettingsPanel store={store} onClose={() => setSettingsOpen(false)} />}
       <PdfHost />
       <CaptureHost />

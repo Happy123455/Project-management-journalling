@@ -65,7 +65,7 @@ async function openFile(id: string) {
 export function mediaNode(r: FileRecord) {
   const kind = fileKind(r.mime);
   if (kind === "image") return { type: "attachmentImage", attrs: { fileId: r.id, name: r.name, align: "inline" } };
-  if (kind === "video" || kind === "pdf") return { type: "attachmentMedia", attrs: { fileId: r.id, kind, name: r.name, mime: r.mime, size: r.size, align: "inline" } };
+  if (kind === "video" || kind === "pdf" || kind === "audio") return { type: "attachmentMedia", attrs: { fileId: r.id, kind, name: r.name, mime: r.mime, size: r.size, align: "inline" } };
   return { type: "attachmentFile", attrs: { fileId: r.id, name: r.name, mime: r.mime, size: r.size } };
 }
 
@@ -444,12 +444,21 @@ function PdfPreview({ fileId, name }: { fileId: string; name: string }) {
 }
 
 function MediaView(props: NodeViewProps) {
-  const { fileId, kind, name } = props.node.attrs as { fileId: string; kind: "video" | "pdf"; name: string };
-  const { url, failed } = useFileUrl(kind === "video" ? fileId : null);
+  const { fileId, kind, name } = props.node.attrs as { fileId: string; kind: "video" | "pdf" | "audio"; name: string };
+  const { url, failed } = useFileUrl(kind === "video" || kind === "audio" ? fileId : null);
   return (
     <PlacedMedia {...props}>
       {kind === "pdf" ? (
         <PdfPreview fileId={fileId} name={name} />
+      ) : kind === "audio" ? (
+        url ? (
+          <span className="audio-note">
+            <span className="audio-icon">{name.startsWith("sound-") ? "🔊" : "🎙"}</span>
+            <audio src={url} controls preload="metadata" />
+          </span>
+        ) : (
+          <span className="attach-missing">{failed ? "Recording not found" : "Loading…"}</span>
+        )
       ) : url ? (
         <video src={url} controls playsInline preload="metadata" />
       ) : (
