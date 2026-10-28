@@ -75,6 +75,15 @@ export type SearchHit =
   | { kind: "day" | "page"; blockId: string; day: string | null; title: string | null; text: string }
   | { kind: "file"; file: FileRecord };
 
+/** An edit an AI made (actor is the AI's name), for the "AI changes" list. */
+export interface AiChange {
+  event: JournalEvent;
+  day: string | null;
+  title: string | null;
+  /** Nothing has changed the note since, so Undo can put back exactly what was there. */
+  undoable: boolean;
+}
+
 /** One entry in the append-only timeline. Sync and the nexus view build on this. */
 export interface JournalEvent {
   id: string;
@@ -118,6 +127,13 @@ export interface JournalStore {
   projects(): Promise<NamedPage[]>;
   /** Pages and days that link to `target` or carry the tag `target` (any letter case), newest day first. */
   references(kind: LinkKind, target: string): Promise<Reference[]>;
+  /** Edits made by AIs (any actor other than "me"), newest first. */
+  aiChanges(limit?: number): Promise<AiChange[]>;
+  /**
+   * Undoes an AI edit by putting back the note as it was before it (as a new "me" event), when
+   * nothing changed the note since. Returns false when it can't.
+   */
+  undoAiChange(eventId: string): Promise<boolean>;
   /** Every link and tag in the journal, with the day or page it's on. */
   graphLinks(): Promise<GraphLink[]>;
   /** Every page name known: named pages plus everything [[linked]] so far, for autocomplete. */

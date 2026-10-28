@@ -220,16 +220,29 @@ function App() {
   }, [flush]);
 
   const onChange = useCallback(
-    (content: JSONContent, plainText: string) => {
-      pending.current = { day, content, plainText };
+    (content: JSONContent, plainText: string, actor?: string) => {
+      if (actor && store) {
+        // An AI edit is saved at once as its own event (under the AI's name), after anything
+        // typed before it, so it can be listed and undone on its own.
+        const before = pending.current;
+        pending.current = null;
+        window.clearTimeout(timer.current);
+        void (async () => {
+          if (before) await store.saveDay(before);
+          await store.saveDay({ day, content, plainText, actor });
+          setStatus("Saved");
+        })().catch((e) => showError("Save failed", e));
+      } else {
+        pending.current = { day, content, plainText };
+      }
       setContent(content);
       setText(plainText);
       setCounts((prev) => ({ ...prev, [day]: countWords(plainText) }));
       setStatus("Editing…");
       window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => void flush(), SAVE_DELAY_MS);
+      if (!actor) timer.current = window.setTimeout(() => void flush(), SAVE_DELAY_MS);
     },
-    [day, flush],
+    [day, flush, store],
   );
 
   const goTo = async (next: string, keepFind = false) => {

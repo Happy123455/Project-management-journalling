@@ -115,10 +115,21 @@ export function PageView({ store, page, onBack, handlers, pageNames, find, onFin
       <JournalEditor
         key={page.id}
         initialContent={page.content}
-        onChange={(content, plainText) => {
+        onChange={(content, plainText, actor) => {
+          window.clearTimeout(timer.current);
+          if (actor) {
+            // AI edits are saved at once as their own event, after anything typed before them.
+            const before = pending.current;
+            pending.current = null;
+            void (async () => {
+              if (before) await store.savePage({ id: page.id, ...before });
+              await store.savePage({ id: page.id, content, plainText, actor });
+              setSaves((n) => n + 1);
+            })().catch((e) => showError("Save failed", e));
+            return;
+          }
           pending.current = { content, plainText };
           setStatus("Editing…");
-          window.clearTimeout(timer.current);
           timer.current = window.setTimeout(() => void flush(), SAVE_DELAY_MS);
         }}
         onOpenLink={async (t) => {

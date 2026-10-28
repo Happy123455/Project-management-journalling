@@ -269,6 +269,33 @@ export class SqliteStore implements JournalStore {
     }));
   }
 
+  async aiChanges(limit = 50) {
+    const rows = await this.db.select<(EventRow & { type: string | null; day: string | null; props: string | null; latest_id: string | null })[]>(
+      `SELECT e.*, b.type, b.day, b.props,
+              (SELECT l.id FROM events l WHERE l.block_id = e.block_id AND l.op IN ('create', 'update')
+               ORDER BY l.created_at DESC, l.rowid DESC LIMIT 1) AS latest_id
+       FROM events e LEFT JOIN blocks b ON b.id = e.block_id
+       WHERE e.actor != 'me' AND e.op IN ('create', 'update')
+       ORDER BY e.created_at DESC, e.rowid DESC LIMIT $1`,
+      [limit],
+    );
+    return rows.map((r) => ({
+      event: toEvent(r),
+      day: r.type === "day" ? r.day : null,
+      title: r.type === "page" && r.props ? JSON.parse(r.props).title : null,
+      undoable: r.latest_id === r.id,
+    }));
+  }
+
+  async undoAiChange(eventId: string) {
+    const change = (await this.aiChanges(1000)).find((c) => c.event.id === eventId);
+    if (!change?.undoable) return false;
+    const content = change.event.before ? eventDocument(change.event.before) : { type: "doc", content: [{ type: "paragraph" }] };
+    if (change.day) await this.saveDay({ day: change.day, content, plainText: docText(content) });
+    else await this.savePage({ id: change.event.blockId, content, plainText: docText(content) });
+    return true;
+  }
+
   async graphLinks() {
     const rows = await this.db.select<{ type: string; day: string | null; props: string; target: string; kind: "wikilink" | "tag" }[]>(
       "SELECT b.type, b.day, b.props, l.target, l.kind FROM links l JOIN blocks b ON b.id = l.from_block",

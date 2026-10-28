@@ -20,7 +20,8 @@ import { TimestampChip } from "./timestampChip";
 
 interface Props {
   initialContent: JSONContent | null;
-  onChange: (content: JSONContent, plainText: string) => void;
+  /** `actor` is set when the change came from an AI (the transaction's "aiActor" meta). */
+  onChange: (content: JSONContent, plainText: string, actor?: string) => void;
   onReady?: (plainText: string) => void;
   /** The "/" menu's Reminder tile: let the user pick a future day to write on. */
   onReminder?: () => void;
@@ -168,7 +169,8 @@ export function JournalEditor({
       onReady?.(editor.getText({ blockSeparator: "\n" }));
       upgradeOldMedia(editor);
     },
-    onUpdate: ({ editor }) => onChange(editor.getJSON(), editor.getText({ blockSeparator: "\n" })),
+    onUpdate: ({ editor, transaction }) =>
+      onChange(editor.getJSON(), editor.getText({ blockSeparator: "\n" }), transaction.getMeta("aiActor") as string | undefined),
   });
 
   editorRef.current = editor;

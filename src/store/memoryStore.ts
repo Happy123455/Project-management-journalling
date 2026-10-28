@@ -188,6 +188,37 @@ export class MemoryStore implements JournalStore {
     return refs.sort((a, b) => (b.day ?? "").localeCompare(a.day ?? ""));
   }
 
+  async aiChanges(limit = 50) {
+    const latest = new Map<string, string>();
+    for (const e of this.data.events) if (e.op === "create" || e.op === "update") latest.set(e.blockId, e.id);
+    return [...this.data.events]
+      .reverse()
+      .filter((e) => e.actor !== "me" && (e.op === "create" || e.op === "update"))
+      .slice(0, limit)
+      .map((event) => {
+        const meta = this.metaFor(event.blockId);
+        return {
+          event,
+          day: meta?.kind === "block" && meta.type === "day" ? meta.day : null,
+          title: meta?.kind === "block" && meta.type === "page" ? meta.title : null,
+          undoable: latest.get(event.blockId) === event.id,
+        };
+      });
+  }
+
+  async undoAiChange(eventId: string) {
+    const change = (await this.aiChanges(Infinity)).find((c) => c.event.id === eventId);
+    if (!change?.undoable) return false;
+    const content = change.event.before ? eventDocument(change.event.before) : { type: "doc", content: [{ type: "paragraph" }] };
+    if (change.day) await this.saveDay({ day: change.day, content, plainText: docText(content) });
+    else {
+      const page = Object.values(this.named).find((p) => p.id === change.event.blockId);
+      if (!page) return false;
+      await this.savePage({ id: page.id, content, plainText: docText(content) });
+    }
+    return true;
+  }
+
   async graphLinks() {
     const byId = new Map<string, { day: string | null; title: string | null }>();
     for (const p of Object.values(this.data.pages)) byId.set(p.id, { day: p.day, title: null });

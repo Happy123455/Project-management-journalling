@@ -242,4 +242,20 @@ describe("MemoryStore", () => {
     expect(await store.projects()).toEqual([]);
     expect((await store.eventsFor(p.id)).map((e) => e.op)).toEqual(["create", "props", "props"]);
   });
+
+  it("lists AI edits and undoes one when nothing changed since", async () => {
+    const store = new MemoryStore(undefined, "phone");
+    await store.saveDay({ day: "2026-10-28", content: doc("teh cat"), plainText: "teh cat" });
+    await store.saveDay({ day: "2026-10-28", content: doc("the cat"), plainText: "the cat", actor: "Gemini" });
+    const [change] = await store.aiChanges();
+    expect(change).toMatchObject({ day: "2026-10-28", undoable: true, event: { actor: "Gemini", op: "update" } });
+
+    expect(await store.undoAiChange(change.event.id)).toBe(true);
+    expect((await store.getDay("2026-10-28"))?.content).toEqual(doc("teh cat"));
+    const ops = (await store.eventsFor(change.event.blockId)).map((e) => `${e.actor}:${e.op}`);
+    expect(ops).toEqual(["me:create", "Gemini:update", "me:update"]);
+    // Already undone (the note changed since): can't undo again.
+    expect((await store.aiChanges())[0].undoable).toBe(false);
+    expect(await store.undoAiChange(change.event.id)).toBe(false);
+  });
 });
