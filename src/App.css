@@ -1068,3 +1068,4 @@ button:hover { background: var(--glass-strong); }
 .prompt-preview { white-space: pre-wrap; font: inherit; margin: 8px 0 0; padding: 8px; border-radius: 8px; background: rgba(127, 127, 127, 0.1); }
 .prompt-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 8px; }
 .prompt-actions .hint { margin-right: auto; }
+.settings-code { white-space: pre-wrap; word-break: break-all; font-size: 0.8rem; background: var(--panel); padding: 10px; border-radius: 10px; user-select: text; }

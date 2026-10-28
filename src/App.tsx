@@ -14,6 +14,7 @@ import { NewProject } from "./projects/NewProject";
 import { SettingsPanel } from "./settings/SettingsPanel";
 import { ReadAloudPlayer } from "./ReadAloudPlayer";
 import { repairLostLinks } from "./lib/repairLinks";
+import { mcpAvailable, mcpEnabled, setMcpServer } from "./mcp";
 import { ChatView } from "./ChatView";
 import { NexusView, type NexusTarget } from "./NexusView";
 import { openVoiceRecorder, VoiceRecorder } from "./editor/VoiceRecorder";
@@ -89,6 +90,8 @@ function App() {
     openStore()
       .then((s) => {
         setAttachmentStore(s);
+        // Mac: the MCP server for Claude Desktop, if it was left on.
+        if (mcpAvailable() && mcpEnabled()) void setMcpServer(s, true).catch((e) => showError("Couldn't start the MCP server", e));
         // Maintenance from the dev tools: restore [[links]] lost to the stale-reopen bug.
         (window as unknown as { __journalRepairLinks?: (dryRun?: boolean) => unknown }).__journalRepairLinks = (dryRun = true) =>
           repairLostLinks(s, undefined, dryRun);
@@ -96,6 +99,11 @@ function App() {
       })
       .catch((e) => showError("Could not open the journal", e));
   }, []);
+
+  // MCP writes save what's being typed first (src/mcp.ts).
+  useEffect(() => {
+    window.__journalFlush = flush;
+  });
 
   const sync = useSync(store, () => {
     setSyncTick((n) => n + 1);

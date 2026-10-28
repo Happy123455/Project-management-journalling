@@ -37,6 +37,8 @@ ureq = "3"
 bzip2 = "0.5"
 tar = "0.4"
 rodio = { version = "0.21", default-features = false, features = ["playback"] }
+# The journal's MCP server for Claude Desktop (localhost only, off by default).
+tiny_http = "0.12"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

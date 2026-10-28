@@ -7,6 +7,7 @@ import { dayTitle } from "../lib/timestamp";
 import { KOKORO_EN_VOICES, MODEL_NAMES, onVoiceProgress, readAloud, voiceAction, voiceInfo, type VoiceInfo, type VoiceProgress } from "../lib/readAloud";
 import { showError, showToast } from "../lib/toast";
 import type { AiChange, JournalStore } from "../store";
+import { mcpAvailable, mcpEnabled, setMcpServer } from "../mcp";
 
 const money = (usd: number) => (usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`);
 
@@ -177,6 +178,44 @@ function ReadAloudSettings() {
   );
 }
 
+/** Mac: the journal as an MCP server, so Claude Desktop can read it and add to it. */
+function McpSettings({ store }: { store: JournalStore | null }) {
+  const [on, setOn] = useState(mcpEnabled);
+  if (!mcpAvailable() || !store) return null;
+  const config = JSON.stringify({ mcpServers: { journal: { command: "npx", args: ["-y", "mcp-remote", "http://127.0.0.1:39477/mcp"] } } }, null, 2);
+  return (
+    <section className="settings-section">
+      <h2>MCP server (Claude Desktop)</h2>
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={async (e) => {
+            const next = e.target.checked;
+            try {
+              await setMcpServer(store, next);
+              setOn(next);
+            } catch (err) {
+              showError("Couldn't start the MCP server", err);
+            }
+          }}
+        />
+        Let Claude Desktop read and add to this journal
+      </label>
+      <p className="hint">
+        Only this Mac can connect (127.0.0.1:39477), and only while the app is open. Tools: today, read a day or page, search,
+        list days, and append. Anything it adds is saved under its name and listed in AI changes below, with Undo.
+      </p>
+      {on && (
+        <>
+          <div className="settings-label">Add this to Claude Desktop → Settings → Developer → Edit Config, then restart Claude:</div>
+          <pre className="settings-code">{config}</pre>
+        </>
+      )}
+    </section>
+  );
+}
+
 /** Android: the floating bubble over other apps. */
 function BubbleSettings() {
   const bubble = window.JournalBubble;
@@ -260,6 +299,7 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
         </section>
 
         <BubbleSettings />
+        <McpSettings store={store} />
 
         <section className="settings-section">
           <h2>Read aloud</h2>

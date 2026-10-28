@@ -72,6 +72,9 @@ fn migrations() -> Vec<Migration> {
 mod kokoro;
 
 #[cfg(desktop)]
+mod mcp;
+
+#[cfg(desktop)]
 mod secrets {
     const SERVICE: &str = "com.hapi.dynamicjournal";
 
@@ -132,7 +135,10 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         kokoro::remove_voice,
         kokoro::download_voice,
         kokoro::speak,
-        kokoro::stop_speech
+        kokoro::stop_speech,
+        mcp::mcp_start,
+        mcp::mcp_stop,
+        mcp::mcp_reply
     ]
 }
 
