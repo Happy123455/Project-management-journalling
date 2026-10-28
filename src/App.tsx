@@ -15,6 +15,7 @@ import { SettingsPanel } from "./settings/SettingsPanel";
 import { ReadAloudPlayer } from "./ReadAloudPlayer";
 import { repairLostLinks } from "./lib/repairLinks";
 import { ChatView } from "./ChatView";
+import { NexusView, type NexusTarget } from "./NexusView";
 import { openVoiceRecorder, VoiceRecorder } from "./editor/VoiceRecorder";
 import { MemeKit } from "./editor/MemeKit";
 import { ProjectList } from "./projects/ProjectPanel";
@@ -35,6 +36,7 @@ import { extractLinks } from "./lib/links";
 import { addDays, dayKey, dayTitle } from "./lib/timestamp";
 import { countWords, docText } from "./lib/words";
 import { openStore, type DayPage, type JournalStore, type NamedPage, type SearchHit } from "./store";
+import { dayBlockId } from "./store/ids";
 import "./App.css";
 
 const SAVE_DELAY_MS = 800;
@@ -61,6 +63,7 @@ function App() {
   const [route, setRoute] = useState<{ kind: "day" } | { kind: "page"; page: NamedPage } | { kind: "tag"; tag: string }>({ kind: "day" });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
+  const [nexus, setNexus] = useState<NexusTarget | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   // Bumped when another device's changes arrive, so lists and calendars reload.
@@ -289,6 +292,17 @@ function App() {
       setRoute({ kind: "tag", tag });
     },
   };
+  /** ⑂ Nexus for whatever is open: the day, or the named page. */
+  const openNexus = async () => {
+    setDrawerOpen(false);
+    await flush();
+    setNexus(
+      route.kind === "page"
+        ? { kind: "page", pageId: route.page.id, blockId: route.page.id, title: route.page.title }
+        : { kind: "day", day, blockId: dayBlockId(day), title: dayTitle(day) },
+    );
+  };
+
   const pageNames = useCallback(() => store?.pageNames() ?? Promise.resolve([]), [store]);
 
   const links = useMemo(() => extractLinks(text), [text]);
@@ -406,6 +420,7 @@ function App() {
         <DaysList days={days} day={day} today={today} onPick={goTo} />
         <div className="sidebar-actions">
           <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))}>🕸 Graph view</button>
+          <button type="button" onClick={() => void openNexus()}>⑂ Nexus (this note's history)</button>
           <button type="button" onClick={() => (setDrawerOpen(false), setSettingsOpen(true))}>⚙︎ Settings</button>
           <button type="button" onClick={() => (setDrawerOpen(false), void backUpNow())}>💾 Back up now</button>
           <SyncStatus status={sync.status} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
@@ -539,6 +554,7 @@ function App() {
         {infoTabs}
         <div className="sidebar-actions">
           <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))}>🕸 Graph view</button>
+          <button type="button" onClick={() => void openNexus()}>⑂ Nexus (this note's history)</button>
           <button type="button" onClick={() => (setDrawerOpen(false), setSettingsOpen(true))}>⚙︎ Settings</button>
           <button type="button" onClick={() => (setDrawerOpen(false), void backUpNow())}>💾 Back up now</button>
           <SyncStatus status={sync.status} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
@@ -552,6 +568,19 @@ function App() {
         <FindBar index={find.index} count={find.count} onMove={(index) => setFind({ ...find, index })} onClose={() => setFind(null)} />
       )}
 
+      {nexus && store && (
+        <NexusView
+          store={store}
+          target={nexus}
+          onClose={() => setNexus(null)}
+          onRestored={async () => {
+            if (nexus.kind === "page") setRoute({ kind: "page", page: await store.ensurePage(nexus.title) });
+            else setPageVersion((n) => n + 1);
+            setSyncTick((n) => n + 1);
+            setNexus(null);
+          }}
+        />
+      )}
       {graphOpen && store && (
         <GraphView
           store={store}

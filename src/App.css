@@ -1044,3 +1044,14 @@ button:hover { background: var(--glass-strong); }
   -webkit-touch-callout: none;
   user-select: none;
 }
+
+/* ⑂ Nexus */
+.nexus-body { padding: 0 16px 24px; overflow: auto; }
+.nexus-graph { overflow-x: auto; }
+.nexus-lane { fill: var(--muted); font-size: 11px; }
+.nexus-edge { stroke: var(--border); stroke-width: 2; }
+.nexus-node { fill: var(--accent); stroke: var(--panel); stroke-width: 2; cursor: pointer; }
+.nexus-node.concurrent { fill: #f59e0b; }
+.nexus-node.ai { fill: #22c55e; }
+.nexus-node.picked { stroke: #fff; }
+.nexus-preview pre { white-space: pre-wrap; max-height: 40vh; overflow: auto; font: inherit; background: var(--panel); padding: 10px; border-radius: 10px; }
