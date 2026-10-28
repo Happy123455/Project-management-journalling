@@ -21,7 +21,8 @@ export function JournalEditor({ initialContent, onChange, onReady }: Props) {
 
   return (
     <div className="editor">
-      <div className="toolbar">
+      {/* Keep focus in the editor so Enter after a toolbar click types, not re-clicks. */}
+      <div className="toolbar" onMouseDown={(e) => e.preventDefault()}>
         <button
           type="button"
           title="Insert timestamp (Cmd/Ctrl+Shift+T)"
