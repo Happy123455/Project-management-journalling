@@ -5,7 +5,7 @@ import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, type NodeViewP
 /** "```" or "```js" alone on a line: Enter turns the line into a code block in that language. */
 export const FENCE_RE = /^```([\w+#-]*)$/;
 
-async function copyText(text: string) {
+export async function copyText(text: string) {
   if ("__TAURI_INTERNALS__" in window) {
     const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
     return writeText(text);

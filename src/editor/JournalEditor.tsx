@@ -14,6 +14,7 @@ import { BlockInfoPanel } from "./BlockInfoPanel";
 import { saveToInspiration } from "./inspiration";
 import { readAloud } from "../lib/readAloud";
 import { isLoneUrl, LinkCard } from "./linkCard";
+import { PromptBlock } from "./promptBlock";
 import { FindHighlight, findKey } from "./findHighlight";
 import { LogBlock } from "./logBlock";
 import { KeyboardBar, useTouchDevice } from "./KeyboardBar";
@@ -149,6 +150,7 @@ export function JournalEditor({
       AttachmentMedia,
       AttachmentFile,
       LinkCard,
+      PromptBlock,
       LinkHighlight.configure({ onOpenLink: (t) => onOpenLink?.(t), onOpenTag: (t) => onOpenTag?.(t) }),
       LinkSuggest.configure({ pageNames: () => pageNames?.() ?? Promise.resolve([]) }),
       Timestamp,

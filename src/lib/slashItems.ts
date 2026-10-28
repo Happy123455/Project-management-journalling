@@ -1,7 +1,7 @@
 export type SlashId =
   | "heading" | "task" | "bullet" | "numbered" | "quote" | "code"
   | "divider" | "timestamp" | "link" | "tag" | "reminder"
-  | "attach" | "capture" | "project" | "log" | "voice" | "meme" | "sound" | "inspiration";
+  | "attach" | "capture" | "project" | "log" | "voice" | "meme" | "sound" | "inspiration" | "prompt";
 
 export interface SlashItem {
   id: SlashId;
@@ -29,6 +29,7 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: "meme", label: "Meme", icon: "😂", keywords: ["gif", "funny", "reaction", "sticker"] },
   { id: "sound", label: "Sound", icon: "🔊", keywords: ["audio", "effect", "clip", "sfx"] },
   { id: "inspiration", label: "Inspiration", icon: "✨", keywords: ["save", "idea", "quote", "collect"] },
+  { id: "prompt", label: "Prompt", icon: "🧩", keywords: ["template", "ai", "chatgpt", "claude", "fields", "copy"] },
   { id: "project", label: "Project", icon: "📌", keywords: ["tracker", "goal", "plan", "todo"] },
   { id: "log", label: "Log", icon: "🪵", keywords: ["timestamp", "entries", "diary", "time"] },
   { id: "capture", label: "Capture", icon: "📷", keywords: ["camera", "photo", "picture", "video", "record", "qr", "scan", "barcode"] },

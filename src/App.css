@@ -1055,3 +1055,16 @@ button:hover { background: var(--glass-strong); }
 .nexus-node.ai { fill: #22c55e; }
 .nexus-node.picked { stroke: #fff; }
 .nexus-preview pre { white-space: pre-wrap; max-height: 40vh; overflow: auto; font: inherit; background: var(--panel); padding: 10px; border-radius: 10px; }
+
+/* 🧩 Prompt block */
+.prompt-block { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); }
+.prompt-head { display: flex; gap: 8px; align-items: center; }
+.prompt-title { flex: 1; min-width: 0; font-weight: 600; background: transparent; border: none; color: inherit; font-size: 1rem; }
+.prompt-template, .prompt-fields input { width: 100%; box-sizing: border-box; font: inherit; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+.prompt-template { margin-top: 8px; resize: vertical; }
+.prompt-fields { display: grid; gap: 6px; margin-top: 8px; }
+.prompt-fields label { display: grid; gap: 2px; }
+.prompt-fields label span { font-size: 0.8rem; color: var(--muted); }
+.prompt-preview { white-space: pre-wrap; font: inherit; margin: 8px 0 0; padding: 8px; border-radius: 8px; background: rgba(127, 127, 127, 0.1); }
+.prompt-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 8px; }
+.prompt-actions .hint { margin-right: auto; }

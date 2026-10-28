@@ -66,6 +66,8 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       chain.run();
       void saveToInspiration(editor, placeLabel());
       return true;
+    case "prompt":
+      return chain.insertContent({ type: "promptBlock" }).run();
     case "project":
       chain.run();
       window.dispatchEvent(new CustomEvent("journal:new-project", { detail: { editor } }));
