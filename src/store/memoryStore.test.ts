@@ -122,12 +122,12 @@ describe("MemoryStore", () => {
       const store = new MemoryStore(undefined, "phone");
       const bytes = new TextEncoder().encode("hello");
       const file = await store.saveFile({ name: "My Note.txt", mime: "text/plain", bytes });
-      expect(file).toMatchObject({ name: "My Note.txt", mime: "text/plain", size: 5, path: `attachments/${file.id}/My_Note.txt` });
+      expect(file).toMatchObject({ name: "My_Note.txt", mime: "text/plain", size: 5, path: `attachments/${file.id}/My_Note.txt` });
       expect(await store.fileBytes(file.id)).toEqual(bytes);
       expect(await store.getFile(file.id)).toEqual(file);
       const [event] = await store.eventsFor(file.id);
       expect(event).toMatchObject({ op: "create", before: null });
-      expect(JSON.parse(event.after)).toMatchObject({ name: "My Note.txt", size: 5 });
+      expect(JSON.parse(event.after)).toMatchObject({ name: "My_Note.txt", size: 5 });
     });
 
     it("exports the journal and every attachment", async () => {
@@ -140,6 +140,15 @@ describe("MemoryStore", () => {
       expect(journal.pages["2026-10-28"].content).toEqual(doc("hi"));
       expect(journal.files[file.id]).not.toHaveProperty("data");
       expect(files[1].bytes).toEqual(new Uint8Array([7]));
+    });
+
+    it("finds a file from an embed: by stored path or by name", async () => {
+      const store = new MemoryStore(undefined, "phone");
+      const file = await store.saveFile({ name: "Invoice October.pdf", mime: "application/pdf", bytes: new Uint8Array([1]) });
+      expect(await store.findFile(file.path)).toEqual(file);
+      expect(await store.findFile("invoice october.pdf")).toEqual(file);
+      expect(await store.findFile("attachments/nope/x.pdf")).toBeNull();
+      expect(await store.findFile("other.pdf")).toBeNull();
     });
 
     it("keeps one copy of identical files", async () => {

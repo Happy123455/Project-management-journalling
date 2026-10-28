@@ -1,4 +1,6 @@
 import Database from "@tauri-apps/plugin-sql";
+import { idFromRef } from "../lib/embeds";
+import { safeFileName } from "../lib/files";
 import { extractLinks, uniqueNames } from "../lib/links";
 import { dayKey } from "../lib/timestamp";
 import { countWords, docText } from "../lib/words";
@@ -212,6 +214,17 @@ export class SqliteStore implements JournalStore {
 
   async getFile(id: string) {
     const rows = await this.db.select<FileRow[]>("SELECT * FROM files WHERE id = $1", [id]);
+    return rows[0] ? toFile(rows[0]) : null;
+  }
+
+  async findFile(ref: string) {
+    const id = idFromRef(ref);
+    if (id) return this.getFile(id);
+    // Files are stored under their disk-safe name; match that, ignoring letter case.
+    const rows = await this.db.select<FileRow[]>(
+      "SELECT * FROM files WHERE lower(path) LIKE '%/' || lower($1) ORDER BY created_at DESC LIMIT 1",
+      [safeFileName(ref.trim())],
+    );
     return rows[0] ? toFile(rows[0]) : null;
   }
 

@@ -98,6 +98,8 @@ export interface JournalStore {
   /** Stores an attachment (with a create event); the same bytes stored twice give back the first record. */
   saveFile(input: SaveFileInput): Promise<FileRecord>;
   getFile(id: string): Promise<FileRecord | null>;
+  /** The file an embed points at: "attachments/<id>/<name>", or a bare file name (any letter case, newest first). */
+  findFile(ref: string): Promise<FileRecord | null>;
   fileBytes(id: string): Promise<Uint8Array | null>;
   /** Everything needed to restore the journal: the database (or its JSON in the browser) plus every attachment. */
   exportFiles(): Promise<{ name: string; bytes: Uint8Array }[]>;

@@ -5,13 +5,15 @@ import type { FileRecord, SaveFileInput } from "./types";
 /** The record for a new attachment; both stores use it so ids, paths and hashes match. */
 export async function newFileRecord({ name, mime, bytes }: SaveFileInput): Promise<FileRecord> {
   const id = newId();
+  // The name is the one kept on disk, so both stores report the same name for a file.
+  const safe = safeFileName(name);
   return {
     id,
-    name,
+    name: safe,
     mime: mime || "application/octet-stream",
     size: bytes.byteLength,
     hash: await sha256(bytes),
-    path: `attachments/${id}/${safeFileName(name)}`,
+    path: `attachments/${id}/${safe}`,
     createdAt: new Date().toISOString(),
   };
 }

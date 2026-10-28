@@ -23,6 +23,9 @@ export function clipPreview(clip: Clip, max = 40): string {
   return text.length > max ? text.slice(0, max - 1) + "…" : text;
 }
 
+/** Attributes that carry our photos, videos, PDFs and files through copy and paste. */
+const MEDIA_ATTRS = new Set(["data-file-id", "data-media", "data-attachment", "data-width", "data-align", "data-name", "data-mime", "data-size"]);
+
 /**
  * Removes what other apps bring along when pasting: inline styles, classes, fonts,
  * colours and empty spans. Structure (paragraphs, lists, links, bold, italic) stays.
@@ -32,11 +35,14 @@ export function cleanPastedHTML(html: string): string {
   doc.querySelectorAll("style, script, meta, link, title").forEach((el) => el.remove());
   doc.body.querySelectorAll("*").forEach((el) => {
     for (const attr of [...el.attributes]) {
-      const keep = (el.tagName === "A" && attr.name === "href") || (el.tagName === "IMG" && ["src", "alt"].includes(attr.name));
+      const keep =
+        (el.tagName === "A" && attr.name === "href") ||
+        (el.tagName === "IMG" && ["src", "alt"].includes(attr.name)) ||
+        MEDIA_ATTRS.has(attr.name);
       if (!keep) el.removeAttribute(attr.name);
     }
   });
-  // Unwrap spans and fonts, which only carried styling.
-  doc.body.querySelectorAll("span, font").forEach((el) => el.replaceWith(...el.childNodes));
+  // Unwrap spans and fonts, which only carried styling (but keep our media spans).
+  doc.body.querySelectorAll("span:not([data-media]), font").forEach((el) => el.replaceWith(...el.childNodes));
   return doc.body.innerHTML;
 }

@@ -1,3 +1,5 @@
+import { idFromRef } from "../lib/embeds";
+import { safeFileName } from "../lib/files";
 import { extractLinks, uniqueNames } from "../lib/links";
 import { dayKey } from "../lib/timestamp";
 import { countWords, docText } from "../lib/words";
@@ -148,6 +150,16 @@ export class MemoryStore implements JournalStore {
   async getFile(id: string) {
     const f = this.files[id];
     return f ? withoutData(f) : null;
+  }
+
+  async findFile(ref: string) {
+    const id = idFromRef(ref);
+    if (id) return this.getFile(id);
+    const want = safeFileName(ref.trim()).toLowerCase();
+    const match = Object.values(this.files)
+      .filter((f) => f.name.toLowerCase() === want)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    return match ? withoutData(match) : null;
   }
 
   async fileBytes(id: string) {
