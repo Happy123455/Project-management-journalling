@@ -27,3 +27,36 @@ export function zipBackup(entries: BackupEntry[]): Uint8Array {
 export function unzipBackup(zip: Uint8Array): BackupEntry[] {
   return Object.entries(unzipSync(zip)).map(([name, bytes]) => ({ name, bytes }));
 }
+
+export interface BackupSummary {
+  /** "sqlite" from the app, "json" from the browser preview. */
+  format: "sqlite" | "json";
+  attachments: number;
+  /** The day in the zip's name, when it has the usual name. */
+  day: string | null;
+}
+
+const SQLITE_MAGIC = "SQLite format 3\0";
+
+/** What a backup zip holds, or a reason it can't be restored. */
+export function inspectBackup(entries: BackupEntry[], fileName = ""): BackupSummary | { error: string } {
+  const db = entries.find((e) => e.name === "journal.db");
+  const json = entries.find((e) => e.name === "journal.json");
+  const attachments = entries.filter((e) => e.name.startsWith("attachments/") && !e.name.endsWith("/")).length;
+  const day = fileName.match(NAME_RE)?.[1] ?? null;
+  if (db) {
+    const head = new TextDecoder().decode(db.bytes.slice(0, 16));
+    if (head !== SQLITE_MAGIC) return { error: "The journal file in this zip is damaged." };
+    return { format: "sqlite", attachments, day };
+  }
+  if (json) {
+    try {
+      const data = JSON.parse(new TextDecoder().decode(json.bytes));
+      if (!data || typeof data.pages !== "object") throw new Error();
+    } catch {
+      return { error: "The journal file in this zip is damaged." };
+    }
+    return { format: "json", attachments, day };
+  }
+  return { error: "This zip isn't a Dynamic Journal backup." };
+}

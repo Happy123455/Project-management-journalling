@@ -31,11 +31,23 @@ export function maxWords(counts: Counts, prefix: string, today: string): number 
   );
 }
 
+/** The calendars' shading: words written (purple), or matches for the current search (yellow). */
+export interface Shading {
+  counts: Counts;
+  /** Set while a search is active. */
+  search: boolean;
+}
+
+/** The highest count among days starting with `prefix`; searches count future days too. */
+const maxFor = (s: Shading, prefix: string, today: string) =>
+  s.search ? Object.entries(s.counts).reduce((m, [d, n]) => (d.startsWith(prefix) ? Math.max(m, n) : m), 0) : maxWords(s.counts, prefix, today);
+
 interface GridProps {
   year: number;
   month: number;
   counts: Counts;
   max: number;
+  search?: boolean;
   selected: string;
   today: string;
   onPick: (day: string) => void;
@@ -45,7 +57,7 @@ interface GridProps {
 }
 
 /** One month as a heat map: each day is filled purple, brighter the more was written. */
-export function MonthGrid({ year, month, counts, max, selected, today, onPick, weekOnly, mini }: GridProps) {
+export function MonthGrid({ year, month, counts, max, search, selected, today, onPick, weekOnly, mini }: GridProps) {
   let weeks = monthWeeks(year, month);
   if (weekOnly) weeks = weeks.filter((w) => w.includes(selected)).slice(0, 1);
   return (
@@ -54,7 +66,7 @@ export function MonthGrid({ year, month, counts, max, selected, today, onPick, w
       {weeks.flat().map((d, i) => {
         if (!d) return <span key={i} />;
         const words = counts[d] ?? 0;
-        const reminder = d > today && words > 0;
+        const reminder = !search && d > today && words > 0;
         const classes = ["cal-day", d === selected && "selected", d === today && "today", reminder && "reminder"]
           .filter(Boolean)
           .join(" ");
@@ -64,7 +76,7 @@ export function MonthGrid({ year, month, counts, max, selected, today, onPick, w
             type="button"
             className={classes}
             style={{ "--heat": reminder ? 0 : heat(words, max) } as CSSProperties}
-            title={reminder ? `${d}: reminder` : `${d}: ${words} words`}
+            title={reminder ? `${d}: reminder` : search ? `${d}: ${words} matches` : `${d}: ${words} words`}
             onClick={() => onPick(d)}
           >
             {Number(d.slice(8))}
@@ -77,7 +89,7 @@ export function MonthGrid({ year, month, counts, max, selected, today, onPick, w
 
 interface MonthProps {
   day: string;
-  counts: Counts;
+  shading: Shading;
   today: string;
   collapsed: boolean;
   onToggle: () => void;
@@ -86,24 +98,45 @@ interface MonthProps {
 }
 
 /** Month heat map at the top of the page; shrinks to the current week while writing. */
-export function MonthCalendar({ day, counts, today, collapsed, onToggle, onPick, onOpenYear }: MonthProps) {
+export function MonthCalendar({ day, shading, today, collapsed, onToggle, onPick, onOpenYear }: MonthProps) {
   const [year, month] = day.split("-").map(Number);
   return (
-    <section className="month-calendar">
+    // While shrunk to one week, a tap anywhere on it opens the whole month (days can't be picked yet).
+    <section
+      className={`month-calendar${collapsed ? " collapsed" : ""}${shading.search ? " search-mode" : ""}`}
+      onClick={collapsed ? onToggle : undefined}
+    >
       <div className="cal-bar">
-        <button type="button" className="cal-title" onClick={onToggle} aria-expanded={!collapsed}>
+        <button
+          type="button"
+          className="cal-title"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          aria-expanded={!collapsed}
+        >
           {MONTH_NAMES[month - 1]} {year} {collapsed ? "▾" : "▴"}
         </button>
-        <button type="button" onClick={onOpenYear}>Year ›</button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenYear();
+          }}
+        >
+          Year ›
+        </button>
       </div>
       <MonthGrid
         year={year}
         month={month - 1}
-        counts={counts}
-        max={maxWords(counts, day.slice(0, 7), today)}
+        counts={shading.counts}
+        max={maxFor(shading, day.slice(0, 7), today)}
+        search={shading.search}
         selected={day}
         today={today}
-        onPick={onPick}
+        onPick={collapsed ? () => {} : onPick}
         weekOnly={collapsed}
       />
     </section>
@@ -113,7 +146,7 @@ export function MonthCalendar({ day, counts, today, collapsed, onToggle, onPick,
 interface YearProps {
   year: number;
   day: string;
-  counts: Counts;
+  shading: Shading;
   today: string;
   open: boolean;
   onClose: () => void;
@@ -122,8 +155,8 @@ interface YearProps {
 }
 
 /** Slide-in panel with all twelve months; shades are relative to the busiest day of the year. */
-export function YearPanel({ year, day, counts, today, open, onClose, onPick, onYear }: YearProps) {
-  const max = maxWords(counts, String(year), today);
+export function YearPanel({ year, day, shading, today, open, onClose, onPick, onYear }: YearProps) {
+  const max = maxFor(shading, String(year), today);
   const touch = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
@@ -137,7 +170,7 @@ export function YearPanel({ year, day, counts, today, open, onClose, onPick, onY
     <>
       <div className={open ? "year-backdrop open" : "year-backdrop"} onClick={onClose} />
       <aside
-        className={open ? "year-panel open" : "year-panel"}
+        className={`year-panel${open ? " open" : ""}${shading.search ? " search-mode" : ""}`}
         aria-hidden={!open}
         onTouchStart={(e) => (touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY })}
         onTouchEnd={(e) => {
@@ -162,8 +195,9 @@ export function YearPanel({ year, day, counts, today, open, onClose, onPick, onY
               <MonthGrid
                 year={year}
                 month={m}
-                counts={counts}
+                counts={shading.counts}
                 max={max}
+                search={shading.search}
                 selected={day}
                 today={today}
                 onPick={(d) => {

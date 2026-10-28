@@ -1,28 +1,55 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { coalesce } from "../lib/coalesce";
 import type { Editor, JSONContent } from "@tiptap/react";
 import { sha256 } from "../lib/files";
 import { classifyClip, clipKey, clipPreview, type Clip } from "../lib/smartPaste";
-import { insertFiles } from "./attachments";
+import { hasEmbeds } from "../lib/embeds";
+import { insertFiles, pasteEmbeds } from "./attachments";
 
 const HANDLED_KEY = "dynamic-journal.clipboard-handled";
+const RETRY_MS = 300;
+const MAX_RETRIES = 3;
 const MAX_HANDLED = 50;
 
-/** Clipboard text from the app (Tauri plugin) or the browser, or null when it can't be read. */
+/**
+ * Clipboard text from the app (Tauri plugin) or the browser: "" when empty, null when it
+ * couldn't be read (Android refuses until the window has focus).
+ */
 async function readClipboard(): Promise<string | null> {
   try {
+    const native = window.JournalClipboard?.text?.();
+    if (native) {
+      const { focused, text } = JSON.parse(native) as { focused: boolean; text: string | null };
+      return focused ? (text ?? "") : null;
+    }
     if ("__TAURI_INTERNALS__" in window) {
       const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
-      return await readText();
+      return (await readText()) ?? "";
     }
     return await navigator.clipboard.readText();
-  } catch {
-    return null;
+  } catch (e) {
+    // The Tauri plugin reports an empty clipboard as an error; anything else is a failed read.
+    return /empty|no text|not available/i.test(String(e)) ? "" : null;
   }
 }
 
-/** An image on the clipboard as a PNG file, or null. */
+/** The Android app's bridge to clipboard media with the original bytes (MainActivity.kt). */
+declare global {
+  interface Window {
+    JournalClipboard?: { media(): string; text?(): string };
+    __journalClipboardChanged?: () => void;
+  }
+}
+
+/** An image (or video) on the clipboard, or null. GIFs keep their animation on Android. */
 async function readClipboardImage(): Promise<File | null> {
   try {
+    const native = window.JournalClipboard?.media();
+    if (native) {
+      const { mime, data } = JSON.parse(native) as { mime: string; data: string };
+      const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+      return new File([bytes], `pasted.${mime.split("/")[1] ?? "bin"}`, { type: mime });
+    }
     if ("__TAURI_INTERNALS__" in window) {
       const { readImage } = await import("@tauri-apps/plugin-clipboard-manager");
       const image = await readImage();
@@ -75,6 +102,7 @@ function insertClip(editor: Editor, clip: Clip, asCode: boolean) {
       .insertContent([{ type: "text", text: clip.url, marks: [{ type: "link", attrs: { href: clip.url } }] }, { type: "text", text: " " }])
       .run();
   }
+  if (hasEmbeds(clip.text)) return void pasteEmbeds(editor, clip.text);
   return chain.insertContent(clip.lines > 1 ? paragraphs(clip.text) : clip.text).run();
 }
 
@@ -86,38 +114,82 @@ export function SmartPaste({ editor }: { editor: Editor }) {
   const [suggestion, setSuggestion] = useState<
     { clip: Clip; image?: undefined; key: string; top: number; left: number } | { clip?: undefined; image: File; key: string; top: number; left: number } | null
   >(null);
-  const checking = useRef(false);
+  const retry = useRef<number | undefined>(undefined);
+  const retries = useRef(0);
+  const tapped = useRef(false);
 
-  const check = useCallback(async () => {
-    if (checking.current || !editor.isFocused) return;
-    checking.current = true;
-    const raw = await readClipboard();
+  // Every trigger goes through here. Triggers that arrive while a read is running are queued,
+  // not dropped (dropping them was why the chip sometimes never showed after the first tap).
+  const check = useMemo(
+    () =>
+      coalesce(async () => {
+        if (!editor.isFocused) return;
+        // On Android, copied media (a Gboard GIF often comes with a link as text) wins over text.
+        const nativeImage = window.JournalClipboard ? await readClipboardImage() : null;
+        const raw = nativeImage ? null : await readClipboard();
+        if (!nativeImage && raw === null) {
+          // The read failed (window not focused yet on Android): keep what's shown and try shortly.
+          window.clearTimeout(retry.current);
+          if (retries.current++ < MAX_RETRIES) retry.current = window.setTimeout(() => void check(), RETRY_MS);
+          return;
+        }
+        retries.current = 0;
+        await offer(raw, nativeImage);
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [editor],
+  );
+
+  const offer = async (raw: string | null, nativeImage: File | null) => {
     const clip = classifyClip(raw);
     // With no text on the clipboard, look for a copied image.
-    const image = clip ? null : await readClipboardImage();
-    checking.current = false;
+    const image = nativeImage ?? (clip ? null : await readClipboardImage());
     if ((!clip && !image) || !editor.isFocused) return setSuggestion(null);
     const key = clip ? clipKey(raw!.trim()) : `img:${(await sha256(new Uint8Array(await image!.arrayBuffer()))).slice(0, 16)}`;
     if (handledKeys().includes(key)) return setSuggestion(null);
     const at = editor.view.coordsAtPos(editor.state.selection.head);
     const place = { key, top: at.bottom + 6, left: Math.max(8, Math.min(at.left, window.innerWidth - 300)) };
     setSuggestion(clip ? { clip, ...place } : { image: image!, ...place });
-  }, [editor]);
+  };
 
   useEffect(() => {
-    const onFocus = () => void check();
-    const onVisible = () => document.visibilityState === "visible" && void check();
-    // Typing or leaving the editor hides the chip; it comes back on the next focus.
+    const onFocus = () => {
+      retries.current = 0;
+      void check();
+    };
+    const onVisible = () => document.visibilityState === "visible" && onFocus();
+    // Only the first tap after focusing checks: every Android clipboard read can show a notice.
+    const onTap = () => {
+      if (tapped.current) return;
+      tapped.current = true;
+      onFocus();
+    };
+    // Typing or leaving the editor hides the chip; it comes back on the next trigger.
     const hide = () => setSuggestion(null);
+    const onBlur = () => {
+      tapped.current = false;
+      hide();
+    };
+    const dom = editor.view.dom;
+    // Triggers: the editor gains focus; the app comes back (the editor may have kept focus, so
+    // no focus event fires); the window regains focus (Android only allows clipboard reads then);
+    // any tap into the page; and Android saying the clipboard changed.
     editor.on("focus", onFocus);
-    editor.on("blur", hide);
+    editor.on("blur", onBlur);
     editor.on("update", hide);
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
+    dom.addEventListener("pointerup", onTap);
+    window.__journalClipboardChanged = onFocus;
     return () => {
+      if (window.__journalClipboardChanged === onFocus) delete window.__journalClipboardChanged;
       editor.off("focus", onFocus);
-      editor.off("blur", hide);
+      editor.off("blur", onBlur);
       editor.off("update", hide);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
+      dom.removeEventListener("pointerup", onTap);
+      window.clearTimeout(retry.current);
     };
   }, [editor, check]);
 
@@ -135,9 +207,9 @@ export function SmartPaste({ editor }: { editor: Editor }) {
     <div className="paste-chip" style={{ top: suggestion.top, left: suggestion.left }} role="group" aria-label="Paste from clipboard">
       {image ? (
         <>
-          <span className="paste-preview">🖼️ Copied image</span>
+          <span className="paste-preview">{image.type === "image/gif" ? "🎞️ Copied GIF" : image.type.startsWith("video/") ? "🎥 Copied video" : "🖼️ Copied image"}</span>
           <button type="button" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={() => act(() => void insertFiles(editor, [image]))}>
-            Paste image
+            {image.type === "image/gif" ? "Paste GIF" : "Paste"}
           </button>
         </>
       ) : (

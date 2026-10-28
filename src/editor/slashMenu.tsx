@@ -4,7 +4,7 @@ import { PluginKey } from "@tiptap/pm/state";
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from "@tiptap/suggestion";
 import { filterSlashItems, type SlashId, type SlashItem } from "../lib/slashItems";
 import { formatTimestamp } from "../lib/timestamp";
-import { pickFiles, scanQr } from "./attachments";
+import { openCapture, pickFiles } from "./attachments";
 
 export interface SlashMenuOptions {
   /** Called by the Reminder tile; the app opens a day picker for a future page. */
@@ -40,17 +40,9 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       chain.run();
       pickFiles(editor, "*/*"); // one "any file" filter: mixed lists confuse some Android pickers
       return true;
-    case "camera":
+    case "capture":
       chain.run();
-      pickFiles(editor, "image/*", "environment");
-      return true;
-    case "video":
-      chain.run();
-      pickFiles(editor, "video/*", "environment");
-      return true;
-    case "qr":
-      chain.run();
-      void scanQr(editor);
+      openCapture(editor);
       return true;
   }
 }
@@ -123,6 +115,8 @@ export const SlashMenu = Extension.create<SlashMenuOptions>({
         pluginKey: SLASH_KEY,
         char: "/",
         allowedPrefixes: [" "],
+        // "/" inside code is just a slash.
+        allow: ({ state, range }) => state.doc.resolve(range.from).parent.type.name !== "codeBlock",
         items: ({ query }) => filterSlashItems(query),
         command: ({ editor, range, props }) => run(props.id, editor, range, options),
         render: () => {

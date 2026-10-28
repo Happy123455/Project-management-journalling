@@ -23,6 +23,17 @@ describe("MemoryStore", () => {
     expect(second.parentEventIds).toEqual([first.id]);
   });
 
+  it("handles overlapping saves of a new day as one page (no duplicate create)", async () => {
+    const store = new MemoryStore(undefined, "phone");
+    const [a, b] = await Promise.all([
+      store.saveDay({ day: "2026-10-28", content: doc("a"), plainText: "a" }),
+      store.saveDay({ day: "2026-10-28", content: doc("ab"), plainText: "ab" }),
+    ]);
+    expect(b.id).toBe(a.id);
+    expect((await store.eventsFor(a.id)).map((e) => e.op)).toEqual(["create", "update"]);
+    expect((await store.getDay("2026-10-28"))?.content).toEqual(doc("ab"));
+  });
+
   it("persists through storage", async () => {
     const mem = new Map<string, string>();
     const storage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
@@ -122,12 +133,12 @@ describe("MemoryStore", () => {
       const store = new MemoryStore(undefined, "phone");
       const bytes = new TextEncoder().encode("hello");
       const file = await store.saveFile({ name: "My Note.txt", mime: "text/plain", bytes });
-      expect(file).toMatchObject({ name: "My Note.txt", mime: "text/plain", size: 5, path: `attachments/${file.id}/My_Note.txt` });
+      expect(file).toMatchObject({ name: "My_Note.txt", mime: "text/plain", size: 5, path: `attachments/${file.id}/My_Note.txt` });
       expect(await store.fileBytes(file.id)).toEqual(bytes);
       expect(await store.getFile(file.id)).toEqual(file);
       const [event] = await store.eventsFor(file.id);
       expect(event).toMatchObject({ op: "create", before: null });
-      expect(JSON.parse(event.after)).toMatchObject({ name: "My Note.txt", size: 5 });
+      expect(JSON.parse(event.after)).toMatchObject({ name: "My_Note.txt", size: 5 });
     });
 
     it("exports the journal and every attachment", async () => {
@@ -142,6 +153,48 @@ describe("MemoryStore", () => {
       expect(files[1].bytes).toEqual(new Uint8Array([7]));
     });
 
+    it("finds a file from an embed: by stored path or by name", async () => {
+      const store = new MemoryStore(undefined, "phone");
+      const file = await store.saveFile({ name: "Invoice October.pdf", mime: "application/pdf", bytes: new Uint8Array([1]) });
+      expect(await store.findFile(file.path)).toEqual(file);
+      expect(await store.findFile("invoice october.pdf")).toEqual(file);
+      expect(await store.findFile("attachments/nope/x.pdf")).toBeNull();
+      expect(await store.findFile("other.pdf")).toBeNull();
+    });
+
+    it("lists every file, newest first", async () => {
+      vi.useFakeTimers({ toFake: ["Date"], now: new Date(2026, 9, 1) });
+      const store = new MemoryStore(undefined, "phone");
+      const a = await store.saveFile({ name: "a.png", mime: "image/png", bytes: new Uint8Array([1]) });
+      vi.setSystemTime(new Date(2026, 9, 2));
+      const b = await store.saveFile({ name: "b.pdf", mime: "application/pdf", bytes: new Uint8Array([2]) });
+      vi.useRealTimers();
+      expect((await store.listFiles()).map((f) => f.id)).toEqual([b.id, a.id]);
+    });
+
+    it("restores a backup over the current journal and logs it", async () => {
+      const store = new MemoryStore(undefined, "phone");
+      await store.saveDay({ day: "2026-10-28", content: doc("kept"), plainText: "kept" });
+      const file = await store.saveFile({ name: "a.png", mime: "image/png", bytes: new Uint8Array([9, 9]) });
+      const backup = await store.exportFiles();
+
+      await store.saveDay({ day: "2026-10-28", content: doc("changed later"), plainText: "" });
+      await store.saveDay({ day: "2026-10-29", content: doc("new day"), plainText: "" });
+      await store.restore(backup, "dynamic-journal-2026-10-28.zip");
+
+      expect((await store.getDay("2026-10-28"))?.content).toEqual(doc("kept"));
+      expect(await store.getDay("2026-10-29")).toBeNull();
+      expect(await store.fileBytes(file.id)).toEqual(new Uint8Array([9, 9]));
+      const [event] = await store.eventsFor("journal");
+      expect(event.op).toBe("restore");
+      expect(JSON.parse(event.after)).toEqual({ source: "dynamic-journal-2026-10-28.zip", days: 1, files: 1 });
+    });
+
+    it("refuses a backup made by the app (SQLite) in the browser store", async () => {
+      const store = new MemoryStore(undefined, "phone");
+      await expect(store.restore([{ name: "journal.db", bytes: new Uint8Array([1]) }], "x.zip")).rejects.toThrow(/app/);
+    });
+
     it("keeps one copy of identical files", async () => {
       const store = new MemoryStore(undefined, "phone");
       const bytes = new Uint8Array([1, 2, 3]);
@@ -150,5 +203,19 @@ describe("MemoryStore", () => {
       expect(b.id).toBe(a.id);
       expect(await store.eventsFor(a.id)).toHaveLength(1);
     });
+  });
+
+  it("searches days, pages and file names for every word", async () => {
+    const store = new MemoryStore(undefined, "phone");
+    await store.saveDay({ day: "2026-10-20", content: doc("met Ravi about the plan"), plainText: "" });
+    await store.saveDay({ day: "2026-10-25", content: doc("RAVI called, plan is done"), plainText: "" });
+    await store.saveDay({ day: "2026-10-26", content: doc("only Ravi"), plainText: "" });
+    const page = await store.ensurePage("Plan B");
+    await store.savePage({ id: page.id, content: doc("ask ravi"), plainText: "" });
+    await store.saveFile({ name: "ravi plan.pdf", mime: "application/pdf", bytes: new Uint8Array([1]) });
+
+    const hits = await store.search("ravi plan");
+    expect(hits.map((h) => (h.kind === "file" ? h.file.name : (h.day ?? h.title)))).toEqual(["2026-10-25", "2026-10-20", "Plan B", "ravi_plan.pdf"]);
+    expect(await store.search("   ")).toEqual([]);
   });
 });

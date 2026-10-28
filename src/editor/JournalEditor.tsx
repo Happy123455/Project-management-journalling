@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { EditorContent, useEditor, useEditorState, type Editor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
@@ -6,7 +6,9 @@ import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { cleanPastedHTML } from "../lib/smartPaste";
 import { formatTimestamp } from "../lib/timestamp";
 import { LinkHighlight } from "./linkHighlight";
-import { AttachmentFile, AttachmentImage, insertFiles } from "./attachments";
+import { hasEmbeds } from "../lib/embeds";
+import { AttachmentFile, AttachmentImage, AttachmentMedia, insertFiles, mediaLeafText, pasteEmbeds, upgradeOldMedia } from "./attachments";
+import { JournalCodeBlock } from "./codeBlock";
 import { KeyboardBar, useTouchDevice } from "./KeyboardBar";
 import { LinkSuggest } from "./linkSuggest";
 import { SlashMenu } from "./slashMenu";
@@ -38,16 +40,25 @@ function ToolbarButtons({ editor }: { editor: Editor }) {
       bold: e.isActive("bold"),
       italic: e.isActive("italic"),
       highlight: e.isActive("highlight"),
+      code: e.isActive("codeBlock"),
+      canUndo: e.can().undo(),
+      canRedo: e.can().redo(),
     }),
   });
 
-  const buttons: { key: keyof typeof active | "timestamp"; label: string; title: string; run: () => void }[] = [
+  const history = [
+    { key: "undo", label: "↶", title: "Undo (Cmd/Ctrl+Z)", enabled: active.canUndo, run: () => editor.chain().focus().undo().run() },
+    { key: "redo", label: "↷", title: "Redo (Cmd/Ctrl+Shift+Z)", enabled: active.canRedo, run: () => editor.chain().focus().redo().run() },
+  ];
+
+  const buttons: { key: Exclude<keyof typeof active, "canUndo" | "canRedo"> | "timestamp"; label: string; title: string; run: () => void }[] = [
     { key: "bullet", label: "•", title: "Bullet list", run: () => editor.chain().focus().toggleBulletList().run() },
     { key: "task", label: "☑", title: "Task list", run: () => editor.chain().focus().toggleTaskList().run() },
     { key: "ordered", label: "1.", title: "Numbered list", run: () => editor.chain().focus().toggleOrderedList().run() },
     { key: "bold", label: "B", title: "Bold (Cmd/Ctrl+B)", run: () => editor.chain().focus().toggleBold().run() },
     { key: "italic", label: "I", title: "Italic (Cmd/Ctrl+I)", run: () => editor.chain().focus().toggleItalic().run() },
     { key: "highlight", label: "H", title: "Highlight (Cmd/Ctrl+Shift+H)", run: () => editor.chain().focus().toggleHighlight().run() },
+    { key: "code", label: "</>", title: "Code block (or type ``` and Enter)", run: () => editor.chain().focus().toggleCodeBlock().run() },
     {
       key: "timestamp",
       label: "🕒",
@@ -58,6 +69,21 @@ function ToolbarButtons({ editor }: { editor: Editor }) {
 
   return (
     <>
+      {history.map((b) => (
+        <button
+          key={b.key}
+          type="button"
+          title={b.title}
+          aria-label={b.title}
+          disabled={!b.enabled}
+          className={`tool tool-${b.key}`}
+          onPointerDown={(e) => e.preventDefault()}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={b.run}
+        >
+          {b.label}
+        </button>
+      ))}
       {buttons.map((b) => (
         <button
           key={b.key}
@@ -85,11 +111,13 @@ export function JournalEditor({
   const editorRef = useRef<Editor | null>(null);
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({ codeBlock: false }),
+      JournalCodeBlock,
       Highlight,
       TaskList,
       TaskItem.configure({ nested: true }),
       AttachmentImage,
+      AttachmentMedia,
       AttachmentFile,
       LinkHighlight.configure({ onOpenLink: (t) => onOpenLink?.(t), onOpenTag: (t) => onOpenTag?.(t) }),
       LinkSuggest.configure({ pageNames: () => pageNames?.() ?? Promise.resolve([]) }),
@@ -103,11 +131,23 @@ export function JournalEditor({
       transformPastedHTML: cleanPastedHTML,
       // Pasted or dropped files (photos, PDFs…) are stored and shown in the page.
       handlePaste: (_view, event) => {
-        const files = [...(event.clipboardData?.files ?? [])];
-        if (!files.length || !editorRef.current) return false;
-        void insertFiles(editorRef.current, files);
+        const editor = editorRef.current;
+        const data = event.clipboardData;
+        if (!editor || !data) return false;
+        const files = [...data.files];
+        if (files.length) {
+          void insertFiles(editor, files);
+          return true;
+        }
+        // Copied from this app: the HTML already carries the media, let the normal paste handle it.
+        if (data.getData("text/html").includes("data-file-id")) return false;
+        const text = data.getData("text/plain");
+        if (!hasEmbeds(text)) return false;
+        void pasteEmbeds(editor, text);
         return true;
       },
+      // Copied text keeps media as ![[attachments/<id>/<name>]], like Obsidian.
+      clipboardTextSerializer: (slice) => slice.content.textBetween(0, slice.content.size, "\n\n", mediaLeafText),
       handleDrop: (_view, event) => {
         const files = [...(event.dataTransfer?.files ?? [])];
         if (!files.length || !editorRef.current) return false;
@@ -116,11 +156,39 @@ export function JournalEditor({
       },
     },
     autofocus: autofocus ? "end" : false,
-    onCreate: ({ editor }) => onReady?.(editor.getText({ blockSeparator: "\n" })),
+    onCreate: ({ editor }) => {
+      onReady?.(editor.getText({ blockSeparator: "\n" }));
+      upgradeOldMedia(editor);
+    },
     onUpdate: ({ editor }) => onChange(editor.getJSON(), editor.getText({ blockSeparator: "\n" })),
   });
 
   editorRef.current = editor;
+
+  // GIFs and stickers from the phone keyboard: Android hands them over natively (MainActivity),
+  // and some keyboards send them as an input event carrying the file.
+  useEffect(() => {
+    if (!editor) return;
+    const extension = (mime: string) => mime.split("/")[1]?.replace("jpeg", "jpg") || "bin";
+    const host = window as unknown as { __journalReceiveContent?: (mime: string, data: string) => void };
+    const receive = (mime: string, data: string) => {
+      const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+      void insertFiles(editor, [new File([bytes], `keyboard-${Date.now()}.${extension(mime)}`, { type: mime })]);
+    };
+    host.__journalReceiveContent = receive;
+    const onBeforeInput = (e: InputEvent) => {
+      const files = [...(e.dataTransfer?.files ?? [])];
+      if (!files.length) return;
+      e.preventDefault();
+      void insertFiles(editor, files);
+    };
+    const dom = editor.view.dom;
+    dom.addEventListener("beforeinput", onBeforeInput);
+    return () => {
+      dom.removeEventListener("beforeinput", onBeforeInput);
+      if (host.__journalReceiveContent === receive) delete host.__journalReceiveContent;
+    };
+  }, [editor]);
 
   return (
     <div className="editor">

@@ -21,12 +21,20 @@
     "dialog:allow-save",
     {
       "identifier": "fs:scope",
-      "allow": [{ "path": "$DOCUMENT/Dynamic Journal Backups" }, { "path": "$DOCUMENT/Dynamic Journal Backups/**" }]
+      "allow": [
+        { "path": "$DOCUMENT/Dynamic Journal Backups" },
+        { "path": "$DOCUMENT/Dynamic Journal Backups/**" },
+        { "path": "$HOME/Library/CloudStorage" },
+        { "path": "$HOME/Library/CloudStorage/*" },
+        { "path": "$HOME/Library/CloudStorage/*/My Drive/Dynamic Journal Sync" },
+        { "path": "$HOME/Library/CloudStorage/*/My Drive/Dynamic Journal Sync/**" }
+      ]
     },
     "fs:allow-mkdir",
     "fs:allow-write-file",
     "fs:allow-read-dir",
     "fs:allow-remove",
-    "fs:allow-exists"
+    "fs:allow-exists",
+    "fs:allow-read-file"
   ]
 }

@@ -40,4 +40,11 @@ describe("cleanPastedHTML", () => {
     const html = `<style>p{}</style><p class="x" style="color:red"><span style="font-size:20px">Hi <b>there</b></span> <a href="https://a.com" target="_blank" style="color:blue">link</a></p>`;
     expect(cleanPastedHTML(html)).toBe(`<p>Hi <b>there</b> <a href="https://a.com">link</a></p>`);
   });
+
+  it("keeps the attributes that carry journal media", () => {
+    const html = `<p><img data-file-id="f1" data-width="200" data-align="left" style="x"><span data-media="pdf" data-file-id="f2" data-name="a.pdf" class="y">a.pdf</span></p>`;
+    expect(cleanPastedHTML(html)).toBe(
+      `<p><img data-file-id="f1" data-width="200" data-align="left"><span data-media="pdf" data-file-id="f2" data-name="a.pdf">a.pdf</span></p>`,
+    );
+  });
 });

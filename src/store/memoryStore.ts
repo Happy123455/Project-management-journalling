@@ -1,9 +1,14 @@
+import { idFromRef } from "../lib/embeds";
+import { safeFileName } from "../lib/files";
 import { extractLinks, uniqueNames } from "../lib/links";
+import { matchText, searchTerms } from "../lib/search";
 import { dayKey } from "../lib/timestamp";
 import { countWords, docText } from "../lib/words";
-import { deviceId, newId } from "./ids";
+import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
+import { Serial } from "./serial";
 import { fileEventBody, fromBase64, newFileRecord, toBase64 } from "./files";
-import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, Reference, SaveDayInput, SaveFileInput } from "./types";
+import { eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
+import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
 import type { JSONContent } from "@tiptap/react";
 
 interface Snapshot {
@@ -18,6 +23,11 @@ interface Snapshot {
 
 const KEY = "dynamic-journal.memory-store";
 
+/** The journal itself, as the block that restore events belong to. */
+const RESTORE_BLOCK = "journal";
+const restoreBody = (source: string, data: Snapshot) =>
+  JSON.stringify({ source, days: Object.keys(data.pages).length, files: Object.keys(data.files ?? {}).length });
+
 const withoutData = ({ data: _data, ...record }: FileRecord & { data: string }): FileRecord => record;
 
 /**
@@ -25,9 +35,34 @@ const withoutData = ({ data: _data, ...record }: FileRecord & { data: string }):
  * The real app uses SqliteStore; both follow the same rules.
  */
 export class MemoryStore implements JournalStore {
+  /** Writes run one at a time (see Serial). */
+  private writes = new Serial();
+
+  saveDay(input: SaveDayInput) {
+    return this.writes.run(() => this.saveDayNow(input));
+  }
+
+  completeReminder(day: string, actor?: string) {
+    return this.writes.run(() => this.completeReminderNow(day, actor));
+  }
+
+  ensurePage(title: string, actor?: string) {
+    return this.writes.run(() => this.ensurePageNow(title, actor));
+  }
+
+  savePage(input: { id: string; content: JSONContent; plainText: string; actor?: string }) {
+    return this.writes.run(() => this.savePageNow(input));
+  }
+
+  saveFile(input: SaveFileInput) {
+    return this.writes.run(() => this.saveFileNow(input));
+  }
+
   private data: Snapshot;
+  readonly deviceId: string;
 
   constructor(private storage?: Pick<Storage, "getItem" | "setItem">, private device = deviceId(storage)) {
+    this.deviceId = device;
     const raw = storage?.getItem(KEY);
     this.data = raw ? JSON.parse(raw) : { pages: {}, events: [], links: [] };
   }
@@ -37,11 +72,11 @@ export class MemoryStore implements JournalStore {
     return page ? { ...page, props: page.props ?? {} } : null;
   }
 
-  async saveDay({ day, content, plainText, actor = "me" }: SaveDayInput) {
+  private async saveDayNow({ day, content, plainText, actor = "me" }: SaveDayInput) {
     const now = new Date().toISOString();
     const existing = await this.getDay(day);
     const after = JSON.stringify(content);
-    const page: DayPage = { id: existing?.id ?? newId(), day, content, props: existing?.props ?? {}, updatedAt: now };
+    const page: DayPage = { id: existing?.id ?? dayBlockId(day), day, content, props: existing?.props ?? {}, updatedAt: now };
     if (existing && JSON.stringify(existing.content) === after) return existing;
 
     this.logEvent(page.id, actor, existing ? "update" : "create", existing ? JSON.stringify(existing.content) : null, after, now);
@@ -80,7 +115,7 @@ export class MemoryStore implements JournalStore {
       .sort((a, b) => a.day.localeCompare(b.day));
   }
 
-  async completeReminder(day: string, actor = "me") {
+  private async completeReminderNow(day: string, actor = "me") {
     const page = await this.getDay(day);
     if (!page?.props.reminder || page.props.reminderDone) return;
     const props: DayProps = { ...page.props, reminderDone: true };
@@ -95,18 +130,18 @@ export class MemoryStore implements JournalStore {
     return Object.values(this.named).find((p) => p.title.toLowerCase() === want) ?? null;
   }
 
-  async ensurePage(title: string, actor = "me") {
+  private async ensurePageNow(title: string, actor = "me") {
     const existing = await this.getPage(title);
     if (existing) return existing;
     const now = new Date().toISOString();
-    const page: NamedPage = { id: newId(), title: title.trim(), content: { type: "doc", content: [{ type: "paragraph" }] }, updatedAt: now };
+    const page: NamedPage = { id: pageBlockId(title), title: title.trim(), content: { type: "doc", content: [{ type: "paragraph" }] }, updatedAt: now };
     this.logEvent(page.id, actor, "create", null, JSON.stringify({ title: page.title, content: page.content }), now);
     this.named[page.id] = page;
     this.persist();
     return page;
   }
 
-  async savePage({ id, content, plainText, actor = "me" }: { id: string; content: JSONContent; plainText: string; actor?: string }) {
+  private async savePageNow({ id, content, plainText, actor = "me" }: { id: string; content: JSONContent; plainText: string; actor?: string }) {
     const existing = this.named[id];
     if (!existing) throw new Error(`No page ${id}`);
     const after = JSON.stringify(content);
@@ -135,7 +170,7 @@ export class MemoryStore implements JournalStore {
     return uniqueNames(names);
   }
 
-  async saveFile(input: SaveFileInput) {
+  private async saveFileNow(input: SaveFileInput) {
     const record = await newFileRecord(input);
     const same = Object.values(this.files).find((f) => f.hash === record.hash);
     if (same) return withoutData(same);
@@ -150,9 +185,130 @@ export class MemoryStore implements JournalStore {
     return f ? withoutData(f) : null;
   }
 
+  async search(query: string) {
+    const terms = searchTerms(query);
+    if (!terms.length) return [];
+    const hits: SearchHit[] = [];
+    const days = Object.values(this.data.pages).sort((a, b) => b.day.localeCompare(a.day));
+    for (const p of days) {
+      const text = docText(p.content);
+      if (matchText(text, terms)) hits.push({ kind: "day", blockId: p.id, day: p.day, title: null, text });
+    }
+    for (const p of Object.values(this.named)) {
+      const text = `${p.title}\n${docText(p.content)}`;
+      if (matchText(text, terms)) hits.push({ kind: "page", blockId: p.id, day: null, title: p.title, text });
+    }
+    for (const f of await this.listFiles()) {
+      if (matchText(f.name, terms)) hits.push({ kind: "file", file: f });
+    }
+    return hits;
+  }
+
+  async listFiles() {
+    return Object.values(this.files)
+      .map(withoutData)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async findFile(ref: string) {
+    const id = idFromRef(ref);
+    if (id) return this.getFile(id);
+    const want = safeFileName(ref.trim()).toLowerCase();
+    const match = Object.values(this.files)
+      .filter((f) => f.name.toLowerCase() === want)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    return match ? withoutData(match) : null;
+  }
+
   async fileBytes(id: string) {
     const f = this.files[id];
     return f ? fromBase64(f.data) : null;
+  }
+
+  restore(entries: { name: string; bytes: Uint8Array }[], source: string) {
+    return this.writes.run(async () => {
+      const json = entries.find((e) => e.name === "journal.json");
+      if (!json) throw new Error("This backup comes from the app; restore it there.");
+      const data = JSON.parse(new TextDecoder().decode(json.bytes)) as Snapshot;
+      const bytes = new Map(entries.map((e) => [e.name, e.bytes]));
+      const files: NonNullable<Snapshot["files"]> = {};
+      for (const f of Object.values(data.files ?? {})) {
+        const b = bytes.get(f.path);
+        if (b) files[f.id] = { ...f, data: toBase64(b) };
+      }
+      this.data = { ...data, files };
+      this.logEvent(RESTORE_BLOCK, "me", "restore", null, restoreBody(source, data), new Date().toISOString());
+      this.persist();
+    });
+  }
+
+  async syncRecords() {
+    const records: SyncRecord[] = [];
+    for (const event of this.data.events) {
+      if (event.deviceId !== this.device || event.op === "restore") continue;
+      const meta = this.metaFor(event.blockId);
+      if (meta) records.push({ event, meta });
+    }
+    return records;
+  }
+
+  async localBlockId(meta: BlockMeta) {
+    if (meta.kind === "file") return meta.file.id;
+    if (meta.type === "day") return this.data.pages[meta.day]?.id ?? null;
+    return (await this.getPage(meta.title))?.id ?? null;
+  }
+
+  async syncState(blockIds: string[]): Promise<LocalState> {
+    const latest: LocalState["latest"] = new Map();
+    for (const id of blockIds) latest.set(id, { content: null, props: null });
+    for (const e of this.data.events) {
+      const slot = latest.get(e.blockId);
+      if (!slot) continue;
+      const which = e.op === "props" ? "props" : e.op === "create" || e.op === "update" ? "content" : null;
+      if (!which) continue;
+      const key = eventKey(e);
+      const cur = slot[which];
+      if (!cur || key.join("\u0000") > cur.join("\u0000")) slot[which] = key;
+    }
+    return { eventIds: new Set(this.data.events.map((e) => e.id)), latest, fileIds: new Set(Object.keys(this.files)) };
+  }
+
+  applySync(plan: MergePlan, blobs: Map<string, Uint8Array>) {
+    return this.writes.run(async () => {
+      const known = new Set(this.data.events.map((e) => e.id));
+      for (const r of plan.events) if (!known.has(r.event.id)) this.data.events.push(r.event);
+      for (const b of plan.blocks) {
+        if (b.meta.kind !== "block") continue;
+        const content = b.content ? JSON.parse(b.content) : undefined;
+        const props = b.props ? JSON.parse(b.props) : undefined;
+        if (b.meta.type === "day") {
+          const cur = this.data.pages[b.meta.day];
+          const page: DayPage = cur ?? { id: b.blockId, day: b.meta.day, content: { type: "doc", content: [] }, props: {}, updatedAt: b.updatedAt };
+          this.data.pages[b.meta.day] = { ...page, content: content ?? page.content, props: props ?? page.props ?? {}, updatedAt: b.updatedAt };
+          this.setLinks(page.id, docText(this.data.pages[b.meta.day].content));
+        } else {
+          const cur = this.named[b.blockId];
+          const page: NamedPage = cur ?? { id: b.blockId, title: b.meta.title, content: { type: "doc", content: [] }, updatedAt: b.updatedAt };
+          this.named[b.blockId] = { ...page, content: content ?? page.content, updatedAt: b.updatedAt };
+          this.setLinks(b.blockId, docText(this.named[b.blockId].content));
+        }
+      }
+      for (const f of plan.files) {
+        const bytes = blobs.get(f.hash);
+        if (bytes && !this.files[f.id]) this.files[f.id] = { ...f, data: toBase64(bytes) };
+      }
+      this.persist();
+    });
+  }
+
+  /** What a block is, for sync: a day page, a named page or a file. */
+  private metaFor(blockId: string): BlockMeta | null {
+    const day = Object.values(this.data.pages).find((p) => p.id === blockId);
+    if (day) return { kind: "block", type: "day", day: day.day };
+    const page = this.named[blockId];
+    if (page) return { kind: "block", type: "page", title: page.title };
+    const file = this.files[blockId];
+    return file ? { kind: "file", file: withoutData(file) } : null;
   }
 
   async exportFiles() {

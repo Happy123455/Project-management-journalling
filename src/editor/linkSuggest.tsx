@@ -82,7 +82,9 @@ export const LinkSuggest = Extension.create<LinkSuggestOptions>({
         allowSpaces: true,
         allowedPrefixes: null,
         // Only while the link is still open: "[[Ravi]] and more" is already finished.
-        allow: ({ state, range }) => !state.doc.textBetween(range.from, range.to).slice(2).includes("]"),
+        allow: ({ state, range }) =>
+          state.doc.resolve(range.from).parent.type.name !== "codeBlock" &&
+          !state.doc.textBetween(range.from, range.to).slice(2).includes("]"),
         items: async ({ query }) => linkOptions(await options.pageNames(), query),
         command: ({ editor, range, props }) => {
           // The "/" Link tile leaves "]]" after the cursor; replace it too.
