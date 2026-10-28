@@ -6,6 +6,8 @@ import { BacklinkList, PageView, TagView, type LinkHandlers } from "./pages/Link
 import { autoBackup, exportBackup } from "./backup";
 import { setAttachmentStore } from "./editor/attachments";
 import { JournalEditor } from "./editor/JournalEditor";
+import { CaptureHost } from "./editor/CaptureHost";
+import { PdfHost } from "./editor/PdfHost";
 import { extractLinks } from "./lib/links";
 import { addDays, dayKey, dayTitle } from "./lib/timestamp";
 import { countWords } from "./lib/words";
@@ -303,6 +305,9 @@ function App() {
           </>
         )}
       </aside>
+
+      <PdfHost />
+      <CaptureHost />
 
       <YearPanel
         year={yearShown}

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState, type MouseEvent, type Pointer
 import type { Editor, JSONContent } from "@tiptap/react";
 import { sha256 } from "../lib/files";
 import { classifyClip, clipKey, clipPreview, type Clip } from "../lib/smartPaste";
-import { insertFiles } from "./attachments";
+import { hasEmbeds } from "../lib/embeds";
+import { insertFiles, pasteEmbeds } from "./attachments";
 
 const HANDLED_KEY = "dynamic-journal.clipboard-handled";
 const MAX_HANDLED = 50;
@@ -20,9 +21,23 @@ async function readClipboard(): Promise<string | null> {
   }
 }
 
-/** An image on the clipboard as a PNG file, or null. */
+/** The Android app's bridge to clipboard media with the original bytes (MainActivity.kt). */
+declare global {
+  interface Window {
+    JournalClipboard?: { media(): string };
+    __journalClipboardChanged?: () => void;
+  }
+}
+
+/** An image (or video) on the clipboard, or null. GIFs keep their animation on Android. */
 async function readClipboardImage(): Promise<File | null> {
   try {
+    const native = window.JournalClipboard?.media();
+    if (native) {
+      const { mime, data } = JSON.parse(native) as { mime: string; data: string };
+      const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+      return new File([bytes], `pasted.${mime.split("/")[1] ?? "bin"}`, { type: mime });
+    }
     if ("__TAURI_INTERNALS__" in window) {
       const { readImage } = await import("@tauri-apps/plugin-clipboard-manager");
       const image = await readImage();
@@ -75,6 +90,7 @@ function insertClip(editor: Editor, clip: Clip, asCode: boolean) {
       .insertContent([{ type: "text", text: clip.url, marks: [{ type: "link", attrs: { href: clip.url } }] }, { type: "text", text: " " }])
       .run();
   }
+  if (hasEmbeds(clip.text)) return void pasteEmbeds(editor, clip.text);
   return chain.insertContent(clip.lines > 1 ? paragraphs(clip.text) : clip.text).run();
 }
 
@@ -91,10 +107,12 @@ export function SmartPaste({ editor }: { editor: Editor }) {
   const check = useCallback(async () => {
     if (checking.current || !editor.isFocused) return;
     checking.current = true;
-    const raw = await readClipboard();
+    // On Android, copied media (a Gboard GIF often comes with a link as text) wins over text.
+    const nativeImage = window.JournalClipboard ? await readClipboardImage() : null;
+    const raw = nativeImage ? null : await readClipboard();
     const clip = classifyClip(raw);
     // With no text on the clipboard, look for a copied image.
-    const image = clip ? null : await readClipboardImage();
+    const image = nativeImage ?? (clip ? null : await readClipboardImage());
     checking.current = false;
     if ((!clip && !image) || !editor.isFocused) return setSuggestion(null);
     const key = clip ? clipKey(raw!.trim()) : `img:${(await sha256(new Uint8Array(await image!.arrayBuffer()))).slice(0, 16)}`;
@@ -113,7 +131,10 @@ export function SmartPaste({ editor }: { editor: Editor }) {
     editor.on("blur", hide);
     editor.on("update", hide);
     document.addEventListener("visibilitychange", onVisible);
+    // Android tells us when something new is copied while the app is open (e.g. a Gboard GIF).
+    window.__journalClipboardChanged = onFocus;
     return () => {
+      if (window.__journalClipboardChanged === onFocus) delete window.__journalClipboardChanged;
       editor.off("focus", onFocus);
       editor.off("blur", hide);
       editor.off("update", hide);
@@ -135,9 +156,9 @@ export function SmartPaste({ editor }: { editor: Editor }) {
     <div className="paste-chip" style={{ top: suggestion.top, left: suggestion.left }} role="group" aria-label="Paste from clipboard">
       {image ? (
         <>
-          <span className="paste-preview">🖼️ Copied image</span>
+          <span className="paste-preview">{image.type === "image/gif" ? "🎞️ Copied GIF" : image.type.startsWith("video/") ? "🎥 Copied video" : "🖼️ Copied image"}</span>
           <button type="button" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={() => act(() => void insertFiles(editor, [image]))}>
-            Paste image
+            {image.type === "image/gif" ? "Paste GIF" : "Paste"}
           </button>
         </>
       ) : (

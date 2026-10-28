@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type Editor, type NodeViewProps } from "@tiptap/react";
+import type { Node as PMNode } from "@tiptap/pm/model";
+import { qrContent } from "../lib/capture";
+import { embedText, parseEmbeds } from "../lib/embeds";
 import { fileKind, formatSize } from "../lib/files";
 import type { FileRecord, JournalStore } from "../store";
 
@@ -57,16 +60,83 @@ async function openFile(id: string) {
   }
 }
 
+/** The block that shows a stored file: photo, video or PDF placed inline, anything else as a file card. */
+export function mediaNode(r: FileRecord) {
+  const kind = fileKind(r.mime);
+  if (kind === "image") return { type: "attachmentImage", attrs: { fileId: r.id, name: r.name, align: "inline" } };
+  if (kind === "video" || kind === "pdf") return { type: "attachmentMedia", attrs: { fileId: r.id, kind, name: r.name, mime: r.mime, size: r.size, align: "inline" } };
+  return { type: "attachmentFile", attrs: { fileId: r.id, name: r.name, mime: r.mime, size: r.size } };
+}
+
+/** data-* attributes that let a copied photo, video, PDF or file be pasted back as itself. */
+function mediaData(attrs: Record<string, unknown>) {
+  const data: Record<string, string> = {};
+  for (const key of ["fileId", "width", "align", "name", "mime", "size"]) {
+    if (attrs[key] != null && attrs[key] !== "") data[`data-${key === "fileId" ? "file-id" : key}`] = String(attrs[key]);
+  }
+  return data;
+}
+
+/** Media blocks as Obsidian-style embeds in copied plain text: ![[attachments/<id>/<name>]]. */
+export function mediaLeafText(node: PMNode): string {
+  if (!["attachmentImage", "attachmentMedia", "attachmentFile"].includes(node.type.name)) return "";
+  return embedText(node.attrs.fileId, node.attrs.name || "file", node.attrs.width);
+}
+
+/**
+ * Pastes text holding ![[...]] embeds: each embed that names a stored file becomes that photo,
+ * video, PDF or file again; unknown ones stay as text.
+ */
+export async function pasteEmbeds(editor: Editor, text: string) {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const paragraphs = [];
+  for (const line of lines) {
+    const content = [];
+    for (const seg of parseEmbeds(line)) {
+      if (seg.type === "text") {
+        if (seg.text) content.push({ type: "text", text: seg.text });
+        continue;
+      }
+      const file = await store?.findFile(seg.ref);
+      if (!file) {
+        content.push({ type: "text", text: `![[${seg.ref}]]` });
+        continue;
+      }
+      const node = mediaNode(file);
+      if (node.type === "attachmentFile") {
+        // File cards are blocks: close the line so far and put the card on its own.
+        if (content.length) paragraphs.push({ type: "paragraph", content: content.splice(0) });
+        paragraphs.push(node);
+      } else {
+        content.push({ ...node, attrs: { ...node.attrs, ...(seg.width ? { width: seg.width } : {}) } });
+      }
+    }
+    paragraphs.push({ type: "paragraph", content });
+  }
+  editor.chain().focus().insertContent(paragraphs).run();
+}
+
+/** Videos and PDFs added before they could be placed like photos become placeable ones. */
+export function upgradeOldMedia(editor: Editor) {
+  const { state } = editor;
+  const tr = state.tr;
+  state.doc.descendants((node, pos) => {
+    if (node.type.name !== "attachmentFile") return;
+    const kind = fileKind(node.attrs.mime);
+    if (kind !== "video" && kind !== "pdf") return;
+    const media = state.schema.nodes.attachmentMedia.create({ ...node.attrs, kind, align: "inline" });
+    const at = tr.mapping.map(pos);
+    tr.replaceWith(at, at + node.nodeSize, state.schema.nodes.paragraph.create(null, media));
+  });
+  if (tr.docChanged) editor.view.dispatch(tr);
+}
+
 /** Saves picked, pasted or dropped files and puts them in the page at the cursor. */
 export async function insertFiles(editor: Editor, files: File[]) {
   if (!store || !files.length) return;
   const records: FileRecord[] = [];
   for (const f of files) records.push(await store.saveFile({ name: f.name || "file", mime: f.type, bytes: new Uint8Array(await f.arrayBuffer()) }));
-  const nodes = records.map((r) =>
-    fileKind(r.mime) === "image"
-      ? { type: "attachmentImage", attrs: { fileId: r.id, align: "center" } }
-      : { type: "attachmentFile", attrs: { fileId: r.id, name: r.name, mime: r.mime, size: r.size } },
-  );
+  const nodes = records.map(mediaNode);
   editor.chain().focus().insertContent(nodes).run();
 }
 
@@ -86,26 +156,19 @@ export function pickFiles(editor: Editor, accept: string, capture?: "environment
   input.click();
 }
 
-/** Scans a QR code with the phone camera and inserts it: links become tappable links. */
-export async function scanQr(editor: Editor) {
-  if (!("__TAURI_INTERNALS__" in window)) return alert("QR scanning works in the phone app.");
-  const scanner = await import("@tauri-apps/plugin-barcode-scanner");
-  try {
-    if ((await scanner.checkPermissions()) !== "granted" && (await scanner.requestPermissions()) !== "granted") return;
-    const { content } = await scanner.scan({ formats: [scanner.Format.QRCode] });
-    const text = content.trim();
-    const isUrl = /^https?:\/\/\S+$/i.test(text);
-    editor
-      .chain()
-      .focus()
-      .insertContent({
-        type: "paragraph",
-        content: [{ type: "text", text, ...(isUrl ? { marks: [{ type: "link", attrs: { href: text } }] } : {}) }],
-      })
-      .run();
-  } catch {
-    // Scan cancelled.
-  }
+/** Opens the in-app camera (photos, videos, QR codes); what it captures goes in at the cursor. */
+export function openCapture(editor: Editor) {
+  window.dispatchEvent(new CustomEvent("journal:capture", { detail: { editor } }));
+}
+
+/** A scanned QR code at the cursor: links become tappable links. */
+export function insertQr(editor: Editor, raw: string) {
+  const { text, href } = qrContent(raw);
+  editor
+    .chain()
+    .focus()
+    .insertContent([{ type: "text", text, ...(href ? { marks: [{ type: "link", attrs: { href } }] } : {}) }, { type: "text", text: " " }])
+    .run();
 }
 
 // ───────────── Image block ─────────────
@@ -134,9 +197,9 @@ function dragFrom(event: ReactPointerEvent, onMove: (dx: number, dy: number) => 
   window.addEventListener("pointerup", up);
 }
 
-function ImageView({ node, updateAttributes, selected, editor }: NodeViewProps) {
-  const { fileId, width, align, x, y } = node.attrs as { fileId: string; width: number | null; align: Align; x: number; y: number };
-  const { url, failed } = useFileUrl(fileId);
+/** Shared frame for photos, videos and PDFs: width, placement, the resize handle and the placement toolbar. */
+function PlacedMedia({ node, updateAttributes, selected, editor, children }: NodeViewProps & { children: ReactNode }) {
+  const { width, align, x, y } = node.attrs as { width: number | null; align: Align; x: number; y: number };
   const box = useRef<HTMLSpanElement>(null);
   const editable = editor.isEditable;
 
@@ -157,7 +220,7 @@ function ImageView({ node, updateAttributes, selected, editor }: NodeViewProps) 
       data-drag-handle={align === "free" ? undefined : ""}
     >
       <span ref={box} className="attach-image-box" onPointerDown={move}>
-        {url ? <img src={url} alt="" draggable={false} /> : <span className="attach-missing">{failed ? "Image not found" : "Loading…"}</span>}
+        {children}
         {selected && editable && <span className="attach-resize" onPointerDown={resize} aria-label="Resize" />}
       </span>
       {selected && editable && (
@@ -180,7 +243,25 @@ function ImageView({ node, updateAttributes, selected, editor }: NodeViewProps) 
   );
 }
 
-/** A stored photo in the page, with width and placement kept in the document. */
+function ImageView(props: NodeViewProps) {
+  const { url, failed } = useFileUrl(props.node.attrs.fileId);
+  return (
+    <PlacedMedia {...props}>
+      {url ? <img src={url} alt="" draggable={false} /> : <span className="attach-missing">{failed ? "Image not found" : "Loading…"}</span>}
+    </PlacedMedia>
+  );
+}
+
+const placementAttributes = () => ({
+  fileId: { default: null, parseHTML: (el: HTMLElement) => el.getAttribute("data-file-id") },
+  name: { default: "image", parseHTML: (el: HTMLElement) => el.getAttribute("data-name") ?? "image" },
+  width: { default: null, parseHTML: (el: HTMLElement) => Number(el.getAttribute("data-width")) || null },
+  align: { default: "inline", parseHTML: (el: HTMLElement) => el.getAttribute("data-align") ?? "inline" },
+  x: { default: 0 },
+  y: { default: 0 },
+});
+
+/** A stored photo (or GIF) in the page, with width and placement kept in the document. */
 export const AttachmentImage = Node.create({
   name: "attachmentImage",
   group: "inline",
@@ -188,22 +269,109 @@ export const AttachmentImage = Node.create({
   atom: true,
   draggable: true,
   addAttributes() {
-    return {
-      fileId: { default: null, parseHTML: (el) => el.getAttribute("data-file-id") },
-      width: { default: null, parseHTML: (el) => Number(el.getAttribute("data-width")) || null },
-      align: { default: "center", parseHTML: (el) => el.getAttribute("data-align") ?? "center" },
-      x: { default: 0 },
-      y: { default: 0 },
-    };
+    return placementAttributes();
   },
   parseHTML() {
     return [{ tag: "img[data-file-id]" }];
   },
   renderHTML({ node, HTMLAttributes }) {
-    return ["img", mergeAttributes(HTMLAttributes, { "data-file-id": node.attrs.fileId, "data-width": node.attrs.width, "data-align": node.attrs.align })];
+    return ["img", mergeAttributes(HTMLAttributes, mediaData(node.attrs))];
   },
   addNodeView() {
     return ReactNodeViewRenderer(ImageView);
+  },
+});
+
+// ───────────── Videos and PDFs, placed like photos ─────────────
+
+/** Ask the app to show a PDF full screen (the viewer lives in App). */
+export function showPdf(fileId: string) {
+  window.dispatchEvent(new CustomEvent("journal:open-pdf", { detail: { fileId } }));
+}
+
+/** Bytes of a stored file, for the PDF viewer. */
+export const readFileBytes = (id: string) => store?.fileBytes(id) ?? Promise.resolve(null);
+export const readFileRecord = (id: string) => store?.getFile(id) ?? Promise.resolve(null);
+export { openFile };
+
+function PdfPreview({ fileId, name }: { fileId: string; name: string }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const bytes = await store?.fileBytes(fileId);
+      if (!bytes || !canvas.current) throw new Error("missing");
+      const { openPdf, drawPage } = await import("./pdf");
+      const doc = await openPdf(bytes);
+      if (live && canvas.current) await drawPage(doc, 1, canvas.current, 480);
+      if (live) setState("ready");
+    })().catch(() => live && setState("failed"));
+    return () => {
+      live = false;
+    };
+  }, [fileId]);
+  return (
+    <span className="pdf-preview">
+      <canvas ref={canvas} hidden={state !== "ready"} />
+      {state !== "ready" && <span className="attach-missing">{state === "failed" ? `📕 ${name}` : "Loading PDF…"}</span>}
+      <span className="pdf-badge">📕 {name}</span>
+      <button
+        type="button"
+        className="pdf-open"
+        aria-label="Open full screen"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          showPdf(fileId);
+        }}
+      >
+        ⤢
+      </button>
+    </span>
+  );
+}
+
+function MediaView(props: NodeViewProps) {
+  const { fileId, kind, name } = props.node.attrs as { fileId: string; kind: "video" | "pdf"; name: string };
+  const { url, failed } = useFileUrl(kind === "video" ? fileId : null);
+  return (
+    <PlacedMedia {...props}>
+      {kind === "pdf" ? (
+        <PdfPreview fileId={fileId} name={name} />
+      ) : url ? (
+        <video src={url} controls playsInline preload="metadata" />
+      ) : (
+        <span className="attach-missing">{failed ? "Video not found" : "Loading…"}</span>
+      )}
+    </PlacedMedia>
+  );
+}
+
+/** A video or PDF with the same width and placement controls as photos. */
+export const AttachmentMedia = Node.create({
+  name: "attachmentMedia",
+  group: "inline",
+  inline: true,
+  atom: true,
+  draggable: true,
+  addAttributes() {
+    return {
+      ...placementAttributes(),
+      kind: { default: "video", parseHTML: (el: HTMLElement) => el.getAttribute("data-media") ?? "video" },
+      name: { default: "file", parseHTML: (el: HTMLElement) => el.getAttribute("data-name") ?? "file" },
+      mime: { default: "", parseHTML: (el: HTMLElement) => el.getAttribute("data-mime") ?? "" },
+      size: { default: 0, parseHTML: (el: HTMLElement) => Number(el.getAttribute("data-size")) || 0 },
+    };
+  },
+  parseHTML() {
+    return [{ tag: "span[data-media]" }];
+  },
+  renderHTML({ node, HTMLAttributes }) {
+    return ["span", mergeAttributes(HTMLAttributes, { "data-media": node.attrs.kind, ...mediaData(node.attrs) }), node.attrs.name];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(MediaView);
   },
 });
 
@@ -236,16 +404,16 @@ export const AttachmentFile = Node.create({
   addAttributes() {
     return {
       fileId: { default: null, parseHTML: (el) => el.getAttribute("data-file-id") },
-      name: { default: "file" },
-      mime: { default: "" },
-      size: { default: 0 },
+      name: { default: "file", parseHTML: (el) => el.getAttribute("data-name") ?? "file" },
+      mime: { default: "", parseHTML: (el) => el.getAttribute("data-mime") ?? "" },
+      size: { default: 0, parseHTML: (el) => Number(el.getAttribute("data-size")) || 0 },
     };
   },
   parseHTML() {
     return [{ tag: "div[data-attachment]" }];
   },
   renderHTML({ node, HTMLAttributes }) {
-    return ["div", mergeAttributes(HTMLAttributes, { "data-attachment": "", "data-file-id": node.attrs.fileId }), node.attrs.name];
+    return ["div", mergeAttributes(HTMLAttributes, { "data-attachment": "", ...mediaData(node.attrs) }), node.attrs.name];
   },
   addNodeView() {
     return ReactNodeViewRenderer(FileView);

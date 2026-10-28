@@ -1,7 +1,7 @@
 export type SlashId =
   | "heading" | "task" | "bullet" | "numbered" | "quote" | "code"
   | "divider" | "timestamp" | "link" | "tag" | "reminder"
-  | "attach" | "camera" | "video" | "qr";
+  | "attach" | "capture";
 
 export interface SlashItem {
   id: SlashId;
@@ -25,9 +25,7 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: "tag", label: "Tag", icon: "#", keywords: ["hashtag", "label"] },
   { id: "reminder", label: "Reminder", icon: "🔔", keywords: ["future", "remind", "later", "date"] },
   { id: "attach", label: "Attach", icon: "📎", keywords: ["file", "pdf", "photo", "image", "upload", "document"] },
-  { id: "camera", label: "Photo", icon: "📷", keywords: ["camera", "picture", "image", "snap"] },
-  { id: "video", label: "Video", icon: "🎥", keywords: ["camera", "record", "clip"] },
-  { id: "qr", label: "Scan QR", icon: "🔳", keywords: ["qr", "barcode", "scan", "code"] },
+  { id: "capture", label: "Capture", icon: "📷", keywords: ["camera", "photo", "picture", "video", "record", "qr", "scan", "barcode"] },
 ];
 
 /** Tiles matching what was typed after "/": label matches first, then keyword matches. */
