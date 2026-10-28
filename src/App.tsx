@@ -12,6 +12,7 @@ import { FindBar } from "./search/FindBar";
 import { GraphView } from "./graph/GraphView";
 import { NewProject } from "./projects/NewProject";
 import { SettingsPanel } from "./settings/SettingsPanel";
+import { ChatView } from "./ChatView";
 import { VoiceRecorder } from "./editor/VoiceRecorder";
 import { MemeKit } from "./editor/MemeKit";
 import { ProjectList } from "./projects/ProjectPanel";
@@ -59,6 +60,7 @@ function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   // Bumped when another device's changes arrive, so lists and calendars reload.
   const [syncTick, setSyncTick] = useState(0);
   // Bumped to reopen the current page in the editor with what arrived (only when not typing).
@@ -396,6 +398,7 @@ function App() {
         <div className="sidebar-actions">
           <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))}>🕸 Graph view</button>
           <button type="button" onClick={() => (setDrawerOpen(false), setSettingsOpen(true))}>⚙︎ Settings</button>
+          <button type="button" onClick={() => (setDrawerOpen(false), void backUpNow())}>💾 Back up now</button>
           <SyncStatus status={sync.status} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
           <RestoreButton store={store} onBeforeRestore={flush} />
         </div>
@@ -427,11 +430,11 @@ function App() {
                 <button type="button" className="today" onClick={() => goTo(today)}>Today</button>
               )}
               <span className="status">{status}</span>
+              <button type="button" className="chat-button" onClick={async () => (await flush(), setChatOpen(true))} title="Chat view" aria-label="Chat view">
+                💬
+              </button>
               <button type="button" className="search-button" onClick={() => setSearchOpen(true)} title="Search (Cmd/Ctrl+K)" aria-label="Search">
                 🔍
-              </button>
-              <button type="button" className="backup-button" onClick={backUpNow} title="Back up the whole journal" aria-label="Back up journal">
-                💾
               </button>
             </header>
 
@@ -466,7 +469,7 @@ function App() {
               // the editor by itself) keeps the month open.
               <div onPointerDown={() => setCalendarCollapsed(true)}>
                 <JournalEditor
-                  key={day}
+                  key={`${day}:${pageVersion}`}
                   initialContent={page?.content ?? null}
                   onChange={onChange}
                   onReminder={pickReminderDay}
@@ -522,6 +525,7 @@ function App() {
         <div className="sidebar-actions">
           <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))}>🕸 Graph view</button>
           <button type="button" onClick={() => (setDrawerOpen(false), setSettingsOpen(true))}>⚙︎ Settings</button>
+          <button type="button" onClick={() => (setDrawerOpen(false), void backUpNow())}>💾 Back up now</button>
           <SyncStatus status={sync.status} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
           <RestoreButton store={store} onBeforeRestore={flush} />
         </div>
@@ -547,6 +551,17 @@ function App() {
       )}
 
       <NewProject store={store} />
+      {chatOpen && store && (
+        <ChatView
+          store={store}
+          day={day}
+          onClose={() => setChatOpen(false)}
+          onChanged={() => {
+            setPageVersion((n) => n + 1);
+            setSyncTick((n) => n + 1);
+          }}
+        />
+      )}
       <VoiceRecorder />
       <MemeKit />
       {settingsOpen && <SettingsPanel store={store} onClose={() => setSettingsOpen(false)} />}

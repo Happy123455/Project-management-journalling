@@ -443,6 +443,30 @@ button:hover { background: var(--panel); }
 .inspiration-card img { width: 100%; display: block; }
 .inspiration-text { padding: 8px 10px; font-size: 14px; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
 
+/* Chat view */
+.chat-view { position: fixed; inset: 0; z-index: 24; display: flex; flex-direction: column; background: var(--bg); }
+.chat-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 12px; }
+.chat-empty { margin: auto; text-align: center; max-width: 280px; }
+.chat-bubble {
+  align-self: flex-end;
+  max-width: 82%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 2px 8px;
+  padding: 7px 10px 5px 12px;
+  border-radius: 16px 16px 4px 16px;
+  color: #fff;
+  background: rgb(var(--heat-rgb));
+  box-shadow: var(--glass-shadow);
+  animation: drop-in 0.35s var(--spring);
+}
+.chat-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-time { margin-left: auto; font-size: 10px; opacity: 0.75; }
+.chat-compose { display: flex; gap: 8px; align-items: flex-end; padding: 8px 10px max(10px, env(safe-area-inset-bottom)); background: var(--glass); border-top: 1px solid var(--glass-edge); }
+.chat-compose textarea { flex: 1; resize: none; max-height: 120px; font: inherit; padding: 8px 12px; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 18px; }
+.chat-compose button { width: 42px; height: 42px; border-radius: 50%; padding: 0; color: #fff; background: rgb(var(--heat-rgb)); }
+
 /* Meme kit */
 .meme-kit { max-height: calc(100vh - 30px); }
 .meme-grid { overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; padding: 2px; }
