@@ -1,4 +1,4 @@
-import { backupFileName, backupsToDelete, zipBackup } from "./lib/backup";
+import { backupFileName, backupsToDelete, inspectBackup, unzipBackup, zipBackup, type BackupSummary } from "./lib/backup";
 import { dayKey } from "./lib/timestamp";
 import type { JournalStore } from "./store";
 
@@ -41,4 +41,36 @@ export async function autoBackup(store: JournalStore): Promise<boolean> {
   const names = (await fs.readDir(AUTO_DIR, opts)).map((e) => e.name);
   for (const old of backupsToDelete(names, KEEP_DAILY)) await fs.remove(`${AUTO_DIR}/${old}`, opts);
   return true;
+}
+
+/** A chosen backup zip, read and checked, ready to restore. */
+export interface PendingRestore {
+  name: string;
+  entries: { name: string; bytes: Uint8Array }[];
+  summary: BackupSummary;
+}
+
+/** Reads and checks a picked zip; throws with a readable reason when it can't be restored. */
+export async function readBackup(file: File): Promise<PendingRestore> {
+  const entries = unzipBackup(new Uint8Array(await file.arrayBuffer()));
+  const summary = inspectBackup(entries, file.name);
+  if ("error" in summary) throw new Error(summary.error);
+  if (summary.format === "json" && inTauri()) throw new Error("This backup comes from the browser preview, not the app.");
+  if (summary.format === "sqlite" && !inTauri()) throw new Error("This backup comes from the app; restore it there.");
+  return { name: file.name, entries, summary };
+}
+
+/**
+ * Restores a checked backup. In the app, the current journal is first saved to
+ * backups/before-restore-<time>.zip in the app's data folder, so nothing is lost.
+ */
+export async function restoreBackup(store: JournalStore, pending: PendingRestore): Promise<void> {
+  if (inTauri()) {
+    const fs = await import("@tauri-apps/plugin-fs");
+    const base = { baseDir: fs.BaseDirectory.AppData };
+    await fs.mkdir("backups", { ...base, recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    await fs.writeFile(`backups/before-restore-${stamp}.zip`, zipBackup(await store.exportFiles()), base);
+  }
+  await store.restore(pending.entries, pending.name);
 }
