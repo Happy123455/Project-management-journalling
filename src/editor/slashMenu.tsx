@@ -7,6 +7,10 @@ import { formatTimestamp } from "../lib/timestamp";
 import { openCapture, pickFiles } from "./attachments";
 import { openVoiceRecorder } from "./VoiceRecorder";
 import { openMemeKit } from "./MemeKit";
+import { saveToInspiration } from "./inspiration";
+
+/** Where the editor is (the page title), for "saved from" notes. */
+const placeLabel = () => document.querySelector(".page-header h1")?.textContent?.trim() ?? "";
 
 export interface SlashMenuOptions {
   /** Called by the Reminder tile; the app opens a day picker for a future page. */
@@ -57,6 +61,10 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
     case "sound":
       chain.run();
       openMemeKit(editor, "sounds");
+      return true;
+    case "inspiration":
+      chain.run();
+      void saveToInspiration(editor, placeLabel());
       return true;
     case "project":
       chain.run();

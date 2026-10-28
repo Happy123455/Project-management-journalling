@@ -5,6 +5,7 @@ import { linesMentioning } from "../lib/links";
 import { dayTitle } from "../lib/timestamp";
 import { showError } from "../lib/toast";
 import { ProjectPanel } from "../projects/ProjectPanel";
+import { InspirationGrid } from "./InspirationGrid";
 import { docText } from "../lib/words";
 import type { JournalStore, LinkKind, NamedPage, Reference } from "../store";
 
@@ -75,6 +76,8 @@ export function PageView({ store, page, onBack, handlers, pageNames, find, onFin
   const timer = useRef<number | undefined>(undefined);
   const [status, setStatus] = useState("");
   const [saves, setSaves] = useState(0);
+  // The page as last saved (the grid on the Inspiration page follows edits).
+  const [latest, setLatest] = useState<JSONContent | null>(null);
 
   const flush = useCallback(async () => {
     window.clearTimeout(timer.current);
@@ -83,6 +86,7 @@ export function PageView({ store, page, onBack, handlers, pageNames, find, onFin
     pending.current = null;
     try {
       await store.savePage({ id: page.id, ...next });
+      setLatest(next.content);
       setStatus("Saved");
       setSaves((n) => n + 1);
     } catch (e) {
@@ -111,6 +115,9 @@ export function PageView({ store, page, onBack, handlers, pageNames, find, onFin
           </button>
         )}
       </header>
+      {page.title.toLowerCase() === "inspiration" && (
+        <InspirationGrid key={saves} content={latest ?? page.content} />
+      )}
       <div className="page-notes">
       <JournalEditor
         key={page.id}

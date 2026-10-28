@@ -9,7 +9,7 @@ describe("filterSlashItems", () => {
   });
 
   it("matches labels anywhere, ignoring case", () => {
-    expect(ids("QUO")).toEqual(["quote"]);
+    expect(ids("QUO")).toEqual(["quote", "inspiration"]);
     expect(ids("stamp")).toEqual(["timestamp"]);
   });
 

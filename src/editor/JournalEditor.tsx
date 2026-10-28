@@ -11,6 +11,7 @@ import { AttachmentFile, AttachmentImage, AttachmentMedia, insertFiles, mediaLea
 import { JournalCodeBlock } from "./codeBlock";
 import { BlockInfoExtension } from "./blockInfo";
 import { BlockInfoPanel } from "./BlockInfoPanel";
+import { saveToInspiration } from "./inspiration";
 import { isLoneUrl, LinkCard } from "./linkCard";
 import { FindHighlight, findKey } from "./findHighlight";
 import { LogBlock } from "./logBlock";
@@ -61,7 +62,7 @@ function ToolbarButtons({ editor, onInfo }: { editor: Editor; onInfo: () => void
     { key: "redo", label: "↷", title: "Redo (Cmd/Ctrl+Shift+Z)", enabled: active.canRedo, run: () => editor.chain().focus().redo().run() },
   ];
 
-  const buttons: { key: Exclude<keyof typeof active, "canUndo" | "canRedo"> | "timestamp" | "info"; label: string; title: string; run: () => void }[] = [
+  const buttons: { key: Exclude<keyof typeof active, "canUndo" | "canRedo"> | "timestamp" | "info" | "inspire"; label: string; title: string; run: () => void }[] = [
     { key: "bullet", label: "•", title: "Bullet list", run: () => editor.chain().focus().toggleBulletList().run() },
     { key: "task", label: "☑", title: "Task list", run: () => editor.chain().focus().toggleTaskList().run() },
     { key: "ordered", label: "1.", title: "Numbered list", run: () => editor.chain().focus().toggleOrderedList().run() },
@@ -70,6 +71,12 @@ function ToolbarButtons({ editor, onInfo }: { editor: Editor; onInfo: () => void
     { key: "highlight", label: "H", title: "Highlight (Cmd/Ctrl+Shift+H)", run: () => editor.chain().focus().toggleHighlight().run() },
     { key: "code", label: "</>", title: "Code block (or type ``` and Enter)", run: () => editor.chain().focus().toggleCodeBlock().run() },
     { key: "info", label: "ⓘ", title: "Block info", run: onInfo },
+    {
+      key: "inspire",
+      label: "✨",
+      title: "Save this block to Inspiration",
+      run: () => void saveToInspiration(editor, document.querySelector(".page-header h1")?.textContent?.trim() ?? ""),
+    },
     {
       key: "timestamp",
       label: "🕒",
@@ -101,8 +108,8 @@ function ToolbarButtons({ editor, onInfo }: { editor: Editor; onInfo: () => void
           type="button"
           title={b.title}
           aria-label={b.title}
-          aria-pressed={b.key === "timestamp" || b.key === "info" ? undefined : active[b.key]}
-          className={`tool tool-${b.key}${b.key !== "timestamp" && b.key !== "info" && active[b.key] ? " active" : ""}`}
+          aria-pressed={b.key in active ? active[b.key as keyof typeof active] : undefined}
+          className={`tool tool-${b.key}${b.key in active && active[b.key as keyof typeof active] ? " active" : ""}`}
           // Keep the editor focused so the phone keyboard stays open.
           onPointerDown={(e) => e.preventDefault()}
           onMouseDown={(e) => e.preventDefault()}

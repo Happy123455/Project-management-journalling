@@ -37,6 +37,7 @@ export function asBlocks(nodes: JSONContent[]): JSONContent[] {
 export function appendBlocks(doc: JSONContent | null, blocks: JSONContent[]): JSONContent {
   const content = [...(doc?.content ?? [])];
   const last = content[content.length - 1];
-  if (last?.type === "paragraph" && !last.content?.length) content.pop();
+  // A blank last line is reused, unless it carries block info (like an Inspiration "From" line).
+  if (last?.type === "paragraph" && !last.content?.length && !last.attrs?.info) content.pop();
   return { type: "doc", content: [...content, ...blocks] };
 }

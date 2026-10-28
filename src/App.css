@@ -437,6 +437,12 @@ button:hover { background: var(--panel); }
 }
 .editor-body li.has-info::after { margin-left: 0; }
 
+/* Inspiration grid */
+.inspiration-grid { columns: 2 160px; column-gap: 8px; margin-bottom: 14px; }
+.inspiration-card { width: 100%; display: inline-flex; flex-direction: column; gap: 6px; margin-bottom: 8px; padding: 0; overflow: hidden; text-align: left; border-radius: 14px; break-inside: avoid; }
+.inspiration-card img { width: 100%; display: block; }
+.inspiration-text { padding: 8px 10px; font-size: 14px; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
+
 /* Meme kit */
 .meme-kit { max-height: calc(100vh - 30px); }
 .meme-grid { overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; padding: 2px; }

@@ -21,4 +21,9 @@ describe("appending shared things to a note", () => {
     expect(added.content?.map((b) => b.content?.[0]?.text)).toEqual(["morning", "shared"]);
     expect(appendBlocks(null, textBlocks("x")).content).toHaveLength(1);
   });
+
+  it("keeps a blank last line that carries block info", () => {
+    const doc = { type: "doc", content: [{ type: "paragraph", attrs: { info: { From: "28 Oct" } }, content: [] }] };
+    expect(appendBlocks(doc, textBlocks("next")).content).toHaveLength(2);
+  });
 });
