@@ -11,6 +11,7 @@ import { countsByDay, SearchPanel, toResults, type SearchResult } from "./search
 import { FindBar } from "./search/FindBar";
 import { GraphView } from "./graph/GraphView";
 import { NewProject } from "./projects/NewProject";
+import { SettingsPanel } from "./settings/SettingsPanel";
 import { ProjectList } from "./projects/ProjectPanel";
 import { searchTerms } from "./lib/search";
 import { fileKind } from "./lib/files";
@@ -55,6 +56,7 @@ function App() {
   const [route, setRoute] = useState<{ kind: "day" } | { kind: "page"; page: NamedPage } | { kind: "tag"; tag: string }>({ kind: "day" });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // Bumped when another device's changes arrive, so lists and calendars reload.
   const [syncTick, setSyncTick] = useState(0);
   // Bumped to reopen the current page in the editor with what arrived (only when not typing).
@@ -187,6 +189,16 @@ function App() {
     return () => window.removeEventListener("journal:shared", receive);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store]);
+
+  // After an AI edit is undone (Settings → AI changes), show the note as it is now.
+  useEffect(() => {
+    const reload = () => {
+      setPageVersion((n) => n + 1);
+      setSyncTick((n) => n + 1);
+    };
+    window.addEventListener("journal:reload-page", reload);
+    return () => window.removeEventListener("journal:reload-page", reload);
+  }, []);
 
   const dayYear = Number(day.slice(0, 4));
   useEffect(() => {
@@ -381,6 +393,7 @@ function App() {
         <DaysList days={days} day={day} today={today} onPick={goTo} />
         <div className="sidebar-actions">
           <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))}>🕸 Graph view</button>
+          <button type="button" onClick={() => (setDrawerOpen(false), setSettingsOpen(true))}>⚙︎ Settings</button>
           <SyncStatus status={sync.status} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
           <RestoreButton store={store} onBeforeRestore={flush} />
         </div>
@@ -506,6 +519,7 @@ function App() {
         {infoTabs}
         <div className="sidebar-actions">
           <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))}>🕸 Graph view</button>
+          <button type="button" onClick={() => (setDrawerOpen(false), setSettingsOpen(true))}>⚙︎ Settings</button>
           <SyncStatus status={sync.status} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
           <RestoreButton store={store} onBeforeRestore={flush} />
         </div>
@@ -531,6 +545,7 @@ function App() {
       )}
 
       <NewProject store={store} />
+      {settingsOpen && <SettingsPanel store={store} onClose={() => setSettingsOpen(false)} />}
       <PdfHost />
       <CaptureHost />
       <PhotoHost />
