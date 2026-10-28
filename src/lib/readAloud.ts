@@ -5,6 +5,9 @@
  * same on both and a speed change can pick up from the current word.
  */
 
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+
 declare global {
   interface Window {
     JournalSpeech?: {
@@ -49,9 +52,48 @@ export const KOKORO_EN_VOICES = [
   "Adam (US)", "Michael (US)", "Emma (UK)", "Isabella (UK)", "George (UK)", "Lewis (UK)",
 ];
 
-export function voiceInfo(): VoiceInfo | null {
+/** The Mac app: Kokoro runs in Rust (src-tauri/src/kokoro.rs); Android has the JournalSpeech bridge instead. */
+const desktop = () => !window.JournalSpeech && "__TAURI_INTERNALS__" in window;
+
+/** Kokoro's state, or null where there is no Kokoro (the plain browser). */
+export async function voiceInfo(): Promise<VoiceInfo | null> {
   const raw = window.JournalSpeech?.voiceInfo?.();
-  return raw ? (JSON.parse(raw) as VoiceInfo) : null;
+  if (raw) return JSON.parse(raw) as VoiceInfo;
+  if (desktop()) return invoke<VoiceInfo>("voice_info");
+  return null;
+}
+
+/** Download, remove or choose a model, or choose a voice. */
+export async function voiceAction(action: "download" | "remove" | "model" | "voice", value: string | number) {
+  const bridge = window.JournalSpeech;
+  if (bridge) {
+    if (action === "download") bridge.downloadVoice?.(String(value));
+    else if (action === "remove") bridge.removeVoice?.(String(value));
+    else if (action === "model") bridge.setVoiceModel?.(String(value));
+    else bridge.setVoice?.(Number(value));
+    return;
+  }
+  if (!desktop()) return;
+  if (action === "voice") await invoke("set_voice", { voice: Number(value) });
+  else await invoke({ download: "download_voice", remove: "remove_voice", model: "set_voice_model" }[action], { model: String(value) });
+}
+
+export function onVoiceProgress(listener: (p: VoiceProgress) => void): () => void {
+  if (desktop()) {
+    const off = listen<VoiceProgress>("voice-progress", (e) => listener(e.payload));
+    return () => void off.then((f) => f());
+  }
+  window.__journalVoiceProgress = listener;
+  return () => {
+    if (window.__journalVoiceProgress === listener) delete window.__journalVoiceProgress;
+  };
+}
+
+// Mac: Kokoro's events reach the same handler the Android bridge calls.
+if (typeof window !== "undefined" && desktop()) {
+  void listen<{ event: "range" | "done" | "error"; id: string; index: number }>("speech", (e) =>
+    window.__journalSpeech?.(e.payload.event, e.payload.id, e.payload.index),
+  );
 }
 
 export type ReadStatus = "idle" | "playing" | "paused";
@@ -104,8 +146,9 @@ function bestWebVoice(): SpeechSynthesisVoice | null {
 }
 
 const engineStop = () => {
-  if (window.JournalSpeech) window.JournalSpeech.stop();
-  else window.speechSynthesis?.cancel();
+  if (window.JournalSpeech) return window.JournalSpeech.stop();
+  if (desktop()) void invoke("stop_speech");
+  window.speechSynthesis?.cancel();
 };
 
 function start() {
@@ -118,15 +161,25 @@ function start() {
   const onDone = () => {
     if (id === String(run) && state.status === "playing") set({ status: "idle" });
   };
-  if (window.JournalSpeech) {
+  if (window.JournalSpeech || desktop()) {
     window.__journalSpeech = (event, eventId, index) => {
       if (eventId !== String(run)) return;
       if (event === "range") onRange(index ?? 0);
+      // Mac: Kokoro couldn't load, carry on with the system voice (Android does this natively).
+      else if (event === "error" && desktop()) webSpeak(part, onRange, onDone);
       else onDone();
     };
-    window.JournalSpeech.speak(part, state.rate, id);
+    if (window.JournalSpeech) return window.JournalSpeech.speak(part, state.rate, id);
+    void invoke<boolean>("speak", { text: part, rate: state.rate, id }).then((ok) => {
+      if (!ok && id === String(run)) webSpeak(part, onRange, onDone);
+    });
     return;
   }
+  webSpeak(part, onRange, onDone);
+}
+
+/** The system voice through the WebView (AVSpeechSynthesizer voices on the Mac). */
+function webSpeak(part: string, onRange: (i: number) => void, onDone: () => void) {
   const synth = window.speechSynthesis;
   if (!synth) return set({ status: "idle" });
   const u = new SpeechSynthesisUtterance(part);

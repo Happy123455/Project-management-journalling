@@ -78,7 +78,7 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
     // Read aloud with Kokoro: sherpa-onnx (fetched by scripts/fetch-sherpa-onnx.sh) and .tar.bz2 unpacking.
-    implementation(files("libs/sherpa-onnx-2.0.1.aar"))
+    implementation(files("libs/sherpa-onnx-1.13.8.aar"))
     implementation("org.apache.commons:commons-compress:1.27.1")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")

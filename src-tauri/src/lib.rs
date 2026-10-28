@@ -69,6 +69,9 @@ fn migrations() -> Vec<Migration> {
 
 /// Secrets (the AI key) in the macOS Keychain, never in the journal, sync files or backups.
 #[cfg(desktop)]
+mod kokoro;
+
+#[cfg(desktop)]
 mod secrets {
     const SERVICE: &str = "com.hapi.dynamicjournal";
 
@@ -119,7 +122,18 @@ pub fn run() {
 
 #[cfg(desktop)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![secrets::secret_get, secrets::secret_set, secrets::secret_delete]
+    tauri::generate_handler![
+        secrets::secret_get,
+        secrets::secret_set,
+        secrets::secret_delete,
+        kokoro::voice_info,
+        kokoro::set_voice_model,
+        kokoro::set_voice,
+        kokoro::remove_voice,
+        kokoro::download_voice,
+        kokoro::speak,
+        kokoro::stop_speech
+    ]
 }
 
 #[cfg(mobile)]

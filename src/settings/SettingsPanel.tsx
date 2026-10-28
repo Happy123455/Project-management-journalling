@@ -4,7 +4,7 @@ import { DEFAULT_MODELS, PROVIDERS, type Provider } from "../ai/providers";
 import { getKey, removeKey, setKey } from "../ai/secrets";
 import { loadAiSettings, modelFor, monthUsage, saveAiSettings, type AiSettings } from "../ai/settings";
 import { dayTitle } from "../lib/timestamp";
-import { KOKORO_EN_VOICES, MODEL_NAMES, readAloud, voiceInfo, type VoiceInfo, type VoiceProgress } from "../lib/readAloud";
+import { KOKORO_EN_VOICES, MODEL_NAMES, onVoiceProgress, readAloud, voiceAction, voiceInfo, type VoiceInfo, type VoiceProgress } from "../lib/readAloud";
 import { showError, showToast } from "../lib/toast";
 import type { AiChange, JournalStore } from "../store";
 
@@ -119,23 +119,21 @@ function AiChanges({ store }: { store: JournalStore }) {
   );
 }
 
-/** Read aloud (Android): download Kokoro once, pick the model and voice. Without it the system voice is used. */
+/** Read aloud: download Kokoro once, pick the model and voice. Without it the system voice is used. */
 function ReadAloudSettings() {
-  const [info, setInfo] = useState<VoiceInfo | null>(voiceInfo);
+  const [info, setInfo] = useState<VoiceInfo | null>(null);
   const [progress, setProgress] = useState<VoiceProgress | null>(null);
+  const refresh = () => void voiceInfo().then(setInfo);
   useEffect(() => {
-    window.__journalVoiceProgress = (p) => {
+    refresh();
+    return onVoiceProgress((p) => {
       setProgress(p);
-      if (p.state !== "downloading") setInfo(voiceInfo());
+      if (p.state !== "downloading") refresh();
       if (p.state === "error") showError("Voice download failed", p.message);
-    };
-    return () => {
-      delete window.__journalVoiceProgress;
-    };
+    });
   }, []);
   if (!info) return <p className="hint">Uses this device's voice (the best Premium/Enhanced one installed).</p>;
-  const speech = window.JournalSpeech!;
-  const refresh = () => setInfo(voiceInfo());
+  const act = (action: Parameters<typeof voiceAction>[0], value: string | number) => void voiceAction(action, value).then(refresh);
   const current = info.models.find((m) => m.id === info.model);
   const voices = info.model.includes("-en-") ? KOKORO_EN_VOICES : Array.from({ length: Math.max(info.speakers, 1) }, (_, i) => `Voice ${i + 1}`);
   const mb = (n: number) => Math.round(n / 1048576);
@@ -145,14 +143,14 @@ function ReadAloudSettings() {
       <div className="project-status" role="radiogroup" aria-label="Voice model">
         {info.models.map((m) => (
           <button key={m.id} type="button" role="radio" aria-checked={info.model === m.id} className={info.model === m.id ? "active status-active" : ""}
-            onClick={() => (speech.setVoiceModel?.(m.id), refresh())}>
+            onClick={() => act("model", m.id)}>
             {MODEL_NAMES[m.id] ?? m.id}
           </button>
         ))}
       </div>
       {current && !current.installed && (
         <div className="settings-row">
-          <button type="button" disabled={!!info.downloading} onClick={() => (speech.downloadVoice?.(current.id), refresh())}>
+          <button type="button" disabled={!!info.downloading} onClick={() => act("download", current.id)}>
             {info.downloading === current.id ? "Downloading…" : `Download voice (~${current.sizeMb} MB)`}
           </button>
           {progress?.state === "downloading" && progress.model === current.id && (
@@ -164,16 +162,16 @@ function ReadAloudSettings() {
         <>
           <label className="settings-label" htmlFor="kokoro-voice">Voice</label>
           <div className="settings-row">
-            <select id="kokoro-voice" value={info.voice} onChange={(e) => (speech.setVoice?.(Number(e.target.value)), refresh())}>
+            <select id="kokoro-voice" value={info.voice} onChange={(e) => act("voice", Number(e.target.value))}>
               {voices.map((v, i) => <option key={i} value={i}>{v}</option>)}
             </select>
             <button type="button" onClick={() => readAloud("Hi Hapi. This is how your journal sounds when I read it aloud.")}>▶ Try</button>
-            <button type="button" onClick={() => (speech.removeVoice?.(current.id), refresh())}>Remove ({current.sizeMb} MB)</button>
+            <button type="button" onClick={() => act("remove", current.id)}>Remove ({current.sizeMb} MB)</button>
           </div>
         </>
       )}
       <p className="hint">
-        {current?.installed ? "Kokoro runs on this phone, no internet needed." : "Until it's downloaded, the phone's own voice is used."} Kept on this device only (never synced or backed up).
+        {current?.installed ? "Kokoro runs on this device, no internet needed." : "Until it's downloaded, this device's own voice is used."} Kept on this device only (never synced or backed up).
       </p>
     </>
   );
