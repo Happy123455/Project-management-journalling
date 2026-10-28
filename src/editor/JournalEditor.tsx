@@ -9,6 +9,7 @@ import { LinkHighlight } from "./linkHighlight";
 import { hasEmbeds } from "../lib/embeds";
 import { AttachmentFile, AttachmentImage, AttachmentMedia, insertFiles, mediaLeafText, pasteEmbeds, upgradeOldMedia } from "./attachments";
 import { JournalCodeBlock } from "./codeBlock";
+import { isLoneUrl, LinkCard } from "./linkCard";
 import { FindHighlight, findKey } from "./findHighlight";
 import { LogBlock } from "./logBlock";
 import { KeyboardBar, useTouchDevice } from "./KeyboardBar";
@@ -126,6 +127,7 @@ export function JournalEditor({
       AttachmentImage,
       AttachmentMedia,
       AttachmentFile,
+      LinkCard,
       LinkHighlight.configure({ onOpenLink: (t) => onOpenLink?.(t), onOpenTag: (t) => onOpenTag?.(t) }),
       LinkSuggest.configure({ pageNames: () => pageNames?.() ?? Promise.resolve([]) }),
       Timestamp,
@@ -151,6 +153,11 @@ export function JournalEditor({
         // Copied from this app: the HTML already carries the media, let the normal paste handle it.
         if (data.getData("text/html").includes("data-file-id")) return false;
         const text = data.getData("text/plain");
+        // A lone link becomes a preview card (it falls back to a plain link by itself).
+        if (isLoneUrl(text)) {
+          editor.chain().focus().insertContent({ type: "linkCard", attrs: { url: text.trim() } }).run();
+          return true;
+        }
         if (!hasEmbeds(text)) return false;
         void pasteEmbeds(editor, text);
         return true;

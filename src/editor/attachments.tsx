@@ -17,6 +17,9 @@ export function setAttachmentStore(s: JournalStore) {
   store = s;
 }
 
+/** The open journal, for blocks that save elsewhere (e.g. the YouTube watch log). */
+export const journalStore = () => store;
+
 /** A displayable URL for a stored file (cached for the session). */
 export function fileUrl(id: string): Promise<string> {
   let url = urls.get(id);

@@ -403,6 +403,19 @@ button:hover { background: var(--panel); }
 .project-dot.status-paused { background: #f59e0b; }
 .project-name-input { width: 100%; font: inherit; font-size: 16px; padding: 8px 10px; margin-bottom: 8px; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; }
 
+/* Link cards */
+.link-card { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; max-width: 520px; }
+.link-card-main { display: flex; gap: 10px; align-items: stretch; padding: 0; overflow: hidden; text-align: left; border-radius: 14px; }
+.link-card-image { position: relative; flex: 0 0 34%; min-height: 76px; background: var(--panel); }
+.link-card-image img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.youtube .link-card-image { flex-basis: 42%; aspect-ratio: 16 / 9; }
+.link-card-play { position: absolute; inset: 0; margin: auto; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: rgba(220, 38, 38, 0.9); font-size: 15px; }
+.link-card-text { display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 8px 10px 8px 0; min-width: 0; }
+.link-card-title { font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.link-card-site { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-card-watched { align-self: flex-start; font-size: 13px; border-radius: 999px; }
+.link-plain a { color: var(--accent); overflow-wrap: anywhere; }
+
 /* Voice notes and sounds */
 .audio-note { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-edge); line-height: 1.2; }
 .audio-note audio { height: 34px; max-width: 100%; }

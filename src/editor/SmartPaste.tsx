@@ -97,11 +97,7 @@ function insertClip(editor: Editor, clip: Clip, asCode: boolean) {
     const text = clip.kind === "url" ? clip.url : clip.text;
     return chain.insertContent({ type: "codeBlock", content: [{ type: "text", text }] }).run();
   }
-  if (clip.kind === "url") {
-    return chain
-      .insertContent([{ type: "text", text: clip.url, marks: [{ type: "link", attrs: { href: clip.url } }] }, { type: "text", text: " " }])
-      .run();
-  }
+  if (clip.kind === "url") return chain.insertContent({ type: "linkCard", attrs: { url: clip.url } }).run();
   if (hasEmbeds(clip.text)) return void pasteEmbeds(editor, clip.text);
   return chain.insertContent(clip.lines > 1 ? paragraphs(clip.text) : clip.text).run();
 }
