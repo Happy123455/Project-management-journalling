@@ -89,12 +89,32 @@ interface MonthProps {
 export function MonthCalendar({ day, counts, today, collapsed, onToggle, onPick, onOpenYear }: MonthProps) {
   const [year, month] = day.split("-").map(Number);
   return (
-    <section className="month-calendar">
+    // While shrunk to one week, a tap anywhere on it opens the whole month (days can't be picked yet).
+    <section
+      className={collapsed ? "month-calendar collapsed" : "month-calendar"}
+      onClick={collapsed ? onToggle : undefined}
+    >
       <div className="cal-bar">
-        <button type="button" className="cal-title" onClick={onToggle} aria-expanded={!collapsed}>
+        <button
+          type="button"
+          className="cal-title"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          aria-expanded={!collapsed}
+        >
           {MONTH_NAMES[month - 1]} {year} {collapsed ? "▾" : "▴"}
         </button>
-        <button type="button" onClick={onOpenYear}>Year ›</button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenYear();
+          }}
+        >
+          Year ›
+        </button>
       </div>
       <MonthGrid
         year={year}
@@ -103,7 +123,7 @@ export function MonthCalendar({ day, counts, today, collapsed, onToggle, onPick,
         max={maxWords(counts, day.slice(0, 7), today)}
         selected={day}
         today={today}
-        onPick={onPick}
+        onPick={collapsed ? () => {} : onPick}
         weekOnly={collapsed}
       />
     </section>
