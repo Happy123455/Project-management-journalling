@@ -4,6 +4,7 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { NodeSelection } from "@tiptap/pm/state";
 import { qrContent } from "../lib/capture";
 import { AlphaVideo } from "./AlphaVideo";
+import { AudioPill, PeekOnDoubleTap, TapVideo } from "./MediaBits";
 import { usePlayWhenVisible } from "./usePlayWhenVisible";
 import { embedText, parseEmbeds } from "../lib/embeds";
 import { placeBar } from "../lib/placement";
@@ -473,22 +474,22 @@ function MediaView(props: NodeViewProps) {
         <PdfPreview fileId={fileId} name={name} />
       ) : kind === "audio" ? (
         url ? (
-          <span className="audio-note">
-            <span className="audio-icon">{name.startsWith("sound-") ? "🔊" : "🎙"}</span>
-            <audio src={url} controls preload="metadata" />
-          </span>
+          <AudioPill src={url} icon={name.startsWith("sound-") ? "🔊" : "🎙"} />
         ) : (
           <span className="attach-missing">{failed ? "Recording not found" : "Loading…"}</span>
         )
       ) : url ? (
         // Meme clips loop silently like GIFs; green-screen ones are drawn see-through; other videos get controls.
         name.startsWith("greenscreen-") ? (
-          <AlphaVideo src={url} onTap={() => selectMedia(props)} />
+          <PeekOnDoubleTap peek={() => <AlphaVideo src={url} />}>
+            <AlphaVideo src={url} onTap={() => selectMedia(props)} />
+          </PeekOnDoubleTap>
         ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
-          <LoopingClip src={url} />
+          <PeekOnDoubleTap peek={() => <video src={url} autoPlay loop playsInline controls />}>
+            <LoopingClip src={url} />
+          </PeekOnDoubleTap>
         ) : (
-          // Also selected on tap (without focusing the text or scrolling), so its resize tools show.
-          <video src={url} controls playsInline preload="metadata" onPointerUp={() => selectMedia(props)} />
+                    <TapVideo src={url} />
         )
       ) : (
         <span className="attach-missing">{failed ? "Video not found" : "Loading…"}</span>
@@ -536,12 +537,15 @@ function FileView(props: NodeViewProps) {
       {kind === "video" && url ? (
         // Meme clips loop silently like GIFs; green-screen ones are drawn see-through; other videos get controls.
         name.startsWith("greenscreen-") ? (
-          <AlphaVideo src={url} onTap={() => selectMedia(props)} />
+          <PeekOnDoubleTap peek={() => <AlphaVideo src={url} />}>
+            <AlphaVideo src={url} onTap={() => selectMedia(props)} />
+          </PeekOnDoubleTap>
         ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
-          <LoopingClip src={url} />
+          <PeekOnDoubleTap peek={() => <video src={url} autoPlay loop playsInline controls />}>
+            <LoopingClip src={url} />
+          </PeekOnDoubleTap>
         ) : (
-          // Also selected on tap (without focusing the text or scrolling), so its resize tools show.
-          <video src={url} controls playsInline preload="metadata" onPointerUp={() => selectMedia(props)} />
+                    <TapVideo src={url} />
         )
       ) : (
         <button type="button" className="attach-file-card" contentEditable={false} onClick={() => void openFile(fileId)}>

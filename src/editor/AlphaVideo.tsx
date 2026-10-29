@@ -74,6 +74,8 @@ export function AlphaVideo({ src, onTap }: { src: string; onTap?: () => void }) 
       <video ref={video} src={src} autoPlay loop muted={muted} playsInline aria-hidden />
       <canvas
         ref={canvas}
+        // Never focus the text (that would open the keyboard and scroll).
+        onPointerDown={(e) => e.preventDefault()}
         onClick={() => {
           setMuted((m) => !m);
           void video.current?.play();
