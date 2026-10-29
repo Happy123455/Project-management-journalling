@@ -119,28 +119,65 @@ button:hover { background: var(--panel); }
 /* Phone: the toolbar rides just above the keyboard. `top` is the visible bottom edge. */
 .keyboard-bar {
   position: fixed;
-  overflow-x: auto;
   left: 0;
   right: 0;
   transform: translateY(-100%);
-  display: flex;
-  justify-content: space-around;
-  gap: 4px;
-  padding: 6px max(8px, env(safe-area-inset-left)) calc(6px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-right));
+  /* Like Obsidian mobile: 8 big tools per row; swipe up on the bar for the next row. */
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-auto-rows: 44px;
+  height: 44px;
+  box-sizing: content-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+  gap: 0 4px;
+  /* No padding above or below the rows, so the next row never peeks in half-cut. */
+  padding: 0 max(8px, env(safe-area-inset-left)) 0 max(8px, env(safe-area-inset-right));
+  border-bottom: env(safe-area-inset-bottom) solid var(--panel);
   background: var(--panel);
   border-top: 1px solid var(--border);
   z-index: 5;
 }
-.keyboard-bar.keyboard-open { padding-bottom: 6px; }
-.keyboard-bar .tool { flex: 1; min-width: 0; max-width: 44px; height: 38px; font-size: 17px; padding: 0; }
-.editor-body.with-keyboard-bar .tiptap { padding-bottom: 72px; }
+.keyboard-bar.keyboard-open { padding-bottom: 0; }
+.keyboard-bar::-webkit-scrollbar { display: none; }
+.keyboard-bar .tool { min-width: 0; height: 40px; margin-top: 2px; font-size: 19px; padding: 0; scroll-snap-align: start; }
+.arrange-tools {
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: calc(env(safe-area-inset-bottom) + 8px);
+  max-height: 70vh;
+  overflow-y: auto;
+  z-index: 80;
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+.arrange-head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.arrange-head strong { margin-right: auto; }
+.arrange-tools ul { list-style: none; margin: 0; padding: 0; }
+.arrange-tools li { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.arrange-tools li label { flex: 1; display: flex; align-items: center; gap: 8px; }
+.arrange-tools li.hidden-tool label { opacity: 0.5; }
+.arrange-icon { width: 28px; text-align: center; font-size: 18px; }
+.editor-body.with-keyboard-bar .tiptap { padding-bottom: 50vh; }
 
 /* "/" menu: a grid of big tiles under the current line. */
-.slash-popup { z-index: 20; width: min(calc(100vw - 16px), 460px); }
+.slash-popup { z-index: 20; width: min(calc(100vw - 16px), 380px); }
 .slash-menu {
   display: grid;
   gap: 6px;
   padding: 8px;
+  /* A square panel that scrolls when there are more tiles than fit. */
+  max-height: min(calc(100vw - 16px), 380px, 55vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -153,7 +190,7 @@ button:hover { background: var(--panel); }
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-height: 68px;
+  min-height: 78px;
   padding: 8px 4px;
   background: var(--bg);
   border-radius: 10px;
@@ -930,8 +967,8 @@ button {
   border-color: var(--glass-edge);
   border-radius: 12px;
   box-shadow: inset 0 1px 0 var(--glass-rim), 0 1px 3px rgba(0, 0, 0, 0.08);
-  -webkit-backdrop-filter: blur(10px) saturate(1.5);
-  backdrop-filter: blur(10px) saturate(1.5);
+  /* No blur per button: with dozens of them (every calendar day) the phone's GPU re-blurred each one
+     on every repaint, even the cursor blinking. The panels behind them carry the blur. */
   -webkit-tap-highlight-color: transparent;
 }
 button:hover { background: var(--glass-strong); }
@@ -1180,3 +1217,36 @@ button:hover { background: var(--glass-strong); }
   font: inherit;
 }
 .block-menu-grid button small { font-size: 0.62rem; color: var(--muted); }
+
+/* Reminder countdown: one dash per day left, warmer as the day nears */
+.countdown { display: flex; align-items: center; gap: 8px; margin-top: 4px; min-width: 0; }
+.countdown-days {
+  flex: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: hsl(var(--countdown-hue) 90% 80%);
+  background: hsl(var(--countdown-hue) 70% 50% / 0.18);
+  border: 1px solid hsl(var(--countdown-hue) 70% 60% / 0.35);
+}
+.countdown-bar {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-weight: 800;
+  letter-spacing: 2px;
+  background: linear-gradient(90deg, hsl(var(--countdown-hue) 90% 62%), hsl(calc(var(--countdown-hue) + 40) 80% 70%));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.countdown-more { margin-left: 4px; font-size: 0.7rem; letter-spacing: 0; color: var(--muted); -webkit-text-fill-color: var(--muted); }
+
+/* The week panel stays pinned at the top while the note scrolls under it. */
+.month-calendar.collapsed {
+  position: sticky;
+  top: calc(env(safe-area-inset-top, 0px) + 4px);
+  z-index: 4;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+}

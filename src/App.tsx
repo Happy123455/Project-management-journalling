@@ -273,7 +273,9 @@ function App() {
       }
       setContent(content);
       setText(plainText);
-      setCounts((prev) => ({ ...prev, [day]: countWords(plainText) }));
+      // Only when the number changes (once per word, not per letter): the calendars repaint on it.
+      const words = countWords(plainText);
+      setCounts((prev) => (prev[day] === words ? prev : { ...prev, [day]: words }));
       setStatus("Editing…");
       window.clearTimeout(timer.current);
       if (!actor) timer.current = window.setTimeout(() => void flush(), SAVE_DELAY_MS);
@@ -346,9 +348,25 @@ function App() {
     const onBar = !!(e.target as HTMLElement).closest?.(".month-calendar");
     swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, onBar };
   };
+  // A right swipe that will open the drawer pulls it out under the finger as it goes.
+  const onTouchMove = (e: TouchEvent) => {
+    const start = swipe.current;
+    if (!start || drawerOpen || yearOpen || SWIPE_RIGHT_OPENS !== "drawer" || !(start.onBar || start.x < EDGE_SWIPE_PX)) return;
+    const dx = e.touches[0].clientX - start.x;
+    const dy = e.touches[0].clientY - start.y;
+    const drawer = document.querySelector<HTMLElement>(".drawer");
+    if (!drawer || dx < 8 || Math.abs(dx) < Math.abs(dy)) return;
+    drawer.style.transition = "none";
+    drawer.style.transform = `translateX(calc(-100% + ${Math.min(dx, drawer.offsetWidth)}px))`;
+  };
   const onTouchEnd = (e: TouchEvent) => {
     const start = swipe.current;
     swipe.current = null;
+    const drawer = document.querySelector<HTMLElement>(".drawer");
+    if (drawer) {
+      drawer.style.transition = "";
+      drawer.style.transform = "";
+    }
     if (!start || yearOpen) return;
     const dx = e.changedTouches[0].clientX - start.x;
     const dy = e.changedTouches[0].clientY - start.y;
@@ -421,7 +439,7 @@ function App() {
   );
 
   return (
-    <div className="app" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+    <div className="app" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
       <aside className="sidebar">
         {store && <ProjectList store={store} refreshKey={`${syncTick}:${days.length}:${route.kind}`} onOpen={(t) => void handlers.onOpenLink(t)} />}
         <h2>Days</h2>

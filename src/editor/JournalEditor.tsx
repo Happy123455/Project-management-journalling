@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { EditorContent, useEditor, useEditorState, type Editor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
@@ -11,7 +12,7 @@ import { AttachmentFile, AttachmentImage, AttachmentMedia, insertFiles, mediaLea
 import { JournalCodeBlock } from "./codeBlock";
 import { BlockInfoExtension } from "./blockInfo";
 import { BlockHandle } from "./BlockHandle";
-import { Blocks } from "./blocks";
+import { blockIndexAt, Blocks, indentBlock } from "./blocks";
 import { BlockInfoPanel } from "./BlockInfoPanel";
 import { saveToInspiration } from "./inspiration";
 import { readAloud } from "../lib/readAloud";
@@ -44,8 +45,45 @@ interface Props {
   onFindCount?: (count: number) => void;
 }
 
+interface Tool {
+  key: string;
+  label: string;
+  title: string;
+  run: () => void;
+  active?: boolean;
+  disabled?: boolean;
+}
+
+const TOOLS_KEY = "dynamic-journal.toolbar";
+/** The phone bar's tool order and hidden tools, kept on this device. */
+export function loadToolLayout(): { order: string[]; hidden: string[] } {
+  try {
+    const v = JSON.parse(localStorage.getItem(TOOLS_KEY) ?? "{}");
+    return { order: Array.isArray(v.order) ? v.order : [], hidden: Array.isArray(v.hidden) ? v.hidden : [] };
+  } catch {
+    return { order: [], hidden: [] };
+  }
+}
+function saveToolLayout(layout: { order: string[]; hidden: string[] }) {
+  try {
+    localStorage.setItem(TOOLS_KEY, JSON.stringify(layout));
+  } catch {
+    // Only a convenience.
+  }
+}
+/** Tools in the saved order (new tools go at the end), without hidden ones unless asked. */
+export function arrangeTools<T extends { key: string }>(tools: T[], layout: { order: string[]; hidden: string[] }, withHidden = false): T[] {
+  const rank = (k: string) => {
+    const i = layout.order.indexOf(k);
+    return i < 0 ? layout.order.length + tools.findIndex((t) => t.key === k) : i;
+  };
+  return [...tools].sort((a, b) => rank(a.key) - rank(b.key)).filter((t) => withHidden || !layout.hidden.includes(t.key));
+}
+
 /** Formatting buttons, shared by the top toolbar (Mac) and the bar above the phone keyboard. */
-function ToolbarButtons({ editor, onInfo }: { editor: Editor; onInfo: () => void }) {
+function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () => void; phone?: boolean }) {
+  const [layout, setLayout] = useState(loadToolLayout);
+  const [arranging, setArranging] = useState(false);
   const active = useEditorState({
     editor,
     selector: ({ editor: e }) => ({
@@ -60,20 +98,25 @@ function ToolbarButtons({ editor, onInfo }: { editor: Editor; onInfo: () => void
       canRedo: e.can().redo(),
     }),
   });
+  const block = (command: (i: number) => import("@tiptap/pm/state").Command) => () => {
+    command(blockIndexAt(editor.state.doc, editor.state.selection.from))(editor.state, editor.view.dispatch);
+    editor.commands.focus();
+  };
 
-  const history = [
-    { key: "undo", label: "↶", title: "Undo (Cmd/Ctrl+Z)", enabled: active.canUndo, run: () => editor.chain().focus().undo().run() },
-    { key: "redo", label: "↷", title: "Redo (Cmd/Ctrl+Shift+Z)", enabled: active.canRedo, run: () => editor.chain().focus().redo().run() },
-  ];
-
-  const buttons: { key: Exclude<keyof typeof active, "canUndo" | "canRedo"> | "timestamp" | "info" | "inspire" | "read"; label: string; title: string; run: () => void }[] = [
-    { key: "bullet", label: "•", title: "Bullet list", run: () => editor.chain().focus().toggleBulletList().run() },
-    { key: "task", label: "☑", title: "Task list", run: () => editor.chain().focus().toggleTaskList().run() },
-    { key: "ordered", label: "1.", title: "Numbered list", run: () => editor.chain().focus().toggleOrderedList().run() },
-    { key: "bold", label: "B", title: "Bold (Cmd/Ctrl+B)", run: () => editor.chain().focus().toggleBold().run() },
-    { key: "italic", label: "I", title: "Italic (Cmd/Ctrl+I)", run: () => editor.chain().focus().toggleItalic().run() },
-    { key: "highlight", label: "H", title: "Highlight (Cmd/Ctrl+Shift+H)", run: () => editor.chain().focus().toggleHighlight().run() },
-    { key: "code", label: "</>", title: "Code block (or type ``` and Enter)", run: () => editor.chain().focus().toggleCodeBlock().run() },
+  const tools: Tool[] = [
+    { key: "undo", label: "↶", title: "Undo (Cmd/Ctrl+Z)", disabled: !active.canUndo, run: () => editor.chain().focus().undo().run() },
+    { key: "redo", label: "↷", title: "Redo (Cmd/Ctrl+Shift+Z)", disabled: !active.canRedo, run: () => editor.chain().focus().redo().run() },
+    { key: "slash", label: "/", title: "Blocks menu", run: () => editor.chain().focus().insertContent(editor.state.selection.$from.parentOffset ? " /" : "/").run() },
+    { key: "bullet", label: "•", title: "Bullet list", active: active.bullet, run: () => editor.chain().focus().toggleBulletList().run() },
+    { key: "task", label: "☑", title: "Task list", active: active.task, run: () => editor.chain().focus().toggleTaskList().run() },
+    { key: "ordered", label: "1.", title: "Numbered list", active: active.ordered, run: () => editor.chain().focus().toggleOrderedList().run() },
+    { key: "outdent", label: "⇤", title: "Un-nest (Shift+Tab)", run: () => (editor.isActive("listItem") || editor.isActive("taskItem") ? editor.chain().focus().liftListItem(editor.isActive("taskItem") ? "taskItem" : "listItem").run() : block((i) => indentBlock(i, -1))()) },
+    { key: "indent", label: "⇥", title: "Nest (Tab)", run: () => (editor.isActive("listItem") || editor.isActive("taskItem") ? editor.chain().focus().sinkListItem(editor.isActive("taskItem") ? "taskItem" : "listItem").run() : block((i) => indentBlock(i, 1))()) },
+    { key: "bold", label: "B", title: "Bold (Cmd/Ctrl+B)", active: active.bold, run: () => editor.chain().focus().toggleBold().run() },
+    { key: "italic", label: "I", title: "Italic (Cmd/Ctrl+I)", active: active.italic, run: () => editor.chain().focus().toggleItalic().run() },
+    { key: "highlight", label: "H", title: "Highlight (Cmd/Ctrl+Shift+H)", active: active.highlight, run: () => editor.chain().focus().toggleHighlight().run() },
+    { key: "code", label: "</>", title: "Code block (or type ``` and Enter)", active: active.code, run: () => editor.chain().focus().toggleCodeBlock().run() },
+    { key: "timestamp", label: "🕒", title: "Insert timestamp (Cmd/Ctrl+Shift+T)", run: () => editor.chain().focus().insertContent(formatTimestamp(new Date()) + " ").run() },
     { key: "info", label: "ⓘ", title: "Block info", run: onInfo },
     {
       key: "inspire",
@@ -90,39 +133,24 @@ function ToolbarButtons({ editor, onInfo }: { editor: Editor; onInfo: () => void
         readAloud(empty ? $from.parent.textContent || editor.getText({ blockSeparator: "\n" }) : editor.state.doc.textBetween(from, to, "\n", " "));
       },
     },
-    {
-      key: "timestamp",
-      label: "🕒",
-      title: "Insert timestamp (Cmd/Ctrl+Shift+T)",
-      run: () => editor.chain().focus().insertContent(formatTimestamp(new Date()) + " ").run(),
-    },
   ];
+  const shown = phone ? [...arrangeTools(tools, layout), { key: "arrange", label: "⚙︎", title: "Arrange tools", run: () => setArranging(true) }] : tools;
+  const update = (next: { order: string[]; hidden: string[] }) => {
+    setLayout(next);
+    saveToolLayout(next);
+  };
 
   return (
     <>
-      {history.map((b) => (
+      {shown.map((b) => (
         <button
           key={b.key}
           type="button"
           title={b.title}
           aria-label={b.title}
-          disabled={!b.enabled}
-          className={`tool tool-${b.key}`}
-          onPointerDown={(e) => e.preventDefault()}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={b.run}
-        >
-          {b.label}
-        </button>
-      ))}
-      {buttons.map((b) => (
-        <button
-          key={b.key}
-          type="button"
-          title={b.title}
-          aria-label={b.title}
-          aria-pressed={b.key in active ? active[b.key as keyof typeof active] : undefined}
-          className={`tool tool-${b.key}${b.key in active && active[b.key as keyof typeof active] ? " active" : ""}`}
+          aria-pressed={"active" in b ? b.active : undefined}
+          disabled={"disabled" in b ? b.disabled : false}
+          className={`tool tool-${b.key}${"active" in b && b.active ? " active" : ""}`}
           // Keep the editor focused so the phone keyboard stays open.
           onPointerDown={(e) => e.preventDefault()}
           onMouseDown={(e) => e.preventDefault()}
@@ -131,6 +159,42 @@ function ToolbarButtons({ editor, onInfo }: { editor: Editor; onInfo: () => void
           {b.label}
         </button>
       ))}
+      {arranging && createPortal(
+        <div className="arrange-tools" role="dialog" aria-label="Arrange tools" onPointerDown={(e) => e.stopPropagation()}>
+          <div className="arrange-head">
+            <strong>Arrange tools</strong>
+            <button type="button" onClick={() => update({ order: [], hidden: [] })}>Reset</button>
+            <button type="button" onClick={() => setArranging(false)}>Done</button>
+          </div>
+          <ul>
+            {arrangeTools(tools, layout, true).map((t, i, all) => {
+              const keys = all.map((x) => x.key);
+              const swap = (j: number) => {
+                const next = [...keys];
+                [next[i], next[j]] = [next[j], next[i]];
+                update({ ...layout, order: next });
+              };
+              const hidden = layout.hidden.includes(t.key);
+              return (
+                <li key={t.key} className={hidden ? "hidden-tool" : ""}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={!hidden}
+                      onChange={() => update({ ...layout, hidden: hidden ? layout.hidden.filter((k) => k !== t.key) : [...layout.hidden, t.key] })}
+                    />
+                    <span className="arrange-icon">{t.label}</span>
+                    {t.title.replace(/ \(.*\)$/, "")}
+                  </label>
+                  <button type="button" aria-label="Move up" disabled={i === 0} onClick={() => swap(i - 1)}>↑</button>
+                  <button type="button" aria-label="Move down" disabled={i === all.length - 1} onClick={() => swap(i + 1)}>↓</button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>,
+        document.body,
+      )}
     </>
   );
 }
@@ -166,6 +230,10 @@ export function JournalEditor({
     content: initialContent ?? "",
     // Normal paste keeps working; styling from other apps is stripped.
     editorProps: {
+      // Keep the line being typed clear of the pinned header at the top and, on the phone, the
+      // tool bar above the keyboard at the bottom.
+      scrollThreshold: { top: 150, bottom: touch ? 150 : 40, left: 0, right: 0 },
+      scrollMargin: { top: 170, bottom: touch ? 170 : 60, left: 0, right: 0 },
       transformPastedHTML: cleanPastedHTML,
       // Pasted or dropped files (photos, PDFs…) are stored and shown in the page.
       handlePaste: (_view, event) => {
@@ -259,7 +327,7 @@ export function JournalEditor({
       {editor && infoOpen && <BlockInfoPanel editor={editor} onClose={() => setInfoOpen(false)} />}
       {editor && touch && (
         <KeyboardBar editor={editor}>
-          <ToolbarButtons editor={editor} onInfo={() => setInfoOpen(true)} />
+          <ToolbarButtons editor={editor} onInfo={() => setInfoOpen(true)} phone />
         </KeyboardBar>
       )}
     </div>

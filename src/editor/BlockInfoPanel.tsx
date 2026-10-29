@@ -1,15 +1,19 @@
 import { useState } from "react";
 import type { Editor } from "@tiptap/react";
+import { NodeSelection } from "@tiptap/pm/state";
 import { cleanInfo, loadInfoDefaults, saveInfoDefaults, type BlockInfo } from "../lib/blockInfo";
+import { INFO_TYPES } from "./blockInfo";
 
-const TYPES = ["taskItem", "listItem", "heading", "paragraph"];
-
-/** The block the cursor is in (innermost of paragraph/heading/list item/task), with its position. */
+/** The selected card (prompt, code, link…) or the innermost block holding the cursor, with its position. */
 function currentBlock(editor: Editor): { pos: number; info: BlockInfo | null } | null {
-  const { $from } = editor.state.selection;
+  const { selection } = editor.state;
+  if (selection instanceof NodeSelection && INFO_TYPES.includes(selection.node.type.name)) {
+    return { pos: selection.from, info: selection.node.attrs.info ?? null };
+  }
+  const { $from } = selection;
   for (let d = $from.depth; d > 0; d--) {
     const node = $from.node(d);
-    if (TYPES.includes(node.type.name)) return { pos: $from.before(d), info: node.attrs.info ?? null };
+    if (INFO_TYPES.includes(node.type.name)) return { pos: $from.before(d), info: node.attrs.info ?? null };
   }
   return null;
 }

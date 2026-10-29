@@ -146,7 +146,13 @@ export function BlockHandle({ editor, touch, onInfo }: { editor: Editor; touch: 
     ["⧉", "Duplicate", () => run(duplicateBlock(index))],
     ["↑", "Move up", () => run(moveBlock(index, -1))],
     ["↓", "Move down", () => run(moveBlock(index, 1))],
-    ...(isText ? ([["ⓘ", "Info", () => (inBlock().run(), onInfo())]] as [string, string, () => void][]) : []),
+    ...(node.type.spec.attrs?.info !== undefined || isText
+      ? ([["ⓘ", "Info", () => {
+          if (node.isAtom) editor.chain().focus().setNodeSelection(blockPos(doc, index)).run();
+          else inBlock().run();
+          onInfo();
+        }]] as [string, string, () => void][])
+      : []),
     ["🗑", "Delete", () => run(deleteBlock(index))],
   ];
 

@@ -19,6 +19,7 @@
     "sql:default",
     "sql:allow-execute",
     "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-image",
     "fs:allow-appdata-read-recursive",
     "fs:allow-appdata-write-recursive",

@@ -7,10 +7,26 @@ export const FENCE_RE = /^```([\w+#-]*)$/;
 
 export async function copyText(text: string) {
   if ("__TAURI_INTERNALS__" in window) {
-    const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
-    return writeText(text);
+    try {
+      const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+      return await writeText(text);
+    } catch {
+      // Fall through to the WebView's clipboard.
+    }
   }
-  return navigator.clipboard.writeText(text);
+  try {
+    return await navigator.clipboard.writeText(text);
+  } catch {
+    // Older WebViews: copy through a hidden text box.
+    const box = document.createElement("textarea");
+    box.value = text;
+    box.style.cssText = "position:fixed;opacity:0;top:0";
+    document.body.appendChild(box);
+    box.select();
+    const ok = document.execCommand("copy");
+    box.remove();
+    if (!ok) throw new Error("Copy isn't available here");
+  }
 }
 
 function CodeBlockView({ node, updateAttributes, editor }: NodeViewProps) {

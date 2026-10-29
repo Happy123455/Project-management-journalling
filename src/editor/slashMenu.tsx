@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { Extension, ReactRenderer, type Editor, type Range } from "@tiptap/react";
 import { PluginKey } from "@tiptap/pm/state";
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from "@tiptap/suggestion";
@@ -19,7 +19,6 @@ export interface SlashMenuOptions {
 
 const SLASH_KEY = new PluginKey("slashMenu");
 
-const touchDevice = () => window.matchMedia?.("(pointer: coarse)").matches ?? false;
 
 function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOptions) {
   const chain = editor.chain().focus().deleteRange(range);
@@ -90,7 +89,25 @@ export interface MenuHandle {
 /** Grid of big tiles under the line being typed. */
 const SlashGrid = forwardRef<MenuHandle, MenuProps>(function SlashGrid({ items, command }, ref) {
   const [selected, setSelected] = useState(0);
-  const columns = touchDevice() ? 3 : 5;
+  const columns = 4;
+  const grid = useRef<HTMLDivElement>(null);
+  // Keep the chosen tile in view, and the whole panel inside the screen.
+  useLayoutEffect(() => {
+    grid.current?.querySelector(".slash-tile.selected")?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
+  useLayoutEffect(() => {
+    const popup = grid.current?.closest<HTMLElement>(".slash-popup");
+    if (!popup) return;
+    // After the popup has been placed under the line: nudge it back inside the screen's sides.
+    const frame = requestAnimationFrame(() => {
+      popup.style.translate = "";
+      const r = popup.getBoundingClientRect();
+      const width = window.visualViewport?.width ?? window.innerWidth;
+      const dx = r.right > width - 8 ? width - 8 - r.right : r.left < 8 ? 8 - r.left : 0;
+      if (dx) popup.style.translate = `${dx}px 0`;
+    });
+    return () => cancelAnimationFrame(frame);
+  });
   useEffect(() => setSelected(0), [items]);
 
   useImperativeHandle(ref, () => ({
@@ -111,7 +128,7 @@ const SlashGrid = forwardRef<MenuHandle, MenuProps>(function SlashGrid({ items, 
 
   if (!items.length) return <div className="slash-menu empty">No matching block</div>;
   return (
-    <div className="slash-menu" role="listbox" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
+    <div ref={grid} className="slash-menu" role="listbox" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
       {items.map((item, i) => (
         <button
           key={item.id}
