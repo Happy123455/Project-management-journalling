@@ -34,7 +34,10 @@ class AndroidFolder implements SyncFolder {
     return data === "!" ? null : Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
   }
   async write(path: string, bytes: Uint8Array) {
-    if (!this.bridge.write(path, toB64(bytes))) throw new Error(`Couldn't write ${path} to the sync folder`);
+    if (!this.bridge.write(path, toB64(bytes))) {
+      // Usually Drive refusing new files in that place (Shared with me, Computers, a Drive shortcut…).
+      throw new Error("This folder doesn't let the app add files. Choose a folder inside My Drive instead.");
+    }
   }
   async exists(path: string) {
     return this.bridge.exists(path);
