@@ -1243,8 +1243,9 @@ button:hover { background: var(--glass-strong); }
 }
 .countdown-more { margin-left: 4px; font-size: 0.7rem; letter-spacing: 0; color: var(--muted); -webkit-text-fill-color: var(--muted); }
 
-/* The week panel stays pinned at the top while the note scrolls under it. */
-.month-calendar.collapsed {
+/* The calendar stays pinned at the top while the note scrolls under it; tapping the week strip
+   opens the month right there. */
+.month-calendar {
   position: sticky;
   top: calc(env(safe-area-inset-top, 0px) + 4px);
   z-index: 4;
@@ -1278,3 +1279,44 @@ button:hover { background: var(--glass-strong); }
 }
 .project-full { display: grid; gap: 6px; margin: 8px 0; }
 .project-full p { margin: 0; font-size: 13px; color: var(--muted); }
+.tag-tree .tag-tree { padding-left: 16px; }
+.tag-tree li { display: flex; flex-wrap: wrap; align-items: center; }
+.tag-tree li > ul { flex-basis: 100%; }
+.tag-fold { width: 20px; padding: 0; border: none; background: transparent; box-shadow: none; color: var(--muted); }
+
+/* Inline media: compact, and always taking its own room (never drawn over the text below). */
+.audio-note { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; vertical-align: middle; padding: 2px 8px 2px 6px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-edge); }
+.audio-note audio { height: 34px; width: 220px; max-width: 60vw; }
+.attach-image video, .attach-file video { aspect-ratio: auto 16 / 9; height: auto; max-width: 100%; }
+.attach-image { transition: width 0.15s ease-out; max-width: 100%; }
+.attach-image.dragging { transition: none; }
+.attach-image.align-inline { vertical-align: bottom; }
+
+/* Project / Person / Log boxes: the title line and everything nested under it, like the Prompt box. */
+.editor-body .tiptap > .block-box-head {
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 14px 14px 0 0;
+  padding: 8px 12px;
+  margin-bottom: 0;
+  background: var(--panel);
+  font-weight: 600;
+}
+.editor-body .tiptap > .block-box-head.block-box-end { border-bottom: 1px solid var(--border); border-radius: 14px; }
+.editor-body .tiptap > .block-box-body {
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding: 4px 12px;
+  background: color-mix(in srgb, var(--panel) 75%, #000);
+}
+.editor-body .tiptap > .block-box-body.block-box-end { border-bottom: 1px solid var(--border); border-radius: 0 0 14px 14px; padding-bottom: 8px; margin-bottom: 0.4em; }
+.block-box-fold { float: right; width: 28px; height: 24px; padding: 0; border-radius: 8px; font-size: 13px; font-weight: 400; }
+/* Inside a box the nesting is padding, so the box's sides stay straight. */
+.editor-body .tiptap > .block-box-body[data-indent] { margin-left: 0; }
+.editor-body .tiptap > .block-box-body[data-indent="1"] { padding-left: 28px; }
+.editor-body .tiptap > .block-box-body[data-indent="2"] { padding-left: 52px; }
+.editor-body .tiptap > .block-box-body[data-indent="3"] { padding-left: 76px; }
+.editor-body .tiptap > .block-box-body[data-indent="4"] { padding-left: 100px; }

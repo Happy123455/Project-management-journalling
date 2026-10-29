@@ -180,7 +180,9 @@ export class MemoryStore implements JournalStore {
 
   async references(kind: LinkKind, target: string) {
     const want = target.trim().toLowerCase();
-    const from = new Set(this.data.links.filter((l) => l.kind === kind && l.target.toLowerCase() === want).map((l) => l.from));
+    // A tag also finds its branches: #trip finds #trip/goa.
+    const matches = (t: string) => t.toLowerCase() === want || (kind === "tag" && t.toLowerCase().startsWith(`${want}/`));
+    const from = new Set(this.data.links.filter((l) => l.kind === kind && matches(l.target)).map((l) => l.from));
     const refs: Reference[] = [
       ...Object.values(this.data.pages).filter((p) => from.has(p.id)).map((p) => ({ blockId: p.id, day: p.day, title: null, content: p.content })),
       ...Object.values(this.named).filter((p) => from.has(p.id)).map((p) => ({ blockId: p.id, day: null, title: p.title, content: p.content })),

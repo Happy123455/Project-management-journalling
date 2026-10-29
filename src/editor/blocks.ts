@@ -164,20 +164,43 @@ export function toggleCollapsed(index: number): Command {
 export function blockDecorations(doc: PMNode): DecorationSet {
   const decos: Decoration[] = [];
   let hiddenUntil = -1;
+  // A [[Project]] / [[Person]] / [[Log]] line with lines nested under it is drawn as one box.
+  let boxUntil = -1;
   let pos = 0;
   for (let i = 0; i < doc.childCount; i++) {
     const node = doc.child(i);
     const range = blockRange(doc, i);
+    const classes: string[] = [];
     const attrs: Record<string, string> = {};
-    if (i < hiddenUntil) attrs.class = "block-hidden";
+    if (i < boxUntil) classes.push(i === boxUntil - 1 ? "block-box-body block-box-end" : "block-box-body");
+    if (i < hiddenUntil) classes.push("block-hidden");
     else if (range.end > i + 1) {
-      attrs.class = node.attrs.collapsed ? "block-parent block-collapsed" : "block-parent";
+      classes.push(node.attrs.collapsed ? "block-parent block-collapsed" : "block-parent");
       if (node.attrs.collapsed) {
         attrs["data-hidden-count"] = String(range.end - i - 1);
         hiddenUntil = range.end;
       }
+      if (i >= boxUntil && node.isTextblock && /\[\[[^\]]+\]\]/.test(node.textContent)) {
+        classes.push(node.attrs.collapsed ? "block-box-head block-box-end" : "block-box-head");
+        boxUntil = range.end;
+        // The fold button on the title row.
+        const index = i;
+        decos.push(
+          Decoration.widget(pos + node.nodeSize - 1, (view) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "block-box-fold";
+            button.contentEditable = "false";
+            button.textContent = node.attrs.collapsed ? "▸" : "▾";
+            button.setAttribute("aria-label", node.attrs.collapsed ? "Unfold" : "Fold");
+            button.addEventListener("mousedown", (e) => e.preventDefault());
+            button.addEventListener("click", () => toggleCollapsed(index)(view.state, view.dispatch));
+            return button;
+          }, { side: 1, key: `fold-${i}-${node.attrs.collapsed}`, ignoreSelection: true }),
+        );
+      }
     }
-    if (attrs.class) decos.push(Decoration.node(pos, pos + node.nodeSize, attrs));
+    if (classes.length) decos.push(Decoration.node(pos, pos + node.nodeSize, { ...attrs, class: classes.join(" ") }));
     pos += node.nodeSize;
   }
   return DecorationSet.create(doc, decos);

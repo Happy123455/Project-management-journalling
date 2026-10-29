@@ -69,6 +69,58 @@ export function MediaGrid({ store, ids }: { store: JournalStore; ids: string[] }
 
 type Tab = "links" | "tags" | "media";
 
+interface TagNode {
+  path: string;
+  name: string;
+  children: TagNode[];
+}
+
+/** #a/b/c tags as a tree: a → b → c (every level its own node, children sorted). */
+export function tagTree(tags: string[]): TagNode[] {
+  const root: TagNode[] = [];
+  for (const tag of tags) {
+    let level = root;
+    let path = "";
+    for (const name of tag.split("/").filter(Boolean)) {
+      path = path ? `${path}/${name}` : name;
+      let node = level.find((n) => n.name.toLowerCase() === name.toLowerCase());
+      if (!node) level.push((node = { path, name, children: [] }));
+      level = node.children;
+    }
+  }
+  const sort = (nodes: TagNode[]) => nodes.sort((a, b) => a.name.localeCompare(b.name)).forEach((n) => sort(n.children));
+  sort(root);
+  return root;
+}
+
+/** Nested tags, foldable; tapping a parent shows everything under it. */
+function TagTree({ tags, onOpenTag }: { tags: string[]; onOpenTag: (t: string) => void }) {
+  const [closed, setClosed] = useState<Set<string>>(new Set());
+  const render = (nodes: TagNode[]) => (
+    <ul className="panel-list tag-tree">
+      {nodes.map((n) => (
+        <li key={n.path}>
+          {n.children.length > 0 ? (
+            <button
+              type="button"
+              className="tag-fold"
+              aria-label={closed.has(n.path) ? "Expand" : "Collapse"}
+              onClick={() => setClosed((c) => (c.has(n.path) ? new Set([...c].filter((x) => x !== n.path)) : new Set([...c, n.path])))}
+            >
+              {closed.has(n.path) ? "▸" : "▾"}
+            </button>
+          ) : (
+            <span className="tag-fold" />
+          )}
+          <button type="button" className="tag link-button" onClick={() => onOpenTag(n.path)}>#{n.name}</button>
+          {n.children.length > 0 && !closed.has(n.path) && render(n.children)}
+        </li>
+      ))}
+    </ul>
+  );
+  return render(tagTree(tags));
+}
+
 /** Links, Tags and Media for the page on screen. */
 export function InfoTabs({ links, mediaIds, store, onOpenLink, onOpenTag, backlinks }: {
   links: ExtractedLinks;
@@ -112,13 +164,7 @@ export function InfoTabs({ links, mediaIds, store, onOpenLink, onOpenTag, backli
       )}
       {tab === "tags" &&
         (links.tags.length ? (
-          <ul className="panel-list">
-            {links.tags.map((t) => (
-              <li key={t}>
-                <button type="button" className="tag link-button" onClick={() => onOpenTag(t)}>#{t}</button>
-              </li>
-            ))}
-          </ul>
+          <TagTree tags={links.tags} onOpenTag={onOpenTag} />
         ) : (
           <p className="hint">Type #idea to tag.</p>
         ))}

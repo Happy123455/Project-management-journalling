@@ -22,7 +22,7 @@ export function linesMentioning(text: string, kind: "wikilink" | "tag", target: 
   const want = target.toLowerCase();
   return text.split("\n").filter((line) => {
     const { wikilinks, tags } = extractLinks(line);
-    return (kind === "wikilink" ? wikilinks : tags).some((t) => t.toLowerCase() === want);
+    return (kind === "wikilink" ? wikilinks : tags).some((t) => t.toLowerCase() === want || (kind === "tag" && t.toLowerCase().startsWith(`${want}/`)));
   });
 }
 

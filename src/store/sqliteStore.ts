@@ -257,7 +257,8 @@ export class SqliteStore implements JournalStore {
   async references(kind: LinkKind, target: string): Promise<Reference[]> {
     const rows = await this.db.select<{ id: string; type: string; day: string | null; props: string; content: string }[]>(
       `SELECT b.id, b.type, b.day, b.props, b.content FROM blocks b
-       WHERE b.id IN (SELECT from_block FROM links WHERE kind = $1 AND lower(target) = lower($2))
+       WHERE b.id IN (SELECT from_block FROM links WHERE kind = $1
+         AND (lower(target) = lower($2) OR ($1 = 'tag' AND lower(target) LIKE lower($2) || '/%')))
        ORDER BY b.day DESC`,
       [kind, target.trim()],
     );

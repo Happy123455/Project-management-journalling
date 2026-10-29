@@ -451,6 +451,12 @@ function PdfPreview({ fileId, name }: { fileId: string; name: string }) {
   );
 }
 
+/** Selects a media node without focusing the text (no keyboard) or scrolling. */
+function selectMedia({ editor, getPos }: NodeViewProps) {
+  const pos = getPos();
+  if (typeof pos === "number" && editor.isEditable) editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)));
+}
+
 /** A meme/GIF clip: loops silently, and only while on screen. */
 function LoopingClip({ src }: { src: string }) {
   const video = useRef<HTMLVideoElement>(null);
@@ -477,21 +483,12 @@ function MediaView(props: NodeViewProps) {
       ) : url ? (
         // Meme clips loop silently like GIFs; green-screen ones are drawn see-through; other videos get controls.
         name.startsWith("greenscreen-") ? (
-          <AlphaVideo src={url} />
+          <AlphaVideo src={url} onTap={() => selectMedia(props)} />
         ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
           <LoopingClip src={url} />
         ) : (
-          <video
-            src={url}
-            controls
-            playsInline
-            preload="metadata"
-            // Also select it (without focusing the text), so its resize and placement tools show.
-            onPointerUp={() => {
-              const pos = props.getPos();
-              if (typeof pos === "number" && props.editor.isEditable) props.editor.view.dispatch(props.editor.state.tr.setSelection(NodeSelection.create(props.editor.state.doc, pos)));
-            }}
-          />
+          // Also selected on tap (without focusing the text or scrolling), so its resize tools show.
+          <video src={url} controls playsInline preload="metadata" onPointerUp={() => selectMedia(props)} />
         )
       ) : (
         <span className="attach-missing">{failed ? "Video not found" : "Loading…"}</span>
@@ -539,21 +536,12 @@ function FileView(props: NodeViewProps) {
       {kind === "video" && url ? (
         // Meme clips loop silently like GIFs; green-screen ones are drawn see-through; other videos get controls.
         name.startsWith("greenscreen-") ? (
-          <AlphaVideo src={url} />
+          <AlphaVideo src={url} onTap={() => selectMedia(props)} />
         ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
           <LoopingClip src={url} />
         ) : (
-          <video
-            src={url}
-            controls
-            playsInline
-            preload="metadata"
-            // Also select it (without focusing the text), so its resize and placement tools show.
-            onPointerUp={() => {
-              const pos = props.getPos();
-              if (typeof pos === "number" && props.editor.isEditable) props.editor.view.dispatch(props.editor.state.tr.setSelection(NodeSelection.create(props.editor.state.doc, pos)));
-            }}
-          />
+          // Also selected on tap (without focusing the text or scrolling), so its resize tools show.
+          <video src={url} controls playsInline preload="metadata" onPointerUp={() => selectMedia(props)} />
         )
       ) : (
         <button type="button" className="attach-file-card" contentEditable={false} onClick={() => void openFile(fileId)}>

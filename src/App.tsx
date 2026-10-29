@@ -285,7 +285,13 @@ function App() {
   };
 
   const handlers: LinkHandlers = {
-    onOpenDay: (d) => void goTo(d),
+    onOpenDay: (d, line) => {
+      if (!line) return void goTo(d);
+      // From a backlink: scroll to the mention and light it up for a moment.
+      setFind({ where: d, terms: [line.slice(0, 80)], index: 0, count: 0 });
+      void goTo(d, true);
+      window.setTimeout(() => setFind((f) => (f?.where === d ? null : f)), 3000);
+    },
     onOpenLink: async (title) => {
       if (!store || !title.trim()) return;
       await flush();
@@ -512,11 +518,7 @@ function App() {
               shading={shading}
               today={today}
               collapsed={calendarCollapsed}
-              onToggle={() => {
-                // Opening the month from the pinned strip: back to the top, where the month is.
-                if (calendarCollapsed) window.scrollTo({ top: 0, behavior: "smooth" });
-                setCalendarCollapsed((c) => !c);
-              }}
+              onToggle={() => setCalendarCollapsed((c) => !c)}
               onPick={goTo}
               onOpenYear={openYear}
               actions={

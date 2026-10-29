@@ -11,7 +11,8 @@ import type { JournalStore, LinkKind, NamedPage, Reference } from "../store";
 const SAVE_DELAY_MS = 800;
 
 export interface LinkHandlers {
-  onOpenDay: (day: string) => void;
+  /** `line`: the text to scroll to and highlight there (a backlink's mention). */
+  onOpenDay: (day: string, line?: string) => void;
   onOpenLink: (title: string) => void;
   onOpenTag: (tag: string) => void;
 }
@@ -20,7 +21,7 @@ export interface LinkHandlers {
 function ReferenceCard({ reference, kind, target, handlers }: { reference: Reference; kind: LinkKind; target: string; handlers: LinkHandlers }) {
   // The mentioning lines with what's nested under them (a project's sub-points, a person's notes…).
   const lines = mentionsWithChildren(reference.content as never, kind, target);
-  const open = () => (reference.day ? handlers.onOpenDay(reference.day) : handlers.onOpenLink(reference.title ?? ""));
+  const open = () => (reference.day ? handlers.onOpenDay(reference.day, lines[0]?.trim()) : handlers.onOpenLink(reference.title ?? ""));
   return (
     <li>
       <button type="button" className="reference" onClick={open}>

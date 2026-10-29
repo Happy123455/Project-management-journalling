@@ -12,7 +12,7 @@ void main() {
 }`;
 
 /** A green-screen meme: a "stacked alpha" clip drawn see-through over the page. Tap for sound. */
-export function AlphaVideo({ src }: { src: string }) {
+export function AlphaVideo({ src, onTap }: { src: string; onTap?: () => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const [muted, setMuted] = useState(true);
@@ -77,6 +77,8 @@ export function AlphaVideo({ src }: { src: string }) {
         onClick={() => {
           setMuted((m) => !m);
           void video.current?.play();
+          // Select it too, so its size/placement tools show.
+          onTap?.();
         }}
         title={muted ? "Tap for sound" : "Tap to mute"}
       />
