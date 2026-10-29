@@ -113,12 +113,13 @@ export function PeekOnDoubleTap({ children, peek }: { children: ReactNode; peek:
     setClosing(true);
     window.setTimeout(() => (setFrom(null), setClosing(false)), 220);
   };
-  const width = Math.min(window.innerWidth - 24, 420);
+  // About 1.5x the clip, never wider than the screen, centred on it.
+  const width = from ? Math.min(window.innerWidth - 24, Math.max(from.width * 1.5, 160)) : 0;
+  const height = from ? (from.height / Math.max(from.width, 1)) * width : 0;
   const screenH = window.visualViewport?.height ?? window.innerHeight;
-  // Below the clip when it fits, else above it; the arrow points back at the clip either way.
-  const below = from ? from.bottom + width + 40 < screenH : true;
-  const top = from ? Math.max(12, below ? from.bottom + 14 : from.top - width - 14) : 0;
-  const left = (window.innerWidth - width) / 2;
+  const below = from ? from.bottom + height + 24 < screenH : true;
+  const top = from ? Math.max(12, below ? from.bottom + 12 : from.top - height - 12) : 0;
+  const left = from ? Math.max(12, Math.min(window.innerWidth - width - 12, from.left + from.width / 2 - width / 2)) : 0;
   return (
     <span
       ref={host}

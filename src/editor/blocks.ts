@@ -1,7 +1,7 @@
 import { Extension } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, Selection, TextSelection, type Command, type EditorState, type Transaction } from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
 /**
  * The block system. Every top-level node of a note is a block. Nesting is an `indent` level on the
@@ -161,6 +161,53 @@ export function toggleCollapsed(index: number): Command {
 }
 
 /** Collapsed blocks hide their children; blocks with children are marked for the handle and CSS. */
+declare global {
+  interface Window {
+    /** This day's "Day N" for a project (App.tsx), or null when the title isn't a project. */
+    __journalDayNumber?: (title: string) => Promise<number | null>;
+  }
+}
+
+/** "Day N" on a project box's title row; tap to type another number (saved as the line's Day info). */
+function dayChip(view: EditorView, title: string, info: Record<string, string> | null): HTMLElement {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "block-day-chip";
+  chip.hidden = true;
+  chip.addEventListener("mousedown", (e) => e.preventDefault());
+  // A number set by hand shows at once (it may not be saved yet); otherwise it's worked out from the project.
+  const own = Object.entries(info ?? {}).find(([k]) => k.trim().toLowerCase() === "day")?.[1];
+  void (own && /^\d+$/.test(own) ? Promise.resolve(Number(own)) : (window.__journalDayNumber?.(title) ?? Promise.resolve(null))).then((n) => {
+    if (n === null) return;
+    chip.textContent = `Day ${n}`;
+    chip.hidden = false;
+  });
+  chip.addEventListener("click", () => {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.className = "block-day-input";
+    input.value = chip.textContent?.replace(/\D/g, "") ?? "";
+    const save = () => {
+      const n = Number(input.value);
+      input.replaceWith(chip);
+      if (!Number.isInteger(n) || n < 1) return;
+      const index = blockIndexAt(view.state.doc, view.posAtDOM(chip, 0));
+      const block = view.state.doc.child(index);
+      view.dispatch(view.state.tr.setNodeMarkup(blockPos(view.state.doc, index), undefined, { ...block.attrs, info: { ...(info ?? {}), Day: String(n) } }));
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") input.blur();
+      if (e.key === "Escape") input.replaceWith(chip);
+    });
+    input.addEventListener("blur", save, { once: true });
+    chip.replaceWith(input);
+    input.focus();
+    input.select();
+  });
+  return chip;
+}
+
 export function blockDecorations(doc: PMNode): DecorationSet {
   const decos: Decoration[] = [];
   let hiddenUntil = -1;
@@ -187,6 +234,11 @@ export function blockDecorations(doc: PMNode): DecorationSet {
         const index = i;
         decos.push(
           Decoration.widget(pos + node.nodeSize - 1, (view) => {
+            const row = document.createElement("span");
+            row.className = "block-box-tools";
+            row.contentEditable = "false";
+            const title = /\[\[([^\]|]+)/.exec(node.textContent)?.[1]?.trim();
+            if (title) row.append(dayChip(view, title, node.attrs.info as Record<string, string> | null));
             const button = document.createElement("button");
             button.type = "button";
             button.className = "block-box-fold";
@@ -195,8 +247,9 @@ export function blockDecorations(doc: PMNode): DecorationSet {
             button.setAttribute("aria-label", node.attrs.collapsed ? "Unfold" : "Fold");
             button.addEventListener("mousedown", (e) => e.preventDefault());
             button.addEventListener("click", () => toggleCollapsed(index)(view.state, view.dispatch));
-            return button;
-          }, { side: 1, key: `fold-${i}-${node.attrs.collapsed}`, ignoreSelection: true }),
+            row.append(button);
+            return row;
+          }, { side: 1, key: `fold-${i}-${node.attrs.collapsed}-${JSON.stringify(node.attrs.info)}`, ignoreSelection: true }),
         );
       }
     }

@@ -15,6 +15,7 @@ import { SettingsPanel } from "./settings/SettingsPanel";
 import { ReadAloudPlayer } from "./ReadAloudPlayer";
 import { repairLostLinks } from "./lib/repairLinks";
 import { mcpAvailable, mcpEnabled, setMcpServer } from "./mcp";
+import { entryFor, numberEntries, type ProjectEntry } from "./lib/projectDays";
 import { loadGestures, NO_SWIPE, type CanvasAction } from "./lib/gestures";
 import { ChatView } from "./ChatView";
 import { NexusView, type NexusTarget } from "./NexusView";
@@ -93,6 +94,18 @@ function App() {
       })
       .catch((e) => showError("Could not open the journal", e));
   }, []);
+
+  // "Day N" chips on project boxes in the open day (blocks.ts).
+  useEffect(() => {
+    window.__journalDayNumber = async (title) => {
+      if (!store || route.kind !== "day") return null;
+      const project = await store.getPage(title);
+      if (!project?.props.project) return null;
+      const refs = await store.references("wikilink", project.title);
+      const entries = numberEntries(refs.flatMap((r) => (r.day ? [entryFor(r.day, r.content as never, project.title)] : [])).filter((e): e is ProjectEntry => !!e));
+      return entries.find((e) => e.day === day)?.n ?? null;
+    };
+  }, [store, route.kind, day]);
 
   // MCP writes save what's being typed first (src/mcp.ts).
   useEffect(() => {
