@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { usePlayWhenVisible } from "./usePlayWhenVisible";
 
 const VERTEX = `attribute vec2 p; varying vec2 uv;
 void main() { uv = vec2((p.x + 1.0) / 2.0, (1.0 - p.y) / 2.0); gl_Position = vec4(p, 0.0, 1.0); }`;
@@ -42,6 +43,11 @@ export function AlphaVideo({ src }: { src: string }) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     let frame = 0;
+    // Draw only when the video has a new frame (24 a second), not on every screen refresh.
+    const next = () => {
+      if ("requestVideoFrameCallback" in v) frame = (v as HTMLVideoElement & { requestVideoFrameCallback: (cb: () => void) => number }).requestVideoFrameCallback(draw);
+      else frame = requestAnimationFrame(draw);
+    };
     const draw = () => {
       if (v.readyState >= 2 && v.videoWidth) {
         if (c.width !== v.videoWidth || c.height !== v.videoHeight / 2) {
@@ -53,11 +59,15 @@ export function AlphaVideo({ src }: { src: string }) {
         gl.clear(gl.COLOR_BUFFER_BIT);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       }
-      frame = requestAnimationFrame(draw);
+      next();
     };
-    frame = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(frame);
+    next();
+    return () => {
+      if ("cancelVideoFrameCallback" in v) (v as HTMLVideoElement & { cancelVideoFrameCallback: (h: number) => void }).cancelVideoFrameCallback(frame);
+      cancelAnimationFrame(frame);
+    };
   }, [src]);
+  usePlayWhenVisible(video, [src]);
 
   return (
     <span className="alpha-video">

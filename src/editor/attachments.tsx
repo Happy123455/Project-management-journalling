@@ -3,6 +3,7 @@ import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type Edi
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { qrContent } from "../lib/capture";
 import { AlphaVideo } from "./AlphaVideo";
+import { usePlayWhenVisible } from "./usePlayWhenVisible";
 import { embedText, parseEmbeds } from "../lib/embeds";
 import { placeBar } from "../lib/placement";
 import { fileKind, formatSize } from "../lib/files";
@@ -447,6 +448,13 @@ function PdfPreview({ fileId, name }: { fileId: string; name: string }) {
   );
 }
 
+/** A meme/GIF clip: loops silently, and only while on screen. */
+function LoopingClip({ src }: { src: string }) {
+  const video = useRef<HTMLVideoElement>(null);
+  usePlayWhenVisible(video, [src]);
+  return <video ref={video} src={src} autoPlay loop muted playsInline />;
+}
+
 function MediaView(props: NodeViewProps) {
   const { fileId, kind, name } = props.node.attrs as { fileId: string; kind: "video" | "pdf" | "audio"; name: string };
   const { url, failed } = useFileUrl(kind === "video" || kind === "audio" ? fileId : null);
@@ -468,7 +476,7 @@ function MediaView(props: NodeViewProps) {
         name.startsWith("greenscreen-") ? (
           <AlphaVideo src={url} />
         ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
-          <video src={url} autoPlay loop muted playsInline />
+          <LoopingClip src={url} />
         ) : (
           <video src={url} controls playsInline preload="metadata" />
         )
@@ -519,7 +527,7 @@ function FileView({ node }: NodeViewProps) {
         name.startsWith("greenscreen-") ? (
           <AlphaVideo src={url} />
         ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
-          <video src={url} autoPlay loop muted playsInline />
+          <LoopingClip src={url} />
         ) : (
           <video src={url} controls playsInline preload="metadata" />
         )
