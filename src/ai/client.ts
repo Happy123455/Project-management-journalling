@@ -58,7 +58,7 @@ async function callGemini(key: string, model: string, req: AiRequest) {
   // In the app, through Tauri's native HTTP: the Android WebView's own fetch to Google can hang
   // (a cross-site request with a key header). A stalled connection still ends in an error.
   const http = "__TAURI_INTERNALS__" in window ? (await import("@tauri-apps/plugin-http")).fetch : fetch;
-  const res = await http(`${GEMINI}/models/${encodeURIComponent(model)}:generateContent`, {
+  const send = () => http(`${GEMINI}/models/${encodeURIComponent(model)}:generateContent`, {
     signal: AbortSignal.timeout(req.task === "organise" ? 90_000 : 20_000),
     method: "POST",
     headers: { "Content-Type": "application/json", "x-goog-api-key": key },
@@ -71,6 +71,13 @@ async function callGemini(key: string, model: string, req: AiRequest) {
       },
     }),
   });
+  // "High demand" (503) or a rate limit (429) usually passes in seconds: try twice more.
+  let res = await send();
+  for (const wait of [2000, 5000]) {
+    if (res.status !== 503 && res.status !== 429) break;
+    await new Promise((r) => setTimeout(r, wait));
+    res = await send();
+  }
   if (!res.ok) throw await geminiError(res);
   const body = await res.json();
   const candidate = body.candidates?.[0];
