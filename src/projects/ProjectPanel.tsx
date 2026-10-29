@@ -1,5 +1,5 @@
 import { showToast } from "../lib/toast";
-import { MAX_ACTIVE_PROJECTS } from "../lib/projects";
+import { countsTowardsLimit, MAX_ACTIVE_PROJECTS } from "../lib/projects";
 import { useEffect, useState } from "react";
 import type { ProjectStatus } from "../lib/projects";
 import { projectTag } from "../lib/projects";
@@ -54,6 +54,14 @@ export function ProjectPanel({ store, page, refreshKey, onChanged, onOpenDay }: 
 
   return (
     <section className="project-panel">
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={page.props.project?.kind === "logging"}
+          onChange={async (e) => onChanged(await store.setPageProps(page.id, { project: { status, ...(e.target.checked ? { kind: "logging" as const } : {}) } }))}
+        />
+        🪵 Logging project (not counted in the {MAX_ACTIVE_PROJECTS} active)
+      </label>
       <div className="project-status" role="radiogroup" aria-label="Project status">
         {STATUSES.map((s) => (
           <button
@@ -64,8 +72,8 @@ export function ProjectPanel({ store, page, refreshKey, onChanged, onOpenDay }: 
             className={status === s.value ? `active status-${s.value}` : ""}
             onClick={async () => {
               if (s.value === "active" && status !== "active") {
-                const active = (await store.projects()).filter((p) => p.id !== page.id && (p.props.project?.status ?? "active") === "active");
-                if (active.length >= MAX_ACTIVE_PROJECTS) {
+                const active = (await store.projects()).filter((p) => p.id !== page.id && countsTowardsLimit(p));
+                if (page.props.project?.kind !== "logging" && active.length >= MAX_ACTIVE_PROJECTS) {
                   return showToast(`${MAX_ACTIVE_PROJECTS} projects are already active (${active.map((p) => p.title).join(", ")}). Pause one first.`, "error");
                 }
               }

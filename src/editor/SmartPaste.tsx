@@ -1,3 +1,5 @@
+import { YoutubeCard } from "./linkCard";
+import { youtubeId } from "../lib/linkPreview";
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { coalesce } from "../lib/coalesce";
 import type { Editor, JSONContent } from "@tiptap/react";
@@ -221,11 +223,15 @@ export function SmartPaste({ editor }: { editor: Editor }) {
         </>
       ) : (
         <>
-          <span className="paste-preview" title={clip.kind === "url" ? clip.url : clip.text}>
-            📋 {clipPreview(clip, 28)}
-          </span>
+          {clip.kind === "url" && youtubeId(clip.url) ? (
+            <YoutubeCard url={clip.url} />
+          ) : (
+            <span className="paste-preview" title={clip.kind === "url" ? clip.url : clip.text}>
+              📋 {clipPreview(clip, 28)}
+            </span>
+          )}
           <button type="button" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={() => act(() => insertClip(editor, clip, false))}>
-            {clip.kind === "url" ? "Paste link" : "Paste"}
+            {clip.kind === "url" ? (youtubeId(clip.url) ? "Paste video" : "Paste link") : "Paste"}
           </button>
           <button type="button" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={() => act(() => insertClip(editor, clip, true))}>
             As code

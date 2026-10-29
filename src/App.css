@@ -1415,3 +1415,36 @@ body::before { content: ""; position: fixed; top: 0; left: 0; right: 0; height: 
 .mindmap-days { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .mindmap-time { display: flex; align-items: center; gap: 10px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); }
 .mindmap-time input { flex: 1; }
+
+/* YouTube preview in the paste chip */
+.paste-chip:has(.yt-card) { flex-wrap: wrap; max-width: min(360px, calc(100vw - 16px)); }
+.yt-card { display: flex; gap: 10px; align-items: flex-start; width: 100%; min-width: 0; }
+.yt-thumb { width: 120px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; flex: none; }
+.yt-info { display: grid; gap: 3px; min-width: 0; font-size: 12px; }
+.yt-title { font-weight: 600; font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.yt-channel { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.yt-channel img { width: 18px; height: 18px; border-radius: 50%; }
+.yt-views { color: var(--muted); }
+
+/* Mac floating bubble window */
+html.bubble-window, html.bubble-window body, html.bubble-window #root { background: transparent !important; overflow: hidden; }
+html.bubble-window body::before { display: none; }
+.mac-drop {
+  width: 56px; height: 56px; margin: 4px; border-radius: 50%;
+  font-size: 22px; color: #fff; cursor: grab;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.6), rgba(150, 200, 255, 0.35) 55%, rgba(90, 120, 220, 0.6));
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.mac-drop:hover { transform: scale(1.06); }
+.mac-drop:active { transform: scale(0.94); }
+.mac-capture {
+  box-sizing: border-box; height: 100vh; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;
+  border-radius: 18px; border: 1px solid var(--glass-edge, rgba(255,255,255,0.2));
+  background: color-mix(in srgb, var(--panel, #222) 94%, transparent); color: var(--text, #eee);
+}
+.mac-capture-head { display: flex; align-items: center; justify-content: space-between; cursor: grab; }
+.mac-capture textarea { flex: 1; min-height: 60px; resize: none; font: inherit; color: inherit; background: transparent; border: 1px solid var(--border, #444); border-radius: 10px; padding: 8px; }
+.mac-capture-clip { display: grid; gap: 6px; }
+.mac-capture-actions { display: flex; align-items: center; justify-content: space-between; }

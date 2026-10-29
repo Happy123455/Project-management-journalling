@@ -16,6 +16,7 @@ import { ReadAloudPlayer } from "./ReadAloudPlayer";
 import { repairLostLinks } from "./lib/repairLinks";
 import { mcpAvailable, mcpEnabled, setMcpServer } from "./mcp";
 import { MindMapView } from "./mindmap/MindMapView";
+import { isDesktopApp, macBubbleEnabled, setMacBubble } from "./bubble/macBubble";
 import { growMap } from "./mindmap/grow";
 import { loadAiSettings } from "./ai/settings";
 import { entryFor, numberEntries, type ProjectEntry } from "./lib/projectDays";
@@ -35,7 +36,7 @@ import { CaptureHost } from "./editor/CaptureHost";
 import { PdfHost } from "./editor/PdfHost";
 import { PhotoHost } from "./editor/PhotoHost";
 import { showError, showToast } from "./lib/toast";
-import { takeShare } from "./share";
+import { appendQuickNote, takeShare } from "./share";
 import { Toasts } from "./Toasts";
 import { PullToToday } from "./PullToToday";
 import { extractLinks } from "./lib/links";
@@ -110,6 +111,22 @@ function App() {
       return entries.find((e) => e.day === day)?.n ?? null;
     };
   }, [store, route.kind, day]);
+
+  // Mac: notes from the floating bubble window land at the end of today.
+  useEffect(() => {
+    if (!store || !isDesktopApp()) return;
+    if (macBubbleEnabled()) void setMacBubble(true).catch(() => {});
+    let off: (() => void) | undefined;
+    void import("@tauri-apps/api/event").then(({ listen }) =>
+      listen<{ text: string; at: number }>("bubble-note", async (e) => {
+        await window.__journalFlush?.();
+        await appendQuickNote(store, dayKey(new Date()), e.payload.text, e.payload.at);
+        showToast("Added to today");
+        window.dispatchEvent(new Event("journal:reload-page"));
+      }).then((u) => (off = u)),
+    );
+    return () => off?.();
+  }, [store]);
 
   // MCP writes save what's being typed first (src/mcp.ts).
   useEffect(() => {

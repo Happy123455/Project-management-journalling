@@ -7,9 +7,15 @@ export type ProjectStatus = "active" | "paused" | "done";
 /** At most this many projects are active at once (logs and people have no limit). */
 export const MAX_ACTIVE_PROJECTS = 4;
 
+/** Projects that count towards the limit: active and not logging projects. */
+export const countsTowardsLimit = (p: { props: { project?: ProjectInfo } }) =>
+  (p.props.project?.status ?? "active") === "active" && p.props.project?.kind !== "logging";
+
 /** What makes a named page a project. Kept in the page's props. */
 export interface ProjectInfo {
   status: ProjectStatus;
+  /** A logging project: like a project, but not counted in the active limit. */
+  kind?: "logging";
 }
 
 /** The tag that files a task under a project: "Project X" → "project-x". */

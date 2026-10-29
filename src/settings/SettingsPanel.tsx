@@ -8,6 +8,7 @@ import { KOKORO_EN_VOICES, MODEL_NAMES, onVoiceProgress, readAloud, voiceAction,
 import { showError, showToast } from "../lib/toast";
 import type { AiChange, JournalStore } from "../store";
 import { mcpAvailable, mcpEnabled, setMcpServer } from "../mcp";
+import { isDesktopApp, macBubbleEnabled, setMacBubble } from "../bubble/macBubble";
 import { CANVAS_ACTIONS, loadGestures, saveGestures, type CanvasAction, type Gestures } from "../lib/gestures";
 
 const money = (usd: number) => (usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`);
@@ -244,6 +245,33 @@ function GestureSettings() {
   );
 }
 
+/** Mac: the floating bubble window. */
+function MacBubbleSettings() {
+  const [on, setOn] = useState(macBubbleEnabled);
+  return (
+    <section className="settings-section">
+      <h2>Floating bubble</h2>
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={async (e) => {
+            const next = e.target.checked;
+            try {
+              await setMacBubble(next);
+              setOn(next);
+            } catch (err) {
+              showError("Couldn't change the bubble", err);
+            }
+          }}
+        />
+        Show floating bubble
+      </label>
+      <p className="hint">A small drop that stays on top of every app and Space. Click it, or press ⌘⇧J anywhere, to write a quick note or save what's on the clipboard (YouTube links with a preview) to today. Drag it anywhere.</p>
+    </section>
+  );
+}
+
 /** Android: the floating bubble over other apps. */
 function BubbleSettings() {
   const bubble = window.JournalBubble;
@@ -258,7 +286,7 @@ function BubbleSettings() {
       document.removeEventListener("visibilitychange", check);
     };
   }, [bubble]);
-  if (!bubble) return null;
+  if (!bubble) return isDesktopApp() ? <MacBubbleSettings /> : null;
   return (
     <section className="settings-section">
       <h2>Floating bubble</h2>

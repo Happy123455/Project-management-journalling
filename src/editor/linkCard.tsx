@@ -162,3 +162,78 @@ export const LinkCard = Node.create({
 });
 
 export const isLoneUrl = (text: string) => /^https?:\/\/\S+$/i.test(text.trim());
+
+export interface YoutubePreview {
+  id: string;
+  title: string | null;
+  channel: string | null;
+  avatar: string | null;
+  thumbnail: string;
+  views: number | null;
+}
+const youtubeCache = new Map<string, Promise<YoutubePreview | null>>();
+
+/** Everything shown before pasting a YouTube link: from oEmbed, the channel page and the watch page (no API key). */
+export function youtubePreview(url: string): Promise<YoutubePreview | null> {
+  const id = youtubeId(url);
+  if (!id) return Promise.resolve(null);
+  if (!youtubeCache.has(id)) {
+    youtubeCache.set(
+      id,
+      (async () => {
+        const get = inApp() ? (await import("@tauri-apps/plugin-http")).fetch : fetch;
+        const text = async (u: string) => {
+          try {
+            const res = await get(u, { signal: AbortSignal.timeout(10000), headers: { Accept: "text/html", "Accept-Language": "en" } });
+            return res.ok ? await res.text() : "";
+          } catch {
+            return "";
+          }
+        };
+        let oembed: { title?: string; author_name?: string; author_url?: string } = {};
+        try {
+          oembed = JSON.parse(await text(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}`));
+        } catch {
+          // Leave the details out.
+        }
+        const [watch, channel] = await Promise.all([text(`https://www.youtube.com/watch?v=${id}`), oembed.author_url ? text(oembed.author_url) : Promise.resolve("")]);
+        const views = /"viewCount":"(\d+)"/.exec(watch)?.[1];
+        return {
+          id,
+          title: oembed.title ?? null,
+          channel: oembed.author_name ?? null,
+          avatar: channel ? parseMeta(channel, oembed.author_url!).image ?? null : null,
+          thumbnail: youtubeThumbnail(id),
+          views: views ? Number(views) : null,
+        };
+      })(),
+    );
+  }
+  return youtubeCache.get(id)!;
+}
+
+/** The preview card for a copied YouTube link. */
+export function YoutubeCard({ url }: { url: string }) {
+  const [p, setP] = useState<YoutubePreview | null>(null);
+  useEffect(() => {
+    let live = true;
+    void youtubePreview(url).then((x) => live && setP(x));
+    return () => {
+      live = false;
+    };
+  }, [url]);
+  const id = youtubeId(url);
+  return (
+    <span className="yt-card">
+      <img className="yt-thumb" src={p?.thumbnail ?? (id ? youtubeThumbnail(id) : "")} alt="" />
+      <span className="yt-info">
+        <span className="yt-title">{p?.title ?? "YouTube video"}</span>
+        <span className="yt-channel">
+          {p?.avatar && <img src={p.avatar} alt="" />}
+          {p?.channel ?? (p ? "" : "Loading…")}
+        </span>
+        {p?.views != null && <span className="yt-views">{new Intl.NumberFormat(undefined, { notation: "compact" }).format(p.views)} views</span>}
+      </span>
+    </span>
+  );
+}

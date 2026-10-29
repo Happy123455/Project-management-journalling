@@ -67,6 +67,10 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       return true;
     case "prompt":
       return chain.insertContent({ type: "promptBlock" }).run();
+    case "logproject":
+      chain.run();
+      window.dispatchEvent(new CustomEvent("journal:new-project", { detail: { editor, logging: true } }));
+      return true;
     case "project":
       chain.run();
       window.dispatchEvent(new CustomEvent("journal:new-project", { detail: { editor } }));

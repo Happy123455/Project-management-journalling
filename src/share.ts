@@ -1,6 +1,7 @@
 import { appendBlocks, asBlocks, textBlocks } from "./lib/append";
 import { docText } from "./lib/words";
 import { formatTimestamp } from "./lib/timestamp";
+import { isLoneUrl } from "./editor/linkCard";
 import { mediaNode } from "./editor/attachments";
 import type { JournalStore } from "./store";
 
@@ -37,7 +38,11 @@ export async function takeShare(store: JournalStore, day: string): Promise<Share
   if (!raw && !notes.length) return null;
   const share: SharePayload = raw ? JSON.parse(raw) : { quickNote: false, files: [], skipped: [] };
   const blocks = share.text ? textBlocks(share.text) : [];
-  for (const n of notes) blocks.push(...textBlocks(`${formatTimestamp(new Date(n.at))} ${n.text}`));
+  for (const n of notes) {
+    // A link on its own (e.g. a YouTube video) becomes a link card, with the time above it.
+    if (isLoneUrl(n.text)) blocks.push(...textBlocks(formatTimestamp(new Date(n.at))), { type: "linkCard", attrs: { url: n.text.trim() } });
+    else blocks.push(...textBlocks(`${formatTimestamp(new Date(n.at))} ${n.text}`));
+  }
   const media = [];
   for (const f of share.files) {
     const bytes = Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0));
@@ -50,4 +55,13 @@ export async function takeShare(store: JournalStore, day: string): Promise<Share
     await store.saveDay({ day, content, plainText: docText(content) });
   }
   return { quickNote: share.quickNote, voice: !!share.voice, added: share.files.length + (share.text ? 1 : 0) + notes.length, skipped: share.skipped };
+}
+
+/** A quick note (Mac bubble) added to the end of `day`: with its time; a link on its own becomes a link card. */
+export async function appendQuickNote(store: JournalStore, day: string, text: string, at: number) {
+  const time = formatTimestamp(new Date(at));
+  const blocks = isLoneUrl(text) ? [...textBlocks(time), { type: "linkCard", attrs: { url: text.trim() } }] : textBlocks(`${time} ${text}`);
+  const page = await store.getDay(day);
+  const content = appendBlocks(page?.content ?? null, blocks);
+  await store.saveDay({ day, content, plainText: docText(content) });
 }
