@@ -1069,3 +1069,114 @@ button:hover { background: var(--glass-strong); }
 .prompt-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 8px; }
 .prompt-actions .hint { margin-right: auto; }
 .settings-code { white-space: pre-wrap; word-break: break-all; font-size: 0.8rem; background: var(--panel); padding: 10px; border-radius: 10px; user-select: text; }
+
+/* ───────── Blocks: gutter, ⋮⋮ handle, nesting, collapse, drop line, menu ───────── */
+.editor { position: relative; }
+.editor-body .tiptap { padding-left: 30px; }
+.editor-body .tiptap > * { margin-top: 0.3em; margin-bottom: 0.3em; border-radius: 8px; transition: background-color 0.12s; }
+@media (hover: hover) {
+  .editor-body .tiptap > *:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+}
+.editor-body .tiptap > [data-indent="1"] { margin-left: 24px; }
+.editor-body .tiptap > [data-indent="2"] { margin-left: 48px; }
+.editor-body .tiptap > [data-indent="3"] { margin-left: 72px; }
+.editor-body .tiptap > [data-indent="4"] { margin-left: 96px; }
+.editor-body .tiptap > [data-indent="5"] { margin-left: 120px; }
+.editor-body .tiptap > [data-indent="6"] { margin-left: 144px; }
+.editor-body .tiptap > [data-indent="7"] { margin-left: 168px; }
+.editor-body .tiptap > [data-indent="8"] { margin-left: 192px; }
+.editor-body .tiptap > .block-hidden { display: none; }
+.editor-body .tiptap > .block-collapsed::after {
+  content: " ▸ " attr(data-hidden-count) " more";
+  font-size: 0.75em;
+  color: var(--muted);
+  margin-left: 6px;
+}
+.block-handle {
+  position: absolute;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.block-handle button {
+  pointer-events: auto;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  width: 15px;
+  height: 26px;
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 6px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.block-handle .block-grip { letter-spacing: -3px; font-weight: 700; opacity: 0.75; }
+@media (pointer: coarse) {
+  /* On the phone the handle shows beside the block being edited: bigger and easier to hit. */
+  .block-handle button { width: 15px; height: 32px; font-size: 15px; opacity: 0.9; }
+}
+.block-handle button:hover, .block-handle button:active { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text, inherit); }
+.block-handle .block-caret { cursor: pointer; }
+.block-drop-line {
+  position: absolute;
+  left: 26px;
+  right: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  pointer-events: none;
+  z-index: 6;
+}
+.block-menu-backdrop { position: fixed; inset: 0; z-index: 70; }
+.block-menu {
+  position: fixed;
+  z-index: 71;
+  width: 220px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 16px;
+  border: 1px solid var(--glass-edge, var(--border));
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  backdrop-filter: blur(var(--glass-blur, 18px)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px)) saturate(1.4);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.block-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.block-menu > button:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.block-menu > button.danger { color: #f87171; }
+.block-menu-icon { width: 20px; text-align: center; }
+.block-menu-label { font-size: 0.75rem; color: var(--muted); margin: 2px 4px 6px; }
+.block-menu-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 6px; }
+.block-menu-grid button {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 6px 2px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.block-menu-grid button small { font-size: 0.62rem; color: var(--muted); }

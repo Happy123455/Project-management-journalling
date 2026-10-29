@@ -10,6 +10,8 @@ import { hasEmbeds } from "../lib/embeds";
 import { AttachmentFile, AttachmentImage, AttachmentMedia, insertFiles, mediaLeafText, pasteEmbeds, upgradeOldMedia } from "./attachments";
 import { JournalCodeBlock } from "./codeBlock";
 import { BlockInfoExtension } from "./blockInfo";
+import { BlockHandle } from "./BlockHandle";
+import { Blocks } from "./blocks";
 import { BlockInfoPanel } from "./BlockInfoPanel";
 import { saveToInspiration } from "./inspiration";
 import { readAloud } from "../lib/readAloud";
@@ -158,6 +160,7 @@ export function JournalEditor({
       FindHighlight,
       LogBlock,
       BlockInfoExtension,
+      Blocks,
       SlashMenu.configure({ onReminder: () => onReminder?.() }),
     ],
     content: initialContent ?? "",
@@ -251,6 +254,7 @@ export function JournalEditor({
         </div>
       )}
       <EditorContent editor={editor} className={touch ? "editor-body with-keyboard-bar" : "editor-body"} />
+      {editor && <BlockHandle editor={editor} touch={touch} onInfo={() => setInfoOpen(true)} />}
       {editor && <SmartPaste editor={editor} />}
       {editor && infoOpen && <BlockInfoPanel editor={editor} onClose={() => setInfoOpen(false)} />}
       {editor && touch && (
