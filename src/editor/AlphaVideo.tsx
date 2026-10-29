@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { usePlayWhenVisible } from "./usePlayWhenVisible";
+import { leaveText } from "./MediaBits";
 
 const VERTEX = `attribute vec2 p; varying vec2 uv;
 void main() { uv = vec2((p.x + 1.0) / 2.0, (1.0 - p.y) / 2.0); gl_Position = vec4(p, 0.0, 1.0); }`;
@@ -75,7 +76,7 @@ export function AlphaVideo({ src, onTap }: { src: string; onTap?: () => void }) 
       <canvas
         ref={canvas}
         // Never focus the text (that would open the keyboard and scroll).
-        onPointerDown={(e) => e.preventDefault()}
+        onPointerDown={(e) => (e.preventDefault(), leaveText())}
         onClick={() => {
           setMuted((m) => !m);
           void video.current?.play();

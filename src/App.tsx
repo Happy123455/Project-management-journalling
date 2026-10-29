@@ -170,12 +170,15 @@ function App() {
     }
   };
 
-  // Scrolling down into the writing area shrinks the month to its week.
+  // Scrolling down into the writing area shrinks the month to its week. Not right after the month was
+  // opened from the pinned strip: it grows, the browser shifts the page to keep the text in place, and
+  // that shift would look like a scroll down and fold it again at once.
+  const openedAt = useRef(0);
   useEffect(() => {
     let lastY = window.scrollY;
     const onScroll = () => {
       const y = window.scrollY;
-      if (y > lastY && y > 60) setCalendarCollapsed(true);
+      if (y > lastY + 4 && y > 60 && Date.now() - openedAt.current > 900) setCalendarCollapsed(true);
       lastY = y;
     };
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -518,7 +521,10 @@ function App() {
               shading={shading}
               today={today}
               collapsed={calendarCollapsed}
-              onToggle={() => setCalendarCollapsed((c) => !c)}
+              onToggle={() => {
+                if (calendarCollapsed) openedAt.current = Date.now();
+                setCalendarCollapsed((c) => !c);
+              }}
               onPick={goTo}
               onOpenYear={openYear}
               actions={

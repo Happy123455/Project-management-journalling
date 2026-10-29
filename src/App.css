@@ -1394,3 +1394,5 @@ button:hover { background: var(--glass-strong); }
   .editor-body .tiptap > .block-box-head { padding-left: 16px; }
   .editor-body .tiptap > .block-box-body:not([data-indent]) { padding-left: 16px; }
 }
+.tap-video { display: block; }
+.tap-video video { display: block; width: 100%; }

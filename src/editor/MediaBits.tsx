@@ -13,9 +13,15 @@ function holdScroll() {
   };
   requestAnimationFrame(keep);
 }
+/** Leaves the text: the keyboard closes (or never opens) while media is being played. */
+export function leaveText() {
+  const active = document.activeElement as HTMLElement | null;
+  if (active?.closest?.(".ProseMirror")) active.blur();
+}
 const noFocus = (e: { preventDefault: () => void; stopPropagation: () => void }) => {
   e.preventDefault();
   e.stopPropagation();
+  leaveText();
 };
 
 /** Inline audio: a small pill. Tapping plays it and grows into a player with a scrubber; it shrinks back when done. */
@@ -34,7 +40,7 @@ export function AudioPill({ src, icon }: { src: string; icon: string }) {
     else a.pause();
   };
   return (
-    <span className={`audio-pill${open ? " open" : ""}`} contentEditable={false} onPointerDown={noFocus}>
+    <span className={`audio-pill${open ? " open" : ""}`} contentEditable={false} onPointerDown={noFocus} onTouchStart={leaveText} onMouseDown={noFocus}>
       <audio
         ref={audio}
         src={src}
@@ -70,20 +76,22 @@ export function AudioPill({ src, icon }: { src: string; icon: string }) {
 
 /** A video in a note: tap plays or pauses it, without focusing the text or scrolling the page. */
 export function TapVideo({ src }: { src: string }) {
-  const video = useRef<HTMLVideoElement>(null);
   return (
-    <video
-      ref={video}
-      src={src}
-      controls
-      playsInline
-      preload="metadata"
-      onPointerDown={(e) => {
-        holdScroll();
-        e.stopPropagation();
-      }}
-      onPlay={holdScroll}
-    />
+    <span className="tap-video" contentEditable={false}>
+      <video
+        src={src}
+        controls
+        playsInline
+        preload="metadata"
+        onPointerDown={(e) => {
+          holdScroll();
+          e.stopPropagation();
+          leaveText();
+        }}
+        onTouchStart={leaveText}
+        onPlay={() => (holdScroll(), leaveText())}
+      />
+    </span>
   );
 }
 
@@ -115,6 +123,8 @@ export function PeekOnDoubleTap({ children, peek }: { children: ReactNode; peek:
     <span
       ref={host}
       className="peek-host"
+      contentEditable={false}
+      onPointerDown={(e) => (e.stopPropagation(), leaveText())}
       onDoubleClick={(e) => {
         noFocus(e);
         setFrom(host.current!.getBoundingClientRect());
