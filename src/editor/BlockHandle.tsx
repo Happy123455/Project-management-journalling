@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Editor } from "@tiptap/react";
 import type { Command } from "@tiptap/pm/state";
-import { blockIndexAt, blockPos, blockRange, deleteBlock, duplicateBlock, insertLine, moveBlock, moveBlockTo, toggleCollapsed } from "./blocks";
+import { blockIndexAt, blockPos, blockRange, deleteBlock, duplicateBlock, indentBlock, indentOf, insertLine, moveBlock, moveBlockTo, toggleCollapsed } from "./blocks";
 
 const TEXT_TYPES = new Set(["paragraph", "heading", "bulletList", "orderedList", "taskList", "blockquote", "codeBlock"]);
 
@@ -140,6 +140,9 @@ export function BlockHandle({ editor, touch, onInfo }: { editor: Editor; touch: 
   const actions: [string, string, () => void][] = [
     ["↥", "Add line above", () => run(insertLine(index, "above"))],
     ["↧", "Add line below", () => run(insertLine(index, "below"))],
+    // Tab / Shift+Tab, for keyboards without a Tab key (the phone).
+    ...(indentBlock(index, 1)(editor.state) ? ([["→", "Nest under the line above", () => run(indentBlock(index, 1))]] as [string, string, () => void][]) : []),
+    ...(indentOf(node) > 0 ? ([["←", "Un-nest", () => run(indentBlock(index, -1))]] as [string, string, () => void][]) : []),
     ["⧉", "Duplicate", () => run(duplicateBlock(index))],
     ["↑", "Move up", () => run(moveBlock(index, -1))],
     ["↓", "Move down", () => run(moveBlock(index, 1))],
