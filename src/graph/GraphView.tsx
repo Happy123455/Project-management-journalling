@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { JournalStore } from "../store";
-import { buildGraph, dayColor, forceStep, treeLayout, type Graph, type GraphNode, type Point } from "./graph";
+import { buildGraph, forceStep, treeLayout, type Graph, type GraphNode, type Point } from "./graph";
+import { dayColor } from "../lib/projectDays";
 
 type Layout = "web" | "tree";
 

@@ -5,6 +5,7 @@ import { mentionsWithChildren } from "../lib/links";
 import { dayTitle } from "../lib/timestamp";
 import { showError } from "../lib/toast";
 import { ProjectPanel } from "../projects/ProjectPanel";
+import { ProjectTimeline } from "../projects/ProjectTimeline";
 import { InspirationGrid } from "./InspirationGrid";
 import type { JournalStore, LinkKind, NamedPage, Reference } from "../store";
 
@@ -156,6 +157,9 @@ export function PageView({ store, page, onBack, handlers, pageNames, find, onFin
       </div>
       {page.props.project && (
         <ProjectPanel store={store} page={page} refreshKey={saves} onChanged={onPageChanged} onOpenDay={handlers.onOpenDay} />
+      )}
+      {page.props.project && (
+        <ProjectTimeline store={store} page={page} refreshKey={saves} onOpenDay={(d) => handlers.onOpenDay(d)} />
       )}
       <section className="history">
         <h2>Mentioned in</h2>

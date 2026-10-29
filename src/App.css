@@ -1400,3 +1400,19 @@ body::before { content: ""; position: fixed; top: 0; left: 0; right: 0; height: 
 /* "Coming up" inside the pinned calendar: it can scroll if the screen is short. */
 .month-calendar:not(.collapsed) { max-height: calc(100vh - 24px); overflow-y: auto; overscroll-behavior: contain; }
 .month-calendar .reminders { margin-top: 10px; }
+
+/* Project entries: Day N rows, with dashes for the days in between */
+.project-timeline h2 { font-size: 13px; text-transform: uppercase; color: var(--muted); }
+.timeline { display: grid; gap: 4px; }
+.timeline-row { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); overflow: hidden; }
+.timeline-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: none; border-radius: 0; background: transparent; box-shadow: none; text-align: left; }
+.timeline-n { flex: none; font-weight: 700; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 2px solid; }
+.timeline-date { flex: none; font-size: 12px; color: var(--muted); }
+.timeline-first { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timeline-body { padding: 0 12px 10px; background: color-mix(in srgb, var(--panel) 75%, #000); }
+.timeline-body p { margin: 6px 0; }
+.timeline-gap { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 0; border: none; background: transparent; box-shadow: none; }
+.timeline-dashes { display: flex; flex-direction: column; gap: 2px; align-items: center; }
+.timeline-dashes i { display: block; width: 46px; height: 2px; border-radius: 2px; }
+.timeline-more, .timeline-gap-label { font-size: 11px; color: var(--muted); }
+.timeline-gap-label { padding: 2px 8px; border-radius: 999px; background: var(--glass); }
