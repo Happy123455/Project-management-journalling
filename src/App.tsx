@@ -15,6 +15,9 @@ import { SettingsPanel } from "./settings/SettingsPanel";
 import { ReadAloudPlayer } from "./ReadAloudPlayer";
 import { repairLostLinks } from "./lib/repairLinks";
 import { mcpAvailable, mcpEnabled, setMcpServer } from "./mcp";
+import { MindMapView } from "./mindmap/MindMapView";
+import { growMap } from "./mindmap/grow";
+import { loadAiSettings } from "./ai/settings";
 import { entryFor, numberEntries, type ProjectEntry } from "./lib/projectDays";
 import { loadGestures, NO_SWIPE, type CanvasAction } from "./lib/gestures";
 import { ChatView } from "./ChatView";
@@ -59,6 +62,7 @@ function App() {
   const [route, setRoute] = useState<{ kind: "day" } | { kind: "page"; page: NamedPage } | { kind: "tag"; tag: string }>({ kind: "day" });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
+  const [mindOpen, setMindOpen] = useState(false);
   const [nexus, setNexus] = useState<NexusTarget | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -247,6 +251,14 @@ function App() {
   }, [store, dayYear, yearShown, syncTick]);
 
   const today = dayKey(new Date());
+  // The mind map grows from today's note once it has rested 10 minutes (Settings → AI).
+  useEffect(() => {
+    const ai = loadAiSettings();
+    if (!store || day !== today || !ai.enabled || ai.mindmapAuto === false || countWords(text) <= 50) return;
+    const t = window.setTimeout(() => void growMap(store, today, 50).catch(() => {}), 10 * 60 * 1000);
+    return () => window.clearTimeout(t);
+  }, [store, day, today, text]);
+
   const [reminders, setReminders] = useState<DayPage[]>([]);
   const loadReminders = useCallback(() => {
     store?.openReminders().then(setReminders);
@@ -479,6 +491,7 @@ function App() {
         <DaysList days={days} day={day} today={today} onPick={goTo} />
         <div className="sidebar-actions">
           <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))}>🕸 Graph view</button>
+          <button type="button" onClick={() => (setDrawerOpen(false), setMindOpen(true))}>🧠 Mind map</button>
           <button type="button" onClick={() => void openNexus()}>⑂ Nexus (this note's history)</button>
           <button type="button" onClick={() => (setDrawerOpen(false), setSettingsOpen(true))}>⚙︎ Settings</button>
           <button type="button" onClick={() => (setDrawerOpen(false), void backUpNow())}>💾 Back up now</button>
@@ -621,6 +634,7 @@ function App() {
         {infoTabs}
         <div className="sidebar-actions">
           <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))}>🕸 Graph view</button>
+          <button type="button" onClick={() => (setDrawerOpen(false), setMindOpen(true))}>🧠 Mind map</button>
           <button type="button" onClick={() => void openNexus()}>⑂ Nexus (this note's history)</button>
           <button type="button" onClick={() => (setDrawerOpen(false), setSettingsOpen(true))}>⚙︎ Settings</button>
           <button type="button" onClick={() => (setDrawerOpen(false), void backUpNow())}>💾 Back up now</button>
@@ -648,9 +662,13 @@ function App() {
           }}
         />
       )}
+      {mindOpen && store && (
+        <MindMapView store={store} today={today} onClose={() => setMindOpen(false)} onOpenDay={(d) => (setMindOpen(false), void goTo(d))} />
+      )}
       {graphOpen && store && (
         <GraphView
           store={store}
+          onMindMap={() => (setGraphOpen(false), setMindOpen(true))}
           onClose={() => setGraphOpen(false)}
           onOpen={(n) => {
             setGraphOpen(false);

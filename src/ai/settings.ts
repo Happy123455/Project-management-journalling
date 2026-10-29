@@ -8,6 +8,8 @@ export interface AiSettings {
   grammarSuggestions: boolean;
   /** Apply grammar fixes automatically instead of suggesting them. Off unless turned on. */
   autoCorrect: boolean;
+  /** Grow the mind map from today's note once it has rested a while. */
+  mindmapAuto?: boolean;
   /** Per-task model overrides, e.g. { organise: "gemini-4-argon" }. */
   models: Partial<Record<Provider, Partial<Record<AiTask, string>>>>;
 }

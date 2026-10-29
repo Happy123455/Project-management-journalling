@@ -12,7 +12,8 @@ const radius = (n: GraphNode) => (n.kind === "day" ? 5 : 7 + Math.min(n.degree, 
 const colorOf = (n: GraphNode) => (n.kind === "day" ? dayColor(n.day!) : n.kind === "tag" ? TAG_COLOR : PAGE_COLOR);
 
 /** Pages, people and tags linked from days, as a web or as a tree that grows over time. */
-export function GraphView({ store, onClose, onOpen }: {
+export function GraphView({ store, onClose, onOpen, onMindMap }: {
+  onMindMap?: () => void;
   store: JournalStore;
   onClose: () => void;
   onOpen: (node: GraphNode) => void;
@@ -227,6 +228,7 @@ export function GraphView({ store, onClose, onOpen }: {
     <div className="graph-view" role="dialog" aria-label="Graph">
       <header className="graph-bar">
         <button type="button" onClick={onClose} aria-label="Close graph">✕</button>
+        {onMindMap && <button type="button" onClick={onMindMap}>🧠 Mind map</button>}
         <div className="graph-layouts" role="tablist">
           {(["web", "tree"] as const).map((l) => (
             <button key={l} type="button" role="tab" aria-selected={layout === l} className={layout === l ? "active" : ""} onClick={() => setLayout(l)}>

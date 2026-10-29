@@ -316,6 +316,10 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
             Grammar suggestions after each finished paragraph
           </label>
           <label className="settings-toggle">
+            <input type="checkbox" checked={s.mindmapAuto !== false} onChange={(e) => update({ mindmapAuto: e.target.checked })} />
+            Grow mind map automatically (from today's note, after 10 quiet minutes)
+          </label>
+          <label className="settings-toggle">
             <input type="checkbox" checked={s.autoCorrect} onChange={(e) => update({ autoCorrect: e.target.checked })} />
             Auto-correct (apply grammar fixes without asking)
           </label>
