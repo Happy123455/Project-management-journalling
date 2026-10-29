@@ -1249,4 +1249,6 @@ button:hover { background: var(--glass-strong); }
   top: calc(env(safe-area-inset-top, 0px) + 4px);
   z-index: 4;
   background: color-mix(in srgb, var(--panel) 92%, transparent);
+  /* Cover the strip above it (under the phone's status bar) so text doesn't scroll through there. */
+  box-shadow: 0 -80px 0 40px var(--bg);
 }
