@@ -103,7 +103,7 @@ interface MonthProps {
 }
 
 /** Month heat map at the top of the page; shrinks to the current week while writing. */
-export function MonthCalendar({ day, shading, today, collapsed, onToggle, onPick, onOpenYear, actions }: MonthProps & { actions?: React.ReactNode }) {
+export function MonthCalendar({ day, shading, today, collapsed, onToggle, onPick, onOpenYear, actions, below }: MonthProps & { actions?: React.ReactNode; below?: React.ReactNode }) {
   const [year, month] = day.split("-").map(Number);
   return (
     // While shrunk to one week, a tap anywhere on it opens the whole month (days can't be picked yet).
@@ -150,6 +150,8 @@ export function MonthCalendar({ day, shading, today, collapsed, onToggle, onPick
         onPick={collapsed ? () => {} : onPick}
         weekOnly={collapsed}
       />
+      {/* "Coming up" opens with the month, wherever the calendar is pinned. */}
+      {!collapsed && below}
     </section>
   );
 }

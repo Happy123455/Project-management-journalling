@@ -1250,8 +1250,6 @@ button:hover { background: var(--glass-strong); }
   top: calc(env(safe-area-inset-top, 0px) + 4px);
   z-index: 4;
   background: color-mix(in srgb, var(--panel) 92%, transparent);
-  /* Cover the strip above it (under the phone's status bar) so text doesn't scroll through there. */
-  box-shadow: 0 -80px 0 40px var(--bg);
 }
 /* [[ ]] of a link are hidden unless the cursor is at that link */
 .editor-body .wl-bracket { font-size: 0; letter-spacing: 0; }
@@ -1396,3 +1394,9 @@ button:hover { background: var(--glass-strong); }
 }
 .tap-video { display: block; }
 .tap-video video { display: block; width: 100%; }
+
+/* A solid strip under the phone's status bar, so the note doesn't scroll through behind it. */
+body::before { content: ""; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px); background: var(--bg); z-index: 30; }
+/* "Coming up" inside the pinned calendar: it can scroll if the screen is short. */
+.month-calendar:not(.collapsed) { max-height: calc(100vh - 24px); overflow-y: auto; overscroll-behavior: contain; }
+.month-calendar .reminders { margin-top: 10px; }

@@ -527,6 +527,7 @@ function App() {
               }}
               onPick={goTo}
               onOpenYear={openYear}
+              below={<Upcoming pages={reminders.filter((r) => r.day > today && r.day !== day).slice(0, 5)} onPick={goTo} />}
               actions={
                 <>
                   <button type="button" onClick={() => setDrawerOpen(true)} aria-label="Open menu">☰</button>
@@ -537,9 +538,6 @@ function App() {
             />
             {day === today && (
               <DueReminders pages={reminders.filter((r) => r.day <= today)} onPick={goTo} onDone={completeReminder} />
-            )}
-            {!calendarCollapsed && (
-              <Upcoming pages={reminders.filter((r) => r.day > today && r.day !== day).slice(0, 5)} onPick={goTo} />
             )}
 
             {page === undefined || loadedDay !== day ? (
