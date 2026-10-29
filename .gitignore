@@ -28,3 +28,18 @@ public/meme-kit/
 
 # sherpa-onnx for Kokoro read-aloud, fetched by scripts/fetch-sherpa-onnx.sh (large, not committed)
 src-tauri/gen/android/app/libs/sherpa-onnx-*.aar
+
+# Never committed: build outputs, models, keystores, secrets, backups
+src-tauri/target/
+src-tauri/gen/android/app/build/
+src-tauri/gen/android/build/
+*.apk
+*.aab
+*.dmg
+*.onnx
+*.keystore
+*.jks
+.env
+.env.*
+*.bundle
+backups/
