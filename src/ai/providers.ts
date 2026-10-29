@@ -1,13 +1,18 @@
-export type Provider = "gemini" | "claude";
+export type Provider = "gemini" | "claude" | "local";
 export type AiTask = "grammar" | "organise" | "describe";
 
 export const PROVIDERS: { id: Provider; name: string; keyHelp: string }[] = [
   { id: "gemini", name: "Gemini", keyHelp: "Create a key at aistudio.google.com → Get API key." },
   { id: "claude", name: "Claude", keyHelp: "Create a key at platform.claude.com → API keys." },
+  { id: "local", name: "Local (Ollama)", keyHelp: "Runs on this Mac with Ollama; no key, nothing leaves the Mac." },
 ];
 
+/** Ollama on this Mac. */
+export const OLLAMA_URL = "http://127.0.0.1:11434";
+
 /** The name AI edits are recorded under (the event's actor), so they can be shown and undone. */
-export const actorFor = (provider: Provider) => (provider === "gemini" ? "Gemini" : "Claude");
+export const actorFor = (provider: Provider, model = "") =>
+  provider === "gemini" ? "Gemini" : provider === "claude" ? "Claude" : `Local (${model.split(":")[0] || "model"})`;
 export const AI_ACTORS = ["Gemini", "Claude"];
 
 /**
@@ -17,6 +22,7 @@ export const AI_ACTORS = ["Gemini", "Claude"];
 export const DEFAULT_MODELS: Record<Provider, Record<AiTask, string>> = {
   gemini: { grammar: "gemini-3.8-flash", organise: "gemini-3.1-pro-preview", describe: "gemini-3.8-flash" },
   claude: { grammar: "claude-haiku-5-5", organise: "claude-sonnet-5-5", describe: "claude-haiku-5-5" },
+  local: { grammar: "qwen3:14b", organise: "qwen3:14b", describe: "qwen3:14b" },
 };
 
 interface Price {

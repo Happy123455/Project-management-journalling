@@ -10,6 +10,10 @@ export interface AiSettings {
   autoCorrect: boolean;
   /** Grow the mind map from today's note once it has rested a while. */
   mindmapAuto?: boolean;
+  /** Phone: leave growing the map to the Mac (its local model); results arrive by sync. */
+  macGrowsMap?: boolean;
+  /** Mac: the local model has been made the default once (the person can switch back). */
+  localDefaultSet?: boolean;
   /** Per-task model overrides, e.g. { organise: "gemini-4-argon" }. */
   models: Partial<Record<Provider, Partial<Record<AiTask, string>>>>;
 }
@@ -28,7 +32,21 @@ function read<T>(key: string, fallback: T): T {
   }
 }
 
-export const loadAiSettings = () => read(SETTINGS_KEY, DEFAULT_SETTINGS);
+export function loadAiSettings(): AiSettings {
+  const s = read(SETTINGS_KEY, DEFAULT_SETTINGS);
+  // Mac app: the local model (Ollama) becomes the default once; Gemini stays the fallback.
+  const desktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window && !window.JournalShare;
+  if (desktop && !s.localDefaultSet) {
+    const next = { ...s, provider: "local" as const, localDefaultSet: true };
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+    } catch {
+      // Applied for this session.
+    }
+    return next;
+  }
+  return s;
+}
 
 export function saveAiSettings(settings: AiSettings) {
   try {

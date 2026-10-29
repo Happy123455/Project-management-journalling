@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getKey } from "./secrets";
 import { loadAiSettings, modelFor, recordUsage } from "./settings";
-import type { AiTask, Provider } from "./providers";
+import { actorFor, OLLAMA_URL, type AiTask, type Provider } from "./providers";
 
 /** Thrown when AI is off or no key is set; the UI shows "add your key in Settings". */
 export class AiUnavailableError extends Error {
@@ -28,6 +28,8 @@ export interface AiRequest {
 
 export interface AiAnswer<T = unknown> {
   text: string;
+  /** Who made the change, for the event log (e.g. "Gemini", "Local (qwen3)"). */
+  actor: string;
   /** Parsed JSON when a schema was given. */
   json: T;
   provider: Provider;
@@ -89,6 +91,51 @@ async function callGemini(key: string, model: string, req: AiRequest) {
   return { text, input: u.promptTokenCount ?? 0, output: (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0) };
 }
 
+/** Ollama's chat API on this Mac (JSON mode when a schema is given; no thinking, for speed). */
+async function callOllama(model: string, req: AiRequest) {
+  const http = (await import("@tauri-apps/plugin-http")).fetch;
+  const res = await http(`${OLLAMA_URL}/api/chat`, {
+    method: "POST",
+    signal: AbortSignal.timeout(req.task === "organise" ? 300_000 : 120_000),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      stream: false,
+      think: false,
+      ...(req.schema ? { format: req.schema } : {}),
+      options: { num_ctx: 8192 },
+      messages: [
+        { role: "system", content: req.system },
+        { role: "user", content: req.text, ...(req.images?.length ? { images: req.images.map((i) => i.data) } : {}) },
+      ],
+    }),
+  });
+  if (!res.ok) throw new Error(`The local model answered ${res.status}: ${(await res.text()).slice(0, 160)}`);
+  const body = await res.json();
+  return { text: body.message?.content ?? "", input: body.prompt_eval_count ?? 0, output: body.eval_count ?? 0 };
+}
+
+/** Is Ollama running on this Mac? */
+export async function localAvailable(): Promise<boolean> {
+  try {
+    const http = (await import("@tauri-apps/plugin-http")).fetch;
+    return (await http(`${OLLAMA_URL}/api/version`, { signal: AbortSignal.timeout(2000) })).ok;
+  } catch {
+    return false;
+  }
+}
+
+/** The models Ollama has downloaded. */
+export async function localModels(): Promise<string[]> {
+  try {
+    const http = (await import("@tauri-apps/plugin-http")).fetch;
+    const body = await (await http(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) })).json();
+    return (body.models ?? []).map((m: { name: string }) => m.name);
+  } catch {
+    return [];
+  }
+}
+
 async function callClaude(key: string, model: string, req: AiRequest) {
   // The key belongs to the person using the app and stays on their device, so a direct call is fine here.
   const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
@@ -121,12 +168,21 @@ async function callClaude(key: string, model: string, req: AiRequest) {
 
 /** Makes one AI request with the provider and key from Settings. Only call this on a clear user action. */
 export async function askAi<T = unknown>(req: AiRequest): Promise<AiAnswer<T>> {
-  const settings = loadAiSettings();
+  let settings = loadAiSettings();
   if (!settings.enabled) throw new AiUnavailableError("off");
-  const key = await getKey(settings.provider);
-  if (!key) throw new AiUnavailableError("no-key");
+  // The local model when it's running; otherwise Gemini (if it has a key) takes over.
+  if (settings.provider === "local" && !(await localAvailable())) {
+    if (!(await getKey("gemini"))) throw new Error("The local model (Ollama) isn't running, and there's no Gemini key to fall back on.");
+    settings = { ...settings, provider: "gemini" };
+  }
   const model = modelFor(settings, req.task);
-  const result = settings.provider === "gemini" ? await callGemini(key, model, req) : await callClaude(key, model, req);
+  let result;
+  if (settings.provider === "local") result = await callOllama(model, req);
+  else {
+    const key = await getKey(settings.provider);
+    if (!key) throw new AiUnavailableError("no-key");
+    result = settings.provider === "gemini" ? await callGemini(key, model, req) : await callClaude(key, model, req);
+  }
   recordUsage(model, result.input, result.output);
   let json = undefined as T;
   if (req.schema) {
@@ -136,13 +192,17 @@ export async function askAi<T = unknown>(req: AiRequest): Promise<AiAnswer<T>> {
       throw new Error("The AI answer wasn't in the expected format; try again.");
     }
   }
-  return { text: result.text, json, provider: settings.provider, model };
+  return { text: result.text, json, provider: settings.provider, model, actor: actorFor(settings.provider, model) };
 }
 
 /** "Test key": one tiny request with this key. Resolves with the model that answered, or throws the error. */
 export async function testKey(provider: Provider, key: string): Promise<string> {
   const model = modelFor({ ...loadAiSettings(), provider }, "grammar");
   const req: AiRequest = { task: "grammar", system: "Reply with the single word OK.", text: "Test", maxTokens: 16 };
+  if (provider === "local") {
+    await callOllama(model, { ...req, system: 'Reply with JSON: {"ok": true}', schema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] } });
+    return model;
+  }
   const result = provider === "gemini" ? await callGemini(key, model, { ...req, maxTokens: 64 }) : await callClaude(key, model, req);
   recordUsage(model, result.input, result.output);
   return model;

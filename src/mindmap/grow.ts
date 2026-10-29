@@ -46,6 +46,6 @@ export async function growMap(store: JournalStore, day: string, minWords = 1): P
     maxTokens: 2048,
   });
   const next = applyGrowth(map, parseGrowth(answer.json), day, () => crypto.randomUUID().slice(0, 8));
-  await saveMap(store, next, answer.provider === "gemini" ? "Gemini" : "Claude");
+  await saveMap(store, next, answer.actor);
   return next.nodes.length - map.nodes.length;
 }

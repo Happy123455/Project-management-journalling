@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { testKey } from "../ai/client";
+import { localModels, testKey } from "../ai/client";
 import { DEFAULT_MODELS, PROVIDERS, type Provider } from "../ai/providers";
 import { getKey, removeKey, setKey } from "../ai/secrets";
 import { loadAiSettings, modelFor, monthUsage, saveAiSettings, type AiSettings } from "../ai/settings";
@@ -84,6 +84,41 @@ function KeyField({ provider }: { provider: Provider }) {
         {test.state === "error" && <span className="settings-error">{test.message}</span>}
       </div>
       <p className="hint">{help} Stored only on this device (never synced or backed up).</p>
+    </div>
+  );
+}
+
+/** Mac: the local model (Ollama): which one, and a test. */
+function LocalModelField({ model, onModel }: { model: string; onModel: (m: string) => void }) {
+  const [models, setModels] = useState<string[] | null>(null);
+  const [test, setTest] = useState<{ state: "idle" | "testing" | "ok" | "error"; message?: string }>({ state: "idle" });
+  useEffect(() => {
+    void localModels().then(setModels);
+  }, []);
+  const run = async () => {
+    setTest({ state: "testing" });
+    const started = performance.now();
+    try {
+      await testKey("local", "");
+      setTest({ state: "ok", message: `Works (${model}, ${((performance.now() - started) / 1000).toFixed(1)} s)` });
+    } catch (e) {
+      setTest({ state: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  return (
+    <div className="settings-key">
+      <label className="settings-label" htmlFor="local-model">Model</label>
+      <div className="settings-row">
+        <select id="local-model" value={model} onChange={(e) => onModel(e.target.value)}>
+          {[...new Set([model, ...(models ?? [])])].map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <button type="button" onClick={() => void run()} disabled={test.state === "testing"}>{test.state === "testing" ? "Testing…" : "Test"}</button>
+      </div>
+      {test.state === "ok" && <span className="settings-ok">✓ {test.message}</span>}
+      {test.state === "error" && <span className="settings-error">{test.message}</span>}
+      <p className="hint">
+        {models && !models.length ? "Ollama isn't running (or has no models). " : ""}Runs on this Mac; nothing leaves it. When it isn't running, Gemini is used instead (if it has a key).
+      </p>
     </div>
   );
 }
@@ -333,13 +368,26 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
           </label>
           <div className="settings-label">Provider</div>
           <div className="project-status" role="radiogroup" aria-label="AI provider">
-            {PROVIDERS.map((p) => (
+            {PROVIDERS.filter((p) => p.id !== "local" || isDesktopApp()).map((p) => (
               <button key={p.id} type="button" role="radio" aria-checked={s.provider === p.id} className={s.provider === p.id ? "active status-active" : ""} onClick={() => update({ provider: p.id })}>
                 {p.name}
               </button>
             ))}
           </div>
-          <KeyField provider={s.provider} />
+          {s.provider === "local" ? (
+            <LocalModelField
+              model={modelFor(s, "grammar")}
+              onModel={(m) => update({ models: { ...s.models, local: { grammar: m, organise: m, describe: m } } })}
+            />
+          ) : (
+            <KeyField provider={s.provider} />
+          )}
+          {!isDesktopApp() && (
+            <label className="settings-toggle">
+              <input type="checkbox" checked={s.macGrowsMap !== false} onChange={(e) => update({ macGrowsMap: e.target.checked })} />
+              Mac grows the map (its local model does it; the result arrives here by sync)
+            </label>
+          )}
           <label className="settings-toggle">
             <input type="checkbox" checked={s.grammarSuggestions} onChange={(e) => update({ grammarSuggestions: e.target.checked })} />
             Grammar suggestions after each finished paragraph

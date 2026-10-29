@@ -14,3 +14,9 @@ describe("AI providers", () => {
     expect(estimateCost("some-new-model", 10, 10, "2026-10-28")).toBeNull();
   });
 });
+
+describe("local model", () => {
+  it("records its edits under the model's name", () => {
+    expect(actorFor("local", "qwen3:14b")).toBe("Local (qwen3)");
+  });
+});

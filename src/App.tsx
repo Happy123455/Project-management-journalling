@@ -272,6 +272,8 @@ function App() {
   useEffect(() => {
     const ai = loadAiSettings();
     if (!store || day !== today || !ai.enabled || ai.mindmapAuto === false || countWords(text) <= 50) return;
+    // Phone: the Mac (local model) grows the map; it arrives here by sync.
+    if (!isDesktopApp() && ai.macGrowsMap !== false) return;
     const t = window.setTimeout(() => void growMap(store, today, 50).catch(() => {}), 10 * 60 * 1000);
     return () => window.clearTimeout(t);
   }, [store, day, today, text]);
