@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# The page calls these bridges by name (MainActivity.kt): keep every @JavascriptInterface method.
+-keepclassmembers class * {
+  @android.webkit.JavascriptInterface <methods>;
+}
+# sherpa-onnx (Kokoro read-aloud) is reached from native code by class and field names.
+-keep class com.k2fsa.sherpa.onnx.** { *; }

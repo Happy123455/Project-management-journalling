@@ -39,6 +39,9 @@ android {
             }
         }
         getByName("release") {
+            // Signed like the dev builds (~/.android/debug.keystore, never in git) so a release
+            // installs over them and keeps the journal: Android refuses an update with another key.
+            signingConfig = signingConfigs.getByName("debug")
             optimization {
                enable = true
             }
