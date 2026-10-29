@@ -55,7 +55,9 @@ async function callGemini(key: string, model: string, req: AiRequest) {
     ...(req.images ?? []).map((img) => ({ inlineData: { mimeType: img.mime, data: img.data } })),
     { text: req.text },
   ];
+  // A stalled connection must end in an error, not "Testing…" forever.
   const res = await fetch(`${GEMINI}/models/${encodeURIComponent(model)}:generateContent`, {
+    signal: AbortSignal.timeout(req.task === "organise" ? 90_000 : 20_000),
     method: "POST",
     headers: { "Content-Type": "application/json", "x-goog-api-key": key },
     body: JSON.stringify({
