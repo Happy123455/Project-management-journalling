@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { JSONContent } from "@tiptap/react";
 import { JournalEditor } from "../editor/JournalEditor";
-import { linesMentioning } from "../lib/links";
+import { mentionsWithChildren } from "../lib/links";
 import { dayTitle } from "../lib/timestamp";
 import { showError } from "../lib/toast";
 import { ProjectPanel } from "../projects/ProjectPanel";
 import { InspirationGrid } from "./InspirationGrid";
-import { docText } from "../lib/words";
 import type { JournalStore, LinkKind, NamedPage, Reference } from "../store";
 
 const SAVE_DELAY_MS = 800;
@@ -19,14 +18,15 @@ export interface LinkHandlers {
 
 /** One block that mentions the page or tag: where it is, and the lines that mention it. */
 function ReferenceCard({ reference, kind, target, handlers }: { reference: Reference; kind: LinkKind; target: string; handlers: LinkHandlers }) {
-  const lines = linesMentioning(docText(reference.content), kind, target);
+  // The mentioning lines with what's nested under them (a project's sub-points, a person's notes…).
+  const lines = mentionsWithChildren(reference.content as never, kind, target);
   const open = () => (reference.day ? handlers.onOpenDay(reference.day) : handlers.onOpenLink(reference.title ?? ""));
   return (
     <li>
       <button type="button" className="reference" onClick={open}>
         <span className="reference-where">{reference.day ? dayTitle(reference.day) : `📄 ${reference.title}`}</span>
-        {lines.slice(0, 4).map((line, i) => (
-          <span key={i} className="reference-line">{line}</span>
+        {lines.slice(0, 12).map((line, i) => (
+          <span key={i} className="reference-line" style={{ paddingLeft: `${(line.match(/^ */)![0].length / 2) * 14}px` }}>{line.trim()}</span>
         ))}
       </button>
     </li>

@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, type CSSProperties } from "react";
+import React, { memo, useEffect, useRef, type CSSProperties } from "react";
 import { dayKey } from "../lib/timestamp";
 import { heat } from "../lib/words";
 
@@ -103,7 +103,7 @@ interface MonthProps {
 }
 
 /** Month heat map at the top of the page; shrinks to the current week while writing. */
-export function MonthCalendar({ day, shading, today, collapsed, onToggle, onPick, onOpenYear }: MonthProps) {
+export function MonthCalendar({ day, shading, today, collapsed, onToggle, onPick, onOpenYear, actions }: MonthProps & { actions?: React.ReactNode }) {
   const [year, month] = day.split("-").map(Number);
   return (
     // While shrunk to one week, a tap anywhere on it opens the whole month (days can't be picked yet).
@@ -123,6 +123,12 @@ export function MonthCalendar({ day, shading, today, collapsed, onToggle, onPick
         >
           {MONTH_NAMES[month - 1]} {year} {collapsed ? "▾" : "▴"}
         </button>
+        {/* Pinned at the top as a week strip: menu, search and chat stay within reach. */}
+        {collapsed && actions && (
+          <span className="cal-actions" onClick={(e) => e.stopPropagation()}>
+            {actions}
+          </span>
+        )}
         <button
           type="button"
           onClick={(e) => {

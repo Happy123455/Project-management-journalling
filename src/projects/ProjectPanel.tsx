@@ -1,3 +1,5 @@
+import { showToast } from "../lib/toast";
+import { MAX_ACTIVE_PROJECTS } from "../lib/projects";
 import { useEffect, useState } from "react";
 import type { ProjectStatus } from "../lib/projects";
 import { projectTag } from "../lib/projects";
@@ -60,7 +62,15 @@ export function ProjectPanel({ store, page, refreshKey, onChanged, onOpenDay }: 
             role="radio"
             aria-checked={status === s.value}
             className={status === s.value ? `active status-${s.value}` : ""}
-            onClick={async () => onChanged(await store.setPageProps(page.id, { project: { status: s.value } }))}
+            onClick={async () => {
+              if (s.value === "active" && status !== "active") {
+                const active = (await store.projects()).filter((p) => p.id !== page.id && (p.props.project?.status ?? "active") === "active");
+                if (active.length >= MAX_ACTIVE_PROJECTS) {
+                  return showToast(`${MAX_ACTIVE_PROJECTS} projects are already active (${active.map((p) => p.title).join(", ")}). Pause one first.`, "error");
+                }
+              }
+              onChanged(await store.setPageProps(page.id, { project: { status: s.value } }));
+            }}
           >
             {s.label}
           </button>

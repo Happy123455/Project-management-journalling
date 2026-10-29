@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type Editor, type NodeViewProps } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
+import { NodeSelection } from "@tiptap/pm/state";
 import { qrContent } from "../lib/capture";
 import { AlphaVideo } from "./AlphaVideo";
 import { usePlayWhenVisible } from "./usePlayWhenVisible";
@@ -225,7 +226,9 @@ function safeTop(): number {
 /** Media node views let the editor ignore presses on their handles and bars, so drags aren't eaten. */
 export const mediaNodeViewOptions = {
   stopEvent: ({ event }: { event: Event }) =>
-    !!(event.target as HTMLElement | null)?.closest?.(".attach-resize, .attach-toolbar, .attach-draggable"),
+    // Taps on a video or audio player go to the player: they play it without moving the cursor or
+    // opening the keyboard.
+    !!(event.target as HTMLElement | null)?.closest?.(".attach-resize, .attach-toolbar, .attach-draggable, video, audio, canvas"),
 };
 
 /** Shared frame for photos, videos and PDFs: width, placement, the resize handle and the placement toolbar. */
@@ -478,7 +481,17 @@ function MediaView(props: NodeViewProps) {
         ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
           <LoopingClip src={url} />
         ) : (
-          <video src={url} controls playsInline preload="metadata" />
+          <video
+            src={url}
+            controls
+            playsInline
+            preload="metadata"
+            // Also select it (without focusing the text), so its resize and placement tools show.
+            onPointerUp={() => {
+              const pos = props.getPos();
+              if (typeof pos === "number" && props.editor.isEditable) props.editor.view.dispatch(props.editor.state.tr.setSelection(NodeSelection.create(props.editor.state.doc, pos)));
+            }}
+          />
         )
       ) : (
         <span className="attach-missing">{failed ? "Video not found" : "Loading…"}</span>
@@ -516,7 +529,8 @@ export const AttachmentMedia = Node.create({
 
 // ───────────── File block (PDFs, videos, anything else) ─────────────
 
-function FileView({ node }: NodeViewProps) {
+function FileView(props: NodeViewProps) {
+  const { node } = props;
   const { fileId, name, mime, size } = node.attrs as { fileId: string; name: string; mime: string; size: number };
   const kind = fileKind(mime);
   const { url } = useFileUrl(kind === "video" ? fileId : null);
@@ -529,7 +543,17 @@ function FileView({ node }: NodeViewProps) {
         ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
           <LoopingClip src={url} />
         ) : (
-          <video src={url} controls playsInline preload="metadata" />
+          <video
+            src={url}
+            controls
+            playsInline
+            preload="metadata"
+            // Also select it (without focusing the text), so its resize and placement tools show.
+            onPointerUp={() => {
+              const pos = props.getPos();
+              if (typeof pos === "number" && props.editor.isEditable) props.editor.view.dispatch(props.editor.state.tr.setSelection(NodeSelection.create(props.editor.state.doc, pos)));
+            }}
+          />
         )
       ) : (
         <button type="button" className="attach-file-card" contentEditable={false} onClick={() => void openFile(fileId)}>
@@ -562,6 +586,6 @@ export const AttachmentFile = Node.create({
     return ["div", mergeAttributes(HTMLAttributes, { "data-attachment": "", ...mediaData(node.attrs) }), node.attrs.name];
   },
   addNodeView() {
-    return ReactNodeViewRenderer(FileView);
+    return ReactNodeViewRenderer(FileView, mediaNodeViewOptions);
   },
 });

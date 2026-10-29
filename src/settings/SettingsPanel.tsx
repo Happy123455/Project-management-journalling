@@ -8,6 +8,7 @@ import { KOKORO_EN_VOICES, MODEL_NAMES, onVoiceProgress, readAloud, voiceAction,
 import { showError, showToast } from "../lib/toast";
 import type { AiChange, JournalStore } from "../store";
 import { mcpAvailable, mcpEnabled, setMcpServer } from "../mcp";
+import { CANVAS_ACTIONS, loadGestures, saveGestures, type CanvasAction, type Gestures } from "../lib/gestures";
 
 const money = (usd: number) => (usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`);
 
@@ -216,6 +217,31 @@ function McpSettings({ store }: { store: JournalStore | null }) {
   );
 }
 
+/** Phone swipes across the note (the week strip's are fixed: right = menu, left = year). */
+function GestureSettings() {
+  const [g, setG] = useState(loadGestures);
+  if (!window.matchMedia?.("(pointer: coarse)").matches) return null;
+  const set = (k: keyof Gestures, v: CanvasAction) => {
+    const next = { ...g, [k]: v };
+    setG(next);
+    saveGestures(next);
+  };
+  return (
+    <section className="settings-section">
+      <h2>Gestures</h2>
+      {(["right", "left"] as const).map((k) => (
+        <label key={k} className="settings-row">
+          <span>Swipe {k === "right" ? "left → right" : "right → left"} on the note</span>
+          <select value={g[k]} onChange={(e) => set(k, e.target.value as CanvasAction)}>
+            {CANVAS_ACTIONS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
+          </select>
+        </label>
+      ))}
+      <p className="hint">On the week strip: left → right opens the menu, right → left opens the year.</p>
+    </section>
+  );
+}
+
 /** Android: the floating bubble over other apps. */
 function BubbleSettings() {
   const bubble = window.JournalBubble;
@@ -298,6 +324,7 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
           </p>
         </section>
 
+        <GestureSettings />
         <BubbleSettings />
         <McpSettings store={store} />
 

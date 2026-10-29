@@ -31,3 +31,46 @@ export function extractLinks(text: string): ExtractedLinks {
   const tags = [...text.matchAll(TAG_RE)].map((m) => m[2].replace(/\/+$/, "")).filter(Boolean);
   return { wikilinks: unique(wikilinks), tags: unique(tags) };
 }
+
+interface Block {
+  type?: string;
+  attrs?: Record<string, unknown>;
+  content?: Block[];
+  text?: string;
+}
+const textOf = (b: Block): string => (b.text ?? "") + (b.content ?? []).map(textOf).join(b.type === "doc" ? "\n" : "");
+
+/**
+ * The lines of a note that mention `target`, each followed by what's nested under it (indented
+ * blocks after it, or a list item's sub-items), so a project's, person's or log's page shows
+ * everything written under its [[link]]. Nested lines come back indented with two spaces per level.
+ */
+export function mentionsWithChildren(doc: Block | null | undefined, kind: "wikilink" | "tag", target: string): string[] {
+  const out: string[] = [];
+  const mentions = (t: string) => linesMentioning(t, kind, target).length > 0;
+  const items = (list: Block, depth: number, include: boolean) => {
+    for (const item of list.content ?? []) {
+      const own = (item.content ?? []).filter((c) => !/List$/.test(c.type ?? "")).map(textOf).join(" ");
+      const take = include || mentions(own);
+      if (take && own.trim()) out.push("  ".repeat(depth) + own);
+      for (const sub of (item.content ?? []).filter((c) => /List$/.test(c.type ?? ""))) items(sub, depth + 1, take);
+    }
+  };
+  const blocks = doc?.content ?? [];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (/List$/.test(b.type ?? "")) {
+      items(b, 0, false);
+      continue;
+    }
+    const text = textOf(b);
+    if (!mentions(text)) continue;
+    out.push(text);
+    const level = Number(b.attrs?.indent ?? 0);
+    for (let j = i + 1; j < blocks.length && Number(blocks[j].attrs?.indent ?? 0) > level; j++) {
+      const t = textOf(blocks[j]);
+      if (t.trim()) out.push("  ".repeat(Number(blocks[j].attrs?.indent ?? 0) - level) + t);
+    }
+  }
+  return out;
+}

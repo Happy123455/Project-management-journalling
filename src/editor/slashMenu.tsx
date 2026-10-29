@@ -80,6 +80,8 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
 interface MenuProps {
   items: SlashItem[];
   command: (item: SlashItem) => void;
+  /** What's been typed after "/" (it filters the tiles). */
+  query?: string;
 }
 
 export interface MenuHandle {
@@ -87,7 +89,7 @@ export interface MenuHandle {
 }
 
 /** Grid of big tiles under the line being typed. */
-const SlashGrid = forwardRef<MenuHandle, MenuProps>(function SlashGrid({ items, command }, ref) {
+const SlashGrid = forwardRef<MenuHandle, MenuProps>(function SlashGrid({ items, command, query = "" }, ref) {
   const [selected, setSelected] = useState(0);
   const columns = 4;
   const grid = useRef<HTMLDivElement>(null);
@@ -126,9 +128,12 @@ const SlashGrid = forwardRef<MenuHandle, MenuProps>(function SlashGrid({ items, 
     },
   }));
 
-  if (!items.length) return <div className="slash-menu empty">No matching block</div>;
+  if (!items.length) return <div className="slash-menu empty">No block matches “{query}”</div>;
   return (
     <div ref={grid} className="slash-menu" role="listbox" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
+      <div className="slash-filter" aria-live="polite">
+        🔍 /{query || <span className="hint">type to filter</span>}
+      </div>
       {items.map((item, i) => (
         <button
           key={item.id}

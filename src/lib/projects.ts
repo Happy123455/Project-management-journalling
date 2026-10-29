@@ -4,6 +4,9 @@ import { docText } from "./words";
 
 export type ProjectStatus = "active" | "paused" | "done";
 
+/** At most this many projects are active at once (logs and people have no limit). */
+export const MAX_ACTIVE_PROJECTS = 4;
+
 /** What makes a named page a project. Kept in the page's props. */
 export interface ProjectInfo {
   status: ProjectStatus;

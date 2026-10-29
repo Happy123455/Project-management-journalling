@@ -22,6 +22,10 @@ function useVisibleBottom(): { bottom: number; keyboardOpen: boolean } {
     const bottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
     // The keyboard takes well over 150px; smaller changes are browser bars.
     const keyboardOpen = window.screen.height - (vv?.height ?? window.innerHeight) > 250;
+    // For sheets that sit above the keyboard (the "/" menu): how much it covers, and the visible height.
+    const root = document.documentElement.style;
+    root.setProperty("--kb-inset", `${Math.max(0, window.innerHeight - bottom)}px`);
+    root.setProperty("--vvh", `${vv?.height ?? window.innerHeight}px`);
     return { bottom, keyboardOpen };
   };
   const [state, setState] = useState(read);

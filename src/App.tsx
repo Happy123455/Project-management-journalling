@@ -15,6 +15,7 @@ import { SettingsPanel } from "./settings/SettingsPanel";
 import { ReadAloudPlayer } from "./ReadAloudPlayer";
 import { repairLostLinks } from "./lib/repairLinks";
 import { mcpAvailable, mcpEnabled, setMcpServer } from "./mcp";
+import { loadGestures, NO_SWIPE, type CanvasAction } from "./lib/gestures";
 import { ChatView } from "./ChatView";
 import { NexusView, type NexusTarget } from "./NexusView";
 import { openVoiceRecorder, VoiceRecorder } from "./editor/VoiceRecorder";
@@ -41,13 +42,6 @@ import { dayBlockId } from "./store/ids";
 import "./App.css";
 
 const SAVE_DELAY_MS = 800;
-/** How close to the left edge a swipe must start to open the drawer (phone). */
-const EDGE_SWIPE_PX = 32;
-/**
- * Which panel a swipe to the right opens (a swipe to the left opens the other one).
- * "drawer": right → Days/Links/Tags/Media drawer, left → year view. Flip to "year" to swap.
- */
-const SWIPE_RIGHT_OPENS: "drawer" | "year" = "drawer";
 
 function App() {
   const [store, setStore] = useState<JournalStore | null>(null);
@@ -345,19 +339,37 @@ function App() {
   // Phone gestures: swipe right from the left edge opens the drawer; swipe left closes it,
   // or (with the drawer closed) slides the year view in from the right.
   const onTouchStart = (e: TouchEvent) => {
-    const onBar = !!(e.target as HTMLElement).closest?.(".month-calendar");
-    swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, onBar };
+    const target = e.target as HTMLElement;
+    // Not a gesture: a popup or control in use, or text being selected.
+    if (target.closest?.(NO_SWIPE) || !(window.getSelection()?.isCollapsed ?? true)) {
+      swipe.current = null;
+      return;
+    }
+    swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, onBar: !!target.closest?.(".month-calendar") };
   };
-  // A right swipe that will open the drawer pulls it out under the finger as it goes.
+  // A right swipe on the week strip pulls the drawer out under the finger as it goes.
   const onTouchMove = (e: TouchEvent) => {
     const start = swipe.current;
-    if (!start || drawerOpen || yearOpen || SWIPE_RIGHT_OPENS !== "drawer" || !(start.onBar || start.x < EDGE_SWIPE_PX)) return;
+    if (!start?.onBar || drawerOpen || yearOpen) return;
     const dx = e.touches[0].clientX - start.x;
     const dy = e.touches[0].clientY - start.y;
     const drawer = document.querySelector<HTMLElement>(".drawer");
     if (!drawer || dx < 8 || Math.abs(dx) < Math.abs(dy)) return;
     drawer.style.transition = "none";
     drawer.style.transform = `translateX(calc(-100% + ${Math.min(dx, drawer.offsetWidth)}px))`;
+  };
+  const runCanvas = (action: CanvasAction) => {
+    const editor = document.querySelector<HTMLElement & { editor?: Editor }>(".tiptap")?.editor;
+    if (action === "prev") void goTo(addDays(day, -1));
+    else if (action === "next") void goTo(addDays(day, 1));
+    else if (action === "today") void goTo(today);
+    else if (action === "top") window.scrollTo({ top: 0, behavior: "smooth" });
+    else if (action === "end") window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
+    else if (action === "search") setSearchOpen(true);
+    else if (action === "capture" && editor) {
+      editor.commands.focus("end");
+      window.JournalShare?.showKeyboard();
+    }
   };
   const onTouchEnd = (e: TouchEvent) => {
     const start = swipe.current;
@@ -372,10 +384,9 @@ function App() {
     const dy = e.changedTouches[0].clientY - start.y;
     if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
     if (drawerOpen) return dx < 0 && setDrawerOpen(false);
-    // On the calendar bar a swipe works from anywhere; elsewhere the drawer needs an edge swipe.
-    const opens = dx > 0 ? SWIPE_RIGHT_OPENS : SWIPE_RIGHT_OPENS === "drawer" ? "year" : "drawer";
-    if (opens === "drawer" && (start.onBar || (dx > 0 && start.x < EDGE_SWIPE_PX))) return setDrawerOpen(true);
-    if (opens === "year" && route.kind === "day") openYear();
+    // The week strip: right opens the menu, left the year (fixed). The note: as set in Settings.
+    if (start.onBar) return dx > 0 ? setDrawerOpen(true) : route.kind === "day" ? openYear() : undefined;
+    if (route.kind === "day") runCanvas(loadGestures()[dx > 0 ? "right" : "left"]);
   };
 
   useEffect(() => {
@@ -501,9 +512,20 @@ function App() {
               shading={shading}
               today={today}
               collapsed={calendarCollapsed}
-              onToggle={() => setCalendarCollapsed((c) => !c)}
+              onToggle={() => {
+                // Opening the month from the pinned strip: back to the top, where the month is.
+                if (calendarCollapsed) window.scrollTo({ top: 0, behavior: "smooth" });
+                setCalendarCollapsed((c) => !c);
+              }}
               onPick={goTo}
               onOpenYear={openYear}
+              actions={
+                <>
+                  <button type="button" onClick={() => setDrawerOpen(true)} aria-label="Open menu">☰</button>
+                  <button type="button" onClick={() => setSearchOpen(true)} aria-label="Search">🔍</button>
+                  <button type="button" onClick={async () => (await flush(), setChatOpen(true))} aria-label="Chat view">💬</button>
+                </>
+              }
             />
             {day === today && (
               <DueReminders pages={reminders.filter((r) => r.day <= today)} onPick={goTo} onDone={completeReminder} />

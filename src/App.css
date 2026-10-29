@@ -1252,3 +1252,29 @@ button:hover { background: var(--glass-strong); }
   /* Cover the strip above it (under the phone's status bar) so text doesn't scroll through there. */
   box-shadow: 0 -80px 0 40px var(--bg);
 }
+/* [[ ]] of a link are hidden unless the cursor is at that link */
+.editor-body .wl-bracket { font-size: 0; letter-spacing: 0; }
+.cal-actions { display: flex; gap: 6px; margin-left: auto; margin-right: 8px; }
+.cal-actions button { width: 34px; height: 30px; padding: 0; border-radius: 10px; }
+
+/* "/" filter line, across the whole grid */
+.slash-filter { grid-column: 1 / -1; font-size: 13px; padding: 4px 6px 6px; color: var(--text, inherit); }
+/* Phone: the "/" menu is a sheet docked above the tool bar and keyboard, not tied to the caret. */
+@media (pointer: coarse) {
+  .slash-popup {
+    position: fixed !important;
+    left: 8px !important;
+    right: 8px !important;
+    top: auto !important;
+    bottom: calc(var(--kb-inset, 0px) + 52px) !important;
+    width: auto !important;
+    translate: none !important;
+    transform: none !important;
+  }
+  .slash-popup .slash-menu { max-height: calc(var(--vvh, 100vh) - 190px); }
+}
+@media (pointer: coarse) {
+  .slash-popup .link-suggest { max-height: calc(var(--vvh, 100vh) - 190px); overflow-y: auto; }
+}
+.project-full { display: grid; gap: 6px; margin: 8px 0; }
+.project-full p { margin: 0; font-size: 13px; color: var(--muted); }

@@ -13,6 +13,7 @@ import { JournalCodeBlock } from "./codeBlock";
 import { BlockInfoExtension } from "./blockInfo";
 import { BlockHandle } from "./BlockHandle";
 import { blockIndexAt, Blocks, indentBlock } from "./blocks";
+import { AutoPairs } from "./autoPairs";
 import { BlockInfoPanel } from "./BlockInfoPanel";
 import { saveToInspiration } from "./inspiration";
 import { readAloud } from "../lib/readAloud";
@@ -225,6 +226,7 @@ export function JournalEditor({
       LogBlock,
       BlockInfoExtension,
       Blocks,
+      AutoPairs,
       SlashMenu.configure({ onReminder: () => onReminder?.() }),
     ],
     content: initialContent ?? "",
