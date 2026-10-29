@@ -1,10 +1,16 @@
-import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { Extension, ReactRenderer, type Editor, type Range } from "@tiptap/react";
 import { PluginKey } from "@tiptap/pm/state";
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from "@tiptap/suggestion";
 import { filterSlashItems, type SlashId, type SlashItem } from "../lib/slashItems";
 import { formatTimestamp } from "../lib/timestamp";
 import { openCapture, pickFiles } from "./attachments";
+import { openVoiceRecorder } from "./VoiceRecorder";
+import { openMemeKit } from "./MemeKit";
+import { saveToInspiration } from "./inspiration";
+
+/** Where the editor is (the page title), for "saved from" notes. */
+const placeLabel = () => document.querySelector(".page-header h1")?.textContent?.trim() ?? "";
 
 export interface SlashMenuOptions {
   /** Called by the Reminder tile; the app opens a day picker for a future page. */
@@ -13,7 +19,6 @@ export interface SlashMenuOptions {
 
 const SLASH_KEY = new PluginKey("slashMenu");
 
-const touchDevice = () => window.matchMedia?.("(pointer: coarse)").matches ?? false;
 
 function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOptions) {
   const chain = editor.chain().focus().deleteRange(range);
@@ -44,12 +49,43 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       chain.run();
       openCapture(editor);
       return true;
+    case "voice":
+      chain.run();
+      openVoiceRecorder(editor);
+      return true;
+    case "meme":
+      chain.run();
+      openMemeKit(editor, "memes");
+      return true;
+    case "sound":
+      chain.run();
+      openMemeKit(editor, "sounds");
+      return true;
+    case "inspiration":
+      chain.run();
+      void saveToInspiration(editor, placeLabel());
+      return true;
+    case "prompt":
+      return chain.insertContent({ type: "promptBlock" }).run();
+    case "logproject":
+      chain.run();
+      window.dispatchEvent(new CustomEvent("journal:new-project", { detail: { editor, logging: true } }));
+      return true;
+    case "project":
+      chain.run();
+      window.dispatchEvent(new CustomEvent("journal:new-project", { detail: { editor } }));
+      return true;
+    case "log":
+      // A list whose items each start with the time; Enter adds the next timestamped entry.
+      return chain.toggleBulletList().insertContent(formatTimestamp(new Date()) + " ").run();
   }
 }
 
 interface MenuProps {
   items: SlashItem[];
   command: (item: SlashItem) => void;
+  /** What's been typed after "/" (it filters the tiles). */
+  query?: string;
 }
 
 export interface MenuHandle {
@@ -57,9 +93,27 @@ export interface MenuHandle {
 }
 
 /** Grid of big tiles under the line being typed. */
-const SlashGrid = forwardRef<MenuHandle, MenuProps>(function SlashGrid({ items, command }, ref) {
+const SlashGrid = forwardRef<MenuHandle, MenuProps>(function SlashGrid({ items, command, query = "" }, ref) {
   const [selected, setSelected] = useState(0);
-  const columns = touchDevice() ? 3 : 5;
+  const columns = 4;
+  const grid = useRef<HTMLDivElement>(null);
+  // Keep the chosen tile in view, and the whole panel inside the screen.
+  useLayoutEffect(() => {
+    grid.current?.querySelector(".slash-tile.selected")?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
+  useLayoutEffect(() => {
+    const popup = grid.current?.closest<HTMLElement>(".slash-popup");
+    if (!popup) return;
+    // After the popup has been placed under the line: nudge it back inside the screen's sides.
+    const frame = requestAnimationFrame(() => {
+      popup.style.translate = "";
+      const r = popup.getBoundingClientRect();
+      const width = window.visualViewport?.width ?? window.innerWidth;
+      const dx = r.right > width - 8 ? width - 8 - r.right : r.left < 8 ? 8 - r.left : 0;
+      if (dx) popup.style.translate = `${dx}px 0`;
+    });
+    return () => cancelAnimationFrame(frame);
+  });
   useEffect(() => setSelected(0), [items]);
 
   useImperativeHandle(ref, () => ({
@@ -78,9 +132,12 @@ const SlashGrid = forwardRef<MenuHandle, MenuProps>(function SlashGrid({ items, 
     },
   }));
 
-  if (!items.length) return <div className="slash-menu empty">No matching block</div>;
+  if (!items.length) return <div className="slash-menu empty">No block matches “{query}”</div>;
   return (
-    <div className="slash-menu" role="listbox" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
+    <div ref={grid} className="slash-menu" role="listbox" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
+      <div className="slash-filter" aria-live="polite">
+        🔍 /{query || <span className="hint">type to filter</span>}
+      </div>
       {items.map((item, i) => (
         <button
           key={item.id}

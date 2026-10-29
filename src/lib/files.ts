@@ -17,11 +17,12 @@ export function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export type FileKind = "image" | "video" | "pdf" | "file";
+export type FileKind = "image" | "video" | "audio" | "pdf" | "file";
 
 export function fileKind(mime: string): FileKind {
   if (mime.startsWith("image/")) return "image";
   if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "audio";
   if (mime === "application/pdf") return "pdf";
   return "file";
 }

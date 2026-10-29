@@ -17,6 +17,7 @@ describe("files", () => {
   it("sorts files by kind", () => {
     expect(fileKind("image/png")).toBe("image");
     expect(fileKind("video/mp4")).toBe("video");
+    expect(fileKind("audio/webm")).toBe("audio");
     expect(fileKind("application/pdf")).toBe("pdf");
     expect(fileKind("text/plain")).toBe("file");
   });

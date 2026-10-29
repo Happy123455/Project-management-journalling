@@ -39,6 +39,9 @@ export function SyncStatus({ status, onSync, onChooseFolder }: { status: Status;
     <div className={`sync-status ${status.state}`}>
       <span className="sync-line" title={status.label}>☁︎ {line}</span>
       <button type="button" onClick={onSync} disabled={status.state === "syncing"}>Sync now</button>
+      {status.state === "error" && window.JournalSync && (
+        <button type="button" onClick={onChooseFolder}>☁︎ Choose folder again…</button>
+      )}
     </div>
   );
 }

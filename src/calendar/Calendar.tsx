@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from "react";
+import React, { memo, useEffect, useRef, type CSSProperties } from "react";
 import { dayKey } from "../lib/timestamp";
 import { heat } from "../lib/words";
 
@@ -57,7 +57,12 @@ interface GridProps {
 }
 
 /** One month as a heat map: each day is filled purple, brighter the more was written. */
-export function MonthGrid({ year, month, counts, max, search, selected, today, onPick, weekOnly, mini }: GridProps) {
+/** A month's grid. Redrawn only when what it shows changes (its pick handler may be a fresh copy each time). */
+export const MonthGrid = memo(MonthGridView, (a, b) =>
+  (Object.keys(a) as (keyof GridProps)[]).every((k) => typeof a[k] === "function" || a[k] === b[k]),
+);
+
+function MonthGridView({ year, month, counts, max, search, selected, today, onPick, weekOnly, mini }: GridProps) {
   let weeks = monthWeeks(year, month);
   if (weekOnly) weeks = weeks.filter((w) => w.includes(selected)).slice(0, 1);
   return (
@@ -98,7 +103,7 @@ interface MonthProps {
 }
 
 /** Month heat map at the top of the page; shrinks to the current week while writing. */
-export function MonthCalendar({ day, shading, today, collapsed, onToggle, onPick, onOpenYear }: MonthProps) {
+export function MonthCalendar({ day, shading, today, collapsed, onToggle, onPick, onOpenYear, actions, below }: MonthProps & { actions?: React.ReactNode; below?: React.ReactNode }) {
   const [year, month] = day.split("-").map(Number);
   return (
     // While shrunk to one week, a tap anywhere on it opens the whole month (days can't be picked yet).
@@ -118,6 +123,12 @@ export function MonthCalendar({ day, shading, today, collapsed, onToggle, onPick
         >
           {MONTH_NAMES[month - 1]} {year} {collapsed ? "▾" : "▴"}
         </button>
+        {/* Pinned at the top as a week strip: menu, search and chat stay within reach. */}
+        {collapsed && actions && (
+          <span className="cal-actions" onClick={(e) => e.stopPropagation()}>
+            {actions}
+          </span>
+        )}
         <button
           type="button"
           onClick={(e) => {
@@ -139,6 +150,8 @@ export function MonthCalendar({ day, shading, today, collapsed, onToggle, onPick
         onPick={collapsed ? () => {} : onPick}
         weekOnly={collapsed}
       />
+      {/* "Coming up" opens with the month, wherever the calendar is pinned. */}
+      {!collapsed && below}
     </section>
   );
 }
@@ -188,7 +201,8 @@ export function YearPanel({ year, day, shading, today, open, onClose, onPick, on
           <button type="button" onClick={() => onYear(year + 1)} aria-label="Next year">›</button>
           <button type="button" className="close" onClick={onClose} aria-label="Close year view">✕</button>
         </header>
-        <div className="year-grid">
+        {/* Twelve months are only drawn while the year view is open. */}
+        {open && <div className="year-grid">
           {MONTH_NAMES.map((name, m) => (
             <div key={name} className="year-month">
               <h3>{name}</h3>
@@ -208,7 +222,7 @@ export function YearPanel({ year, day, shading, today, open, onClose, onPick, on
               />
             </div>
           ))}
-        </div>
+        </div>}
       </aside>
     </>
   );

@@ -1,4 +1,5 @@
-import { dayTitle } from "../lib/timestamp";
+import type React from "react";
+import { dayKey, dayTitle } from "../lib/timestamp";
 import { docText } from "../lib/words";
 import type { DayPage } from "../store";
 
@@ -36,6 +37,31 @@ export function DueReminders({ pages, onPick, onDone }: DueProps) {
 }
 
 /** Reminders still ahead, soonest first. */
+/** Whole days from `from` to `to` (YYYY-MM-DD). */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T12:00:00`) - Date.parse(`${from}T12:00:00`)) / 86_400_000);
+}
+
+const BAR_MAX = 30;
+
+/** "N days left" and a dash per day (at most 30, then "+N"), warmer as the day gets close. */
+function Countdown({ day }: { day: string }) {
+  const left = daysBetween(dayKey(new Date()), day);
+  const dashes = Math.min(left, BAR_MAX);
+  // 0 = due now (red), 1 = a month or more away (cool blue).
+  const far = Math.min(1, left / BAR_MAX);
+  const hue = Math.round(far * 210);
+  return (
+    <span className="countdown" style={{ "--countdown-hue": hue } as React.CSSProperties}>
+      <span className="countdown-days">{left === 1 ? "1 day left" : `${left} days left`}</span>
+      <span className="countdown-bar" aria-hidden>
+        {"-".repeat(dashes)}
+        {left > BAR_MAX && <span className="countdown-more">+{left - BAR_MAX}</span>}
+      </span>
+    </span>
+  );
+}
+
 export function Upcoming({ pages, onPick }: { pages: DayPage[]; onPick: (day: string) => void }) {
   if (!pages.length) return null;
   return (
@@ -47,6 +73,7 @@ export function Upcoming({ pages, onPick }: { pages: DayPage[]; onPick: (day: st
             <button type="button" className="reminder-open" onClick={() => onPick(p.day)}>
               <span className="reminder-day">{dayTitle(p.day)}</span>
               <span className="reminder-text">{snippet(p)}</span>
+              <Countdown day={p.day} />
             </button>
           </li>
         ))}

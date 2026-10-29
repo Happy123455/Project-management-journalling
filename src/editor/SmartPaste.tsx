@@ -1,3 +1,5 @@
+import { YoutubeCard } from "./linkCard";
+import { youtubeId } from "../lib/linkPreview";
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { coalesce } from "../lib/coalesce";
 import type { Editor, JSONContent } from "@tiptap/react";
@@ -97,11 +99,7 @@ function insertClip(editor: Editor, clip: Clip, asCode: boolean) {
     const text = clip.kind === "url" ? clip.url : clip.text;
     return chain.insertContent({ type: "codeBlock", content: [{ type: "text", text }] }).run();
   }
-  if (clip.kind === "url") {
-    return chain
-      .insertContent([{ type: "text", text: clip.url, marks: [{ type: "link", attrs: { href: clip.url } }] }, { type: "text", text: " " }])
-      .run();
-  }
+  if (clip.kind === "url") return chain.insertContent({ type: "linkCard", attrs: { url: clip.url } }).run();
   if (hasEmbeds(clip.text)) return void pasteEmbeds(editor, clip.text);
   return chain.insertContent(clip.lines > 1 ? paragraphs(clip.text) : clip.text).run();
 }
@@ -140,13 +138,13 @@ export function SmartPaste({ editor }: { editor: Editor }) {
     [editor],
   );
 
-  const offer = async (raw: string | null, nativeImage: File | null) => {
+  const offer = async (raw: string | null, nativeImage: File | null, force = false) => {
     const clip = classifyClip(raw);
     // With no text on the clipboard, look for a copied image.
     const image = nativeImage ?? (clip ? null : await readClipboardImage());
     if ((!clip && !image) || !editor.isFocused) return setSuggestion(null);
     const key = clip ? clipKey(raw!.trim()) : `img:${(await sha256(new Uint8Array(await image!.arrayBuffer()))).slice(0, 16)}`;
-    if (handledKeys().includes(key)) return setSuggestion(null);
+    if (!force && handledKeys().includes(key)) return setSuggestion(null);
     const at = editor.view.coordsAtPos(editor.state.selection.head);
     const place = { key, top: at.bottom + 6, left: Math.max(8, Math.min(at.left, window.innerWidth - 300)) };
     setSuggestion(clip ? { clip, ...place } : { image: image!, ...place });
@@ -174,14 +172,25 @@ export function SmartPaste({ editor }: { editor: Editor }) {
     // Triggers: the editor gains focus; the app comes back (the editor may have kept focus, so
     // no focus event fires); the window regains focus (Android only allows clipboard reads then);
     // any tap into the page; and Android saying the clipboard changed.
+    // Double-tap on an empty line: offer the clipboard again, even if it was already pasted or dismissed.
+    const onDouble = () => {
+      if (editor.state.selection.$from.parent.content.size) return;
+      void (async () => {
+        const image = window.JournalClipboard ? await readClipboardImage() : null;
+        await offer(image ? null : await readClipboard(), image, true);
+      })();
+    };
+    dom.addEventListener("dblclick", onDouble);
     editor.on("focus", onFocus);
     editor.on("blur", onBlur);
     editor.on("update", hide);
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onFocus);
     dom.addEventListener("pointerup", onTap);
+    const unDouble = () => dom.removeEventListener("dblclick", onDouble);
     window.__journalClipboardChanged = onFocus;
     return () => {
+      unDouble();
       if (window.__journalClipboardChanged === onFocus) delete window.__journalClipboardChanged;
       editor.off("focus", onFocus);
       editor.off("blur", onBlur);
@@ -214,11 +223,15 @@ export function SmartPaste({ editor }: { editor: Editor }) {
         </>
       ) : (
         <>
-          <span className="paste-preview" title={clip.kind === "url" ? clip.url : clip.text}>
-            📋 {clipPreview(clip, 28)}
-          </span>
+          {clip.kind === "url" && youtubeId(clip.url) ? (
+            <YoutubeCard url={clip.url} />
+          ) : (
+            <span className="paste-preview" title={clip.kind === "url" ? clip.url : clip.text}>
+              📋 {clipPreview(clip, 28)}
+            </span>
+          )}
           <button type="button" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={() => act(() => insertClip(editor, clip, false))}>
-            {clip.kind === "url" ? "Paste link" : "Paste"}
+            {clip.kind === "url" ? (youtubeId(clip.url) ? "Paste video" : "Paste link") : "Paste"}
           </button>
           <button type="button" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={() => act(() => insertClip(editor, clip, true))}>
             As code

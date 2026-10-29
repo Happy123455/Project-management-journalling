@@ -1,5 +1,6 @@
 import type { JSONContent } from "@tiptap/react";
 import type { BlockMeta, LocalState, MergePlan, SyncRecord } from "../sync/merge";
+import type { ProjectInfo } from "../lib/projects";
 
 /** Flags kept in a day block's `props`. */
 export interface DayProps {
@@ -23,7 +24,13 @@ export interface NamedPage {
   id: string;
   title: string;
   content: JSONContent;
+  /** Extra facts about the page, e.g. { project: { status: "active" } }. */
+  props: PageProps;
   updatedAt: string;
+}
+
+export interface PageProps {
+  project?: ProjectInfo;
 }
 
 export type LinkKind = "wikilink" | "tag";
@@ -55,10 +62,27 @@ export interface SaveFileInput {
   actor?: string;
 }
 
+/** One link for the graph: a day or named page that links to a page or carries a tag. */
+export interface GraphLink {
+  day: string | null;
+  title: string | null;
+  target: string;
+  kind: LinkKind;
+}
+
 /** A day or page whose text contains every search word, or a file whose name does. */
 export type SearchHit =
   | { kind: "day" | "page"; blockId: string; day: string | null; title: string | null; text: string }
   | { kind: "file"; file: FileRecord };
+
+/** An edit an AI made (actor is the AI's name), for the "AI changes" list. */
+export interface AiChange {
+  event: JournalEvent;
+  day: string | null;
+  title: string | null;
+  /** Nothing has changed the note since, so Undo can put back exactly what was there. */
+  undoable: boolean;
+}
 
 /** One entry in the append-only timeline. Sync and the nexus view build on this. */
 export interface JournalEvent {
@@ -97,8 +121,21 @@ export interface JournalStore {
   /** The named page with this title, created (with an event) if it doesn't exist yet. */
   ensurePage(title: string, actor?: string): Promise<NamedPage>;
   savePage(input: { id: string; content: JSONContent; plainText: string; actor?: string }): Promise<NamedPage>;
+  /** Changes a named page's props (with a "props" event); `undefined` values remove a prop. */
+  setPageProps(id: string, patch: Partial<PageProps>, actor?: string): Promise<NamedPage>;
+  /** Named pages that are projects, by title. */
+  projects(): Promise<NamedPage[]>;
   /** Pages and days that link to `target` or carry the tag `target` (any letter case), newest day first. */
   references(kind: LinkKind, target: string): Promise<Reference[]>;
+  /** Edits made by AIs (any actor other than "me"), newest first. */
+  aiChanges(limit?: number): Promise<AiChange[]>;
+  /**
+   * Undoes an AI edit by putting back the note as it was before it (as a new "me" event), when
+   * nothing changed the note since. Returns false when it can't.
+   */
+  undoAiChange(eventId: string): Promise<boolean>;
+  /** Every link and tag in the journal, with the day or page it's on. */
+  graphLinks(): Promise<GraphLink[]>;
   /** Every page name known: named pages plus everything [[linked]] so far, for autocomplete. */
   pageNames(): Promise<string[]>;
   /** Stores an attachment (with a create event); the same bytes stored twice give back the first record. */

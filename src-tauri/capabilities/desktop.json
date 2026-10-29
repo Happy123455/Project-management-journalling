@@ -1,0 +1,42 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Mac: the floating bubble window and its shortcut",
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
+  ],
+  "windows": [
+    "main",
+    "bubble"
+  ],
+  "permissions": [
+    "core:default",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-visible-on-all-workspaces",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-outer-position",
+    "core:window:allow-inner-size",
+    "core:event:allow-emit-to",
+    "clipboard-manager:allow-read-text",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://*"
+        }
+      ]
+    },
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered"
+  ]
+}

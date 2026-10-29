@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: keep the AI keys out of cloud backup and device-to-device transfer. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="secrets.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="secrets.xml" />
+    </device-transfer>
+</data-extraction-rules>

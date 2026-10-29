@@ -4,20 +4,28 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { TAG_RE, WIKILINK_RE } from "../lib/links";
 
-function decorate(doc: PMNode): DecorationSet {
+interface Highlights {
+  set: DecorationSet;
+  /** Where each [[link]] is, to hide its brackets while the cursor is elsewhere. */
+  links: [number, number][];
+}
+
+function decorate(doc: PMNode): Highlights {
   const decorations: Decoration[] = [];
+  const links: [number, number][] = [];
   doc.descendants((node, pos) => {
     if (!node.isText || !node.text) return;
     for (const m of node.text.matchAll(WIKILINK_RE)) {
       const from = pos + m.index;
       decorations.push(Decoration.inline(from, from + m[0].length, { class: "wikilink", "data-target": m[1].trim() }));
+      links.push([from, from + m[0].length]);
     }
     for (const m of node.text.matchAll(TAG_RE)) {
       const from = pos + m.index + m[1].length;
       decorations.push(Decoration.inline(from, from + m[2].length + 1, { class: "tag" }));
     }
   });
-  return DecorationSet.create(doc, decorations);
+  return { set: DecorationSet.create(doc, decorations), links };
 }
 
 export interface LinkHighlightOptions {
@@ -37,15 +45,21 @@ export const LinkHighlight = Extension.create<LinkHighlightOptions>({
     // which shrinks the calendar and moves the text, so by the click the link may have moved away.
     let pressed: { kind: "link" | "tag"; value: string } | null = null;
     return [
-      new Plugin({
+      new Plugin<Highlights>({
         key: new PluginKey("linkHighlight"),
         state: {
           init: (_, { doc }) => decorate(doc),
           apply: (tr, old) => (tr.docChanged ? decorate(tr.doc) : old),
         },
         props: {
+          // Like Obsidian: a link shows without its [[ ]] unless the cursor is in it or right beside it.
           decorations(state) {
-            return this.getState(state);
+            const { set, links } = this.getState(state)!;
+            const { from, to } = state.selection;
+            const hide = links
+              .filter(([a, b]) => to < a || from > b)
+              .flatMap(([a, b]) => [Decoration.inline(a, a + 2, { class: "wl-bracket" }), Decoration.inline(b - 2, b, { class: "wl-bracket" })]);
+            return hide.length ? set.add(state.doc, hide) : set;
           },
           handleDOMEvents: {
             pointerdown(_view, event) {

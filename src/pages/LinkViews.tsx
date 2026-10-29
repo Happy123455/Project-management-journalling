@@ -1,30 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { JSONContent } from "@tiptap/react";
 import { JournalEditor } from "../editor/JournalEditor";
-import { linesMentioning } from "../lib/links";
+import { mentionsWithChildren } from "../lib/links";
 import { dayTitle } from "../lib/timestamp";
 import { showError } from "../lib/toast";
-import { docText } from "../lib/words";
+import { ProjectPanel } from "../projects/ProjectPanel";
+import { ProjectTimeline } from "../projects/ProjectTimeline";
+import { InspirationGrid } from "./InspirationGrid";
 import type { JournalStore, LinkKind, NamedPage, Reference } from "../store";
 
 const SAVE_DELAY_MS = 800;
 
 export interface LinkHandlers {
-  onOpenDay: (day: string) => void;
+  /** `line`: the text to scroll to and highlight there (a backlink's mention). */
+  onOpenDay: (day: string, line?: string) => void;
   onOpenLink: (title: string) => void;
   onOpenTag: (tag: string) => void;
 }
 
 /** One block that mentions the page or tag: where it is, and the lines that mention it. */
 function ReferenceCard({ reference, kind, target, handlers }: { reference: Reference; kind: LinkKind; target: string; handlers: LinkHandlers }) {
-  const lines = linesMentioning(docText(reference.content), kind, target);
-  const open = () => (reference.day ? handlers.onOpenDay(reference.day) : handlers.onOpenLink(reference.title ?? ""));
+  // The mentioning lines with what's nested under them (a project's sub-points, a person's notes…).
+  const lines = mentionsWithChildren(reference.content as never, kind, target);
+  const open = () => (reference.day ? handlers.onOpenDay(reference.day, lines[0]?.trim()) : handlers.onOpenLink(reference.title ?? ""));
   return (
     <li>
       <button type="button" className="reference" onClick={open}>
         <span className="reference-where">{reference.day ? dayTitle(reference.day) : `📄 ${reference.title}`}</span>
-        {lines.slice(0, 4).map((line, i) => (
-          <span key={i} className="reference-line">{line}</span>
+        {lines.slice(0, 12).map((line, i) => (
+          <span key={i} className="reference-line" style={{ paddingLeft: `${(line.match(/^ */)![0].length / 2) * 14}px` }}>{line.trim()}</span>
         ))}
       </button>
     </li>
@@ -60,17 +64,22 @@ function References({ store, kind, target, exclude, handlers, refreshKey }: {
 }
 
 /** A person, project or topic: its own notes on top, then every day that mentions it (its history). */
-export function PageView({ store, page, onBack, handlers, pageNames }: {
+export function PageView({ store, page, onBack, handlers, pageNames, find, onFindCount, onPageChanged }: {
   store: JournalStore;
   page: NamedPage;
   onBack: () => void;
   handlers: LinkHandlers;
   pageNames: () => Promise<string[]>;
+  find?: { terms: string[]; index: number } | null;
+  onFindCount?: (count: number) => void;
+  onPageChanged: (page: NamedPage) => void;
 }) {
   const pending = useRef<{ content: JSONContent; plainText: string } | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const [status, setStatus] = useState("");
   const [saves, setSaves] = useState(0);
+  // The page as last saved (the grid on the Inspiration page follows edits).
+  const [latest, setLatest] = useState<JSONContent | null>(null);
 
   const flush = useCallback(async () => {
     window.clearTimeout(timer.current);
@@ -79,6 +88,7 @@ export function PageView({ store, page, onBack, handlers, pageNames }: {
     pending.current = null;
     try {
       await store.savePage({ id: page.id, ...next });
+      setLatest(next.content);
       setStatus("Saved");
       setSaves((n) => n + 1);
     } catch (e) {
@@ -99,17 +109,36 @@ export function PageView({ store, page, onBack, handlers, pageNames }: {
     <>
       <header className="page-header">
         <button type="button" onClick={back} aria-label="Back">‹</button>
-        <h1>📄 {page.title}</h1>
+        <h1>{page.props.project ? "📌" : "📄"} {page.title}</h1>
         <span className="status">{status}</span>
+        {!page.props.project && (
+          <button type="button" onClick={async () => onPageChanged(await store.setPageProps(page.id, { project: { status: "active" } }))} title="Track this as a project">
+            📌 Project
+          </button>
+        )}
       </header>
+      {page.title.toLowerCase() === "inspiration" && (
+        <InspirationGrid key={saves} content={latest ?? page.content} />
+      )}
       <div className="page-notes">
       <JournalEditor
         key={page.id}
         initialContent={page.content}
-        onChange={(content, plainText) => {
+        onChange={(content, plainText, actor) => {
+          window.clearTimeout(timer.current);
+          if (actor) {
+            // AI edits are saved at once as their own event, after anything typed before them.
+            const before = pending.current;
+            pending.current = null;
+            void (async () => {
+              if (before) await store.savePage({ id: page.id, ...before });
+              await store.savePage({ id: page.id, content, plainText, actor });
+              setSaves((n) => n + 1);
+            })().catch((e) => showError("Save failed", e));
+            return;
+          }
           pending.current = { content, plainText };
           setStatus("Editing…");
-          window.clearTimeout(timer.current);
           timer.current = window.setTimeout(() => void flush(), SAVE_DELAY_MS);
         }}
         onOpenLink={async (t) => {
@@ -122,8 +151,16 @@ export function PageView({ store, page, onBack, handlers, pageNames }: {
         }}
         pageNames={pageNames}
         autofocus={false}
+        find={find}
+        onFindCount={onFindCount}
       />
       </div>
+      {page.props.project && (
+        <ProjectPanel store={store} page={page} refreshKey={saves} onChanged={onPageChanged} onOpenDay={handlers.onOpenDay} />
+      )}
+      {page.props.project && (
+        <ProjectTimeline store={store} page={page} refreshKey={saves} onOpenDay={(d) => handlers.onOpenDay(d)} />
+      )}
       <section className="history">
         <h2>Mentioned in</h2>
         <References store={store} kind="wikilink" target={page.title} exclude={page.id} handlers={handlers} refreshKey={saves} />

@@ -1,4 +1,7 @@
 <resources>
     <string name="app_name">"Dynamic Journal"</string>
     <string name="main_activity_title">"Dynamic Journal"</string>
+    <string name="quick_note">Quick note</string>
+    <string name="quick_note_long">Add a quick note to today</string>
+    <string name="circle_capture">Circle to capture</string>
 </resources>

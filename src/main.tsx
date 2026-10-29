@@ -1,9 +1,11 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { BubbleApp } from "./bubble/BubbleApp";
+
+// The Mac floating bubble opens this same page in its own small window.
+const bubble = new URLSearchParams(location.search).has("bubble");
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+  <React.StrictMode>{bubble ? <BubbleApp /> : <App />}</React.StrictMode>,
 );

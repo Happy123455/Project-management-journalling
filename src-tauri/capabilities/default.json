@@ -10,11 +10,16 @@
     "opener:default",
     {
       "identifier": "opener:allow-open-path",
-      "allow": [{ "path": "$APPDATA/attachments/**" }]
+      "allow": [
+        {
+          "path": "$APPDATA/attachments/**"
+        }
+      ]
     },
     "sql:default",
     "sql:allow-execute",
     "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-image",
     "fs:allow-appdata-read-recursive",
     "fs:allow-appdata-write-recursive",
@@ -22,12 +27,24 @@
     {
       "identifier": "fs:scope",
       "allow": [
-        { "path": "$DOCUMENT/Dynamic Journal Backups" },
-        { "path": "$DOCUMENT/Dynamic Journal Backups/**" },
-        { "path": "$HOME/Library/CloudStorage" },
-        { "path": "$HOME/Library/CloudStorage/*" },
-        { "path": "$HOME/Library/CloudStorage/*/My Drive/Dynamic Journal Sync" },
-        { "path": "$HOME/Library/CloudStorage/*/My Drive/Dynamic Journal Sync/**" }
+        {
+          "path": "$DOCUMENT/Dynamic Journal Backups"
+        },
+        {
+          "path": "$DOCUMENT/Dynamic Journal Backups/**"
+        },
+        {
+          "path": "$HOME/Library/CloudStorage"
+        },
+        {
+          "path": "$HOME/Library/CloudStorage/*"
+        },
+        {
+          "path": "$HOME/Library/CloudStorage/*/My Drive/Dynamic Journal Sync"
+        },
+        {
+          "path": "$HOME/Library/CloudStorage/*/My Drive/Dynamic Journal Sync/**"
+        }
       ]
     },
     "fs:allow-mkdir",
@@ -35,6 +52,7 @@
     "fs:allow-read-dir",
     "fs:allow-remove",
     "fs:allow-exists",
-    "fs:allow-read-file"
+    "fs:allow-read-file",
+    { "identifier": "http:default", "allow": [{ "url": "https://*" }, { "url": "http://*" }] }
   ]
 }

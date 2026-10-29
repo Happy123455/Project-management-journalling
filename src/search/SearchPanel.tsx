@@ -40,7 +40,8 @@ export function SearchPanel({ query, onQuery, results, onPick, onClose }: {
   query: string;
   onQuery: (q: string) => void;
   results: SearchResult[] | null;
-  onPick: (hit: SearchHit) => void;
+  /** `match` is the number of the first match in the tapped line, counting from the top of the note. */
+  onPick: (hit: SearchHit, match: number) => void;
   onClose: () => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
@@ -88,13 +89,24 @@ export function SearchPanel({ query, onQuery, results, onPick, onClose }: {
             const where = r.hit.kind === "file" ? `📎 ${r.hit.file.name}` : r.hit.day ? dayTitle(r.hit.day) : `📄 ${r.hit.title}`;
             return (
               <li key={key}>
-                <button type="button" className="search-result" onClick={() => onPick(r.hit)}>
+                <div className="search-result" role="button" tabIndex={0} onClick={() => onPick(r.hit, 0)}>
                   <span className="search-where">
                     {where}
                     {r.count > 0 && <span className="search-count">{r.count}</span>}
                   </span>
-                  {r.hit.kind !== "file" && r.lines.slice(0, MAX_LINES).map((l, i) => <Line key={i} line={l} />)}
-                </button>
+                  {r.hit.kind !== "file" &&
+                    r.lines.slice(0, MAX_LINES).map((l, i) => (
+                      <span
+                        key={i}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onPick(r.hit, r.lines.slice(0, i).reduce((n, x) => n + x.ranges.length, 0));
+                        }}
+                      >
+                        <Line line={l} />
+                      </span>
+                    ))}
+                </div>
               </li>
             );
           })}

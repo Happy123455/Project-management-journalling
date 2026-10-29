@@ -218,4 +218,44 @@ describe("MemoryStore", () => {
     expect(hits.map((h) => (h.kind === "file" ? h.file.name : (h.day ?? h.title)))).toEqual(["2026-10-25", "2026-10-20", "Plan B", "ravi_plan.pdf"]);
     expect(await store.search("   ")).toEqual([]);
   });
+
+  it("lists every link and tag with where it is, for the graph", async () => {
+    const store = new MemoryStore(undefined, "phone");
+    await store.saveDay({ day: "2026-10-20", content: doc("x"), plainText: "met [[Ravi]] #work" });
+    const p = await store.ensurePage("Ravi");
+    await store.savePage({ id: p.id, content: doc("y"), plainText: "see [[Project X]]" });
+    expect((await store.graphLinks()).sort((a, b) => a.target.localeCompare(b.target))).toEqual([
+      { day: null, title: "Ravi", target: "Project X", kind: "wikilink" },
+      { day: "2026-10-20", title: null, target: "Ravi", kind: "wikilink" },
+      { day: "2026-10-20", title: null, target: "work", kind: "tag" },
+    ]);
+  });
+
+  it("marks a page as a project, logs it, and lists projects", async () => {
+    const store = new MemoryStore(undefined, "phone");
+    const p = await store.ensurePage("Project X");
+    await store.ensurePage("Ravi");
+    const updated = await store.setPageProps(p.id, { project: { status: "active" } });
+    expect(updated.props).toEqual({ project: { status: "active" } });
+    expect((await store.projects()).map((x) => x.title)).toEqual(["Project X"]);
+    await store.setPageProps(p.id, { project: undefined });
+    expect(await store.projects()).toEqual([]);
+    expect((await store.eventsFor(p.id)).map((e) => e.op)).toEqual(["create", "props", "props"]);
+  });
+
+  it("lists AI edits and undoes one when nothing changed since", async () => {
+    const store = new MemoryStore(undefined, "phone");
+    await store.saveDay({ day: "2026-10-28", content: doc("teh cat"), plainText: "teh cat" });
+    await store.saveDay({ day: "2026-10-28", content: doc("the cat"), plainText: "the cat", actor: "Gemini" });
+    const [change] = await store.aiChanges();
+    expect(change).toMatchObject({ day: "2026-10-28", undoable: true, event: { actor: "Gemini", op: "update" } });
+
+    expect(await store.undoAiChange(change.event.id)).toBe(true);
+    expect((await store.getDay("2026-10-28"))?.content).toEqual(doc("teh cat"));
+    const ops = (await store.eventsFor(change.event.blockId)).map((e) => `${e.actor}:${e.op}`);
+    expect(ops).toEqual(["me:create", "Gemini:update", "me:update"]);
+    // Already undone (the note changed since): can't undo again.
+    expect((await store.aiChanges())[0].undoable).toBe(false);
+    expect(await store.undoAiChange(change.event.id)).toBe(false);
+  });
 });

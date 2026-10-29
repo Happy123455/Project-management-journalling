@@ -9,12 +9,12 @@ describe("filterSlashItems", () => {
   });
 
   it("matches labels anywhere, ignoring case", () => {
-    expect(ids("QUO")).toEqual(["quote"]);
+    expect(ids("QUO")).toEqual(["quote", "inspiration"]);
     expect(ids("stamp")).toEqual(["timestamp"]);
   });
 
   it("finds tiles by keyword, after label matches", () => {
-    expect(ids("todo")).toEqual(["task"]);
+    expect(ids("todo")).toEqual(["task", "project"]);
     expect(ids("list")).toEqual(["bullet", "numbered"]);
     expect(ids("t")[0]).toBe("task");
   });

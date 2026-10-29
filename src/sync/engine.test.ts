@@ -66,4 +66,15 @@ describe("sync between two devices through one folder", () => {
     expect((await mac.getDay("2026-10-28"))?.content).toEqual(doc("phone later"));
     expect(await mac.listDays()).toEqual(["2026-10-28"]);
   });
+
+  it("carries project status across devices", async () => {
+    const folder = new MemoryFolder();
+    const phone = new MemoryStore(undefined, "phone");
+    const mac = new MemoryStore(undefined, "mac");
+    const p = await phone.ensurePage("Project X");
+    await phone.setPageProps(p.id, { project: { status: "paused" } });
+    await syncOnce(phone, folder);
+    await syncOnce(mac, folder);
+    expect((await mac.projects()).map((x) => [x.title, x.props.project?.status])).toEqual([["Project X", "paused"]]);
+  });
 });

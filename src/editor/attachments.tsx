@@ -1,7 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type Editor, type NodeViewProps } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
+import { NodeSelection } from "@tiptap/pm/state";
 import { qrContent } from "../lib/capture";
+import { AlphaVideo } from "./AlphaVideo";
+import { AudioPill, PeekOnDoubleTap, TapVideo } from "./MediaBits";
+import { usePlayWhenVisible } from "./usePlayWhenVisible";
 import { embedText, parseEmbeds } from "../lib/embeds";
 import { placeBar } from "../lib/placement";
 import { fileKind, formatSize } from "../lib/files";
@@ -16,6 +20,9 @@ const urls = new Map<string, Promise<string>>();
 export function setAttachmentStore(s: JournalStore) {
   store = s;
 }
+
+/** The open journal, for blocks that save elsewhere (e.g. the YouTube watch log). */
+export const journalStore = () => store;
 
 /** A displayable URL for a stored file (cached for the session). */
 export function fileUrl(id: string): Promise<string> {
@@ -65,7 +72,7 @@ async function openFile(id: string) {
 export function mediaNode(r: FileRecord) {
   const kind = fileKind(r.mime);
   if (kind === "image") return { type: "attachmentImage", attrs: { fileId: r.id, name: r.name, align: "inline" } };
-  if (kind === "video" || kind === "pdf") return { type: "attachmentMedia", attrs: { fileId: r.id, kind, name: r.name, mime: r.mime, size: r.size, align: "inline" } };
+  if (kind === "video" || kind === "pdf" || kind === "audio") return { type: "attachmentMedia", attrs: { fileId: r.id, kind, name: r.name, mime: r.mime, size: r.size, align: "inline" } };
   return { type: "attachmentFile", attrs: { fileId: r.id, name: r.name, mime: r.mime, size: r.size } };
 }
 
@@ -220,7 +227,9 @@ function safeTop(): number {
 /** Media node views let the editor ignore presses on their handles and bars, so drags aren't eaten. */
 export const mediaNodeViewOptions = {
   stopEvent: ({ event }: { event: Event }) =>
-    !!(event.target as HTMLElement | null)?.closest?.(".attach-resize, .attach-toolbar, .attach-draggable"),
+    // Taps on a video or audio player go to the player: they play it without moving the cursor or
+    // opening the keyboard.
+    !!(event.target as HTMLElement | null)?.closest?.(".attach-resize, .attach-toolbar, .attach-draggable, video, audio, canvas, .audio-pill, .peek-host, .tap-video"),
 };
 
 /** Shared frame for photos, videos and PDFs: width, placement, the resize handle and the placement toolbar. */
@@ -443,15 +452,45 @@ function PdfPreview({ fileId, name }: { fileId: string; name: string }) {
   );
 }
 
+/** Selects a media node without focusing the text (no keyboard) or scrolling. */
+function selectMedia({ editor, getPos }: NodeViewProps) {
+  const pos = getPos();
+  if (typeof pos === "number" && editor.isEditable) editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)));
+}
+
+/** A meme/GIF clip: loops silently, and only while on screen. */
+function LoopingClip({ src }: { src: string }) {
+  const video = useRef<HTMLVideoElement>(null);
+  usePlayWhenVisible(video, [src]);
+  return <video ref={video} src={src} autoPlay loop muted playsInline />;
+}
+
 function MediaView(props: NodeViewProps) {
-  const { fileId, kind, name } = props.node.attrs as { fileId: string; kind: "video" | "pdf"; name: string };
-  const { url, failed } = useFileUrl(kind === "video" ? fileId : null);
+  const { fileId, kind, name } = props.node.attrs as { fileId: string; kind: "video" | "pdf" | "audio"; name: string };
+  const { url, failed } = useFileUrl(kind === "video" || kind === "audio" ? fileId : null);
   return (
     <PlacedMedia {...props}>
       {kind === "pdf" ? (
         <PdfPreview fileId={fileId} name={name} />
+      ) : kind === "audio" ? (
+        url ? (
+          <AudioPill src={url} icon={name.startsWith("sound-") ? "🔊" : "🎙"} />
+        ) : (
+          <span className="attach-missing">{failed ? "Recording not found" : "Loading…"}</span>
+        )
       ) : url ? (
-        <video src={url} controls playsInline preload="metadata" />
+        // Meme clips loop silently like GIFs; green-screen ones are drawn see-through; other videos get controls.
+        name.startsWith("greenscreen-") ? (
+          <PeekOnDoubleTap peek={() => <AlphaVideo src={url} />}>
+            <AlphaVideo src={url} onTap={() => selectMedia(props)} />
+          </PeekOnDoubleTap>
+        ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
+          <PeekOnDoubleTap peek={() => <video src={url} autoPlay loop playsInline controls />}>
+            <LoopingClip src={url} />
+          </PeekOnDoubleTap>
+        ) : (
+                    <TapVideo src={url} />
+        )
       ) : (
         <span className="attach-missing">{failed ? "Video not found" : "Loading…"}</span>
       )}
@@ -488,14 +527,26 @@ export const AttachmentMedia = Node.create({
 
 // ───────────── File block (PDFs, videos, anything else) ─────────────
 
-function FileView({ node }: NodeViewProps) {
+function FileView(props: NodeViewProps) {
+  const { node } = props;
   const { fileId, name, mime, size } = node.attrs as { fileId: string; name: string; mime: string; size: number };
   const kind = fileKind(mime);
   const { url } = useFileUrl(kind === "video" ? fileId : null);
   return (
     <NodeViewWrapper className={`attach-file kind-${kind}`} data-drag-handle="">
       {kind === "video" && url ? (
-        <video src={url} controls playsInline preload="metadata" />
+        // Meme clips loop silently like GIFs; green-screen ones are drawn see-through; other videos get controls.
+        name.startsWith("greenscreen-") ? (
+          <PeekOnDoubleTap peek={() => <AlphaVideo src={url} />}>
+            <AlphaVideo src={url} onTap={() => selectMedia(props)} />
+          </PeekOnDoubleTap>
+        ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
+          <PeekOnDoubleTap peek={() => <video src={url} autoPlay loop playsInline controls />}>
+            <LoopingClip src={url} />
+          </PeekOnDoubleTap>
+        ) : (
+                    <TapVideo src={url} />
+        )
       ) : (
         <button type="button" className="attach-file-card" contentEditable={false} onClick={() => void openFile(fileId)}>
           <span className="attach-file-icon">{kind === "pdf" ? "📕" : kind === "video" ? "🎥" : "📎"}</span>
@@ -527,6 +578,6 @@ export const AttachmentFile = Node.create({
     return ["div", mergeAttributes(HTMLAttributes, { "data-attachment": "", ...mediaData(node.attrs) }), node.attrs.name];
   },
   addNodeView() {
-    return ReactNodeViewRenderer(FileView);
+    return ReactNodeViewRenderer(FileView, mediaNodeViewOptions);
   },
 });

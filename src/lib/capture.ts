@@ -6,6 +6,19 @@ export function pickRecorderType(isSupported: (type: string) => boolean): string
   return RECORDER_TYPES.find((t) => isSupported(t)) ?? "";
 }
 
+/** Audio recording formats in order of preference (AAC in MP4 plays everywhere). */
+const AUDIO_TYPES = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
+
+export function pickAudioType(isSupported: (type: string) => boolean): string {
+  return AUDIO_TYPES.find((t) => isSupported(t)) ?? "";
+}
+
+/** "0:07", "12:45". */
+export function formatDuration(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
 /** How a scanned QR code goes into the page: links become tappable links, anything else plain text. */
 export function qrContent(raw: string): { text: string; href: string | null } {
   const text = raw.trim();
