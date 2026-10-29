@@ -43,7 +43,7 @@ function KeyField({ provider }: { provider: Provider }) {
       const model = await testKey(provider, key);
       setTest({ state: "ok", message: `Works (${model})` });
     } catch (e) {
-      const message = e instanceof Error ? (e.name === "TimeoutError" ? "No answer from the AI service (check the internet connection)." : e.message) : String(e);
+      const message = e instanceof Error ? (e.name === "TimeoutError" || /cancel|abort/i.test(e.message) ? "No answer from the AI service in time (it may be busy; try again in a minute)." : e.message) : String(e);
       setTest({ state: "error", message });
     }
   };
