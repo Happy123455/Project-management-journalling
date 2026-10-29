@@ -55,8 +55,10 @@ async function callGemini(key: string, model: string, req: AiRequest) {
     ...(req.images ?? []).map((img) => ({ inlineData: { mimeType: img.mime, data: img.data } })),
     { text: req.text },
   ];
-  // A stalled connection must end in an error, not "Testing…" forever.
-  const res = await fetch(`${GEMINI}/models/${encodeURIComponent(model)}:generateContent`, {
+  // In the app, through Tauri's native HTTP: the Android WebView's own fetch to Google can hang
+  // (a cross-site request with a key header). A stalled connection still ends in an error.
+  const http = "__TAURI_INTERNALS__" in window ? (await import("@tauri-apps/plugin-http")).fetch : fetch;
+  const res = await http(`${GEMINI}/models/${encodeURIComponent(model)}:generateContent`, {
     signal: AbortSignal.timeout(req.task === "organise" ? 90_000 : 20_000),
     method: "POST",
     headers: { "Content-Type": "application/json", "x-goog-api-key": key },
