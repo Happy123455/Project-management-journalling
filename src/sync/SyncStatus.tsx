@@ -21,8 +21,8 @@ export function SyncStatus({ status, onSync, onChooseFolder }: { status: Status;
   if (status.state === "needs-folder") {
     return (
       <div className="sync-status">
-        <p className="hint">Sync with your Mac through Google Drive: choose (or create) the “Dynamic Journal Sync” folder in Drive once.</p>
-        <button type="button" onClick={onChooseFolder}>☁︎ Choose Google Drive folder…</button>
+        <p className="hint">Sync with your Mac through Google Drive: sign in once with the Google account your Mac’s Drive uses. Notes go to My Drive › Dynamic Journal Sync.</p>
+        <button type="button" onClick={onChooseFolder}>☁︎ Sign in to Google Drive…</button>
       </div>
     );
   }
@@ -40,7 +40,7 @@ export function SyncStatus({ status, onSync, onChooseFolder }: { status: Status;
       <span className="sync-line" title={status.label}>☁︎ {line}</span>
       <button type="button" onClick={onSync} disabled={status.state === "syncing"}>Sync now</button>
       {status.state === "error" && window.JournalSync && (
-        <button type="button" onClick={onChooseFolder}>☁︎ Choose folder again…</button>
+        <button type="button" onClick={onChooseFolder}>☁︎ Sign in again…</button>
       )}
     </div>
   );

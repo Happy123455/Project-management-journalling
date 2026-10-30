@@ -76,6 +76,7 @@ dependencies {
     implementation("androidx.webkit:webkit:1.14.0")
     // Sync: read and write the Google Drive folder picked with the system folder picker.
     implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("com.google.android.material:material:1.12.0")
