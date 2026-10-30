@@ -60,7 +60,18 @@ export function GraphView({ store, onClose, onOpen, onMindMap }: {
     settled.current = false;
     target.current = layout === "tree" ? treeLayout(graph) : new Map();
     fitted.current = false;
-    if (layout === "tree") fit([...target.current.values()]);
+    if (layout === "tree") {
+      // Not the whole tree squeezed onto the screen (the dots became specks): a readable zoom,
+      // showing the newest days at the top; pinch or drag to see more.
+      const pts = [...target.current.values()];
+      const el = canvas.current;
+      if (el && pts.length) {
+        const scale = Math.min(1.4, Math.max(0.7, el.clientHeight / (14 * 56)));
+        const top = Math.min(...pts.map((p) => p.y));
+        view.current = { scale, x: 0, y: -(top + el.clientHeight / 2 / scale - 60) * scale };
+        fitted.current = true;
+      } else fit(pts);
+    }
   }, [graph, layout]);
 
   // Play: step the slider forward through the days.
@@ -143,7 +154,8 @@ export function GraphView({ store, onClose, onOpen, onMindMap }: {
       for (const n of graph.nodes) {
         if (!visible(n)) continue;
         const p = pos.current.get(n.id)!;
-        const r = radius(n);
+        // Never smaller than a comfortable dot on screen, however far out it's zoomed.
+        const r = Math.max(radius(n), 5 / v.scale);
         ctx.fillStyle = colorOf(n);
         ctx.beginPath();
         ctx.arc(p.x, p.y, r, 0, Math.PI * 2);

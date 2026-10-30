@@ -1690,3 +1690,39 @@ html.yt-full-open .month-calendar, html.yt-full-open .keyboard-bar { visibility:
 .reminders li > .media-peek, .reference-card + .media-peek, li > .reference + .media-peek { flex-basis: 100%; margin-left: 4px; }
 .timeline-row > .media-peek { margin: 4px 0 2px 8px; }
 .project-task-text .media-peek { margin-top: 4px; }
+
+/* Meme kit: the whole grid scrolls inside the sheet (nothing hidden behind its bottom edge). */
+.meme-kit { display: flex; flex-direction: column; max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px); overflow: hidden; }
+.meme-kit .meme-grid, .meme-kit .meme-sounds { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); }
+.meme-kit .meme-chips { flex: none; }
+.meme-grid { grid-auto-flow: dense; }
+.meme-cell { position: relative; aspect-ratio: 1; }
+.meme-cell .meme-tile { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; }
+.meme-cell.playing { grid-column: span 2; grid-row: span 2; }
+.meme-cell.playing .meme-tile video { object-fit: contain; background: #000; }
+.meme-cell.playing .meme-tile video.stacked { height: 200%; object-fit: cover; object-position: top; }
+.meme-clip-play { position: absolute; right: 4px; bottom: 22px; z-index: 2; width: 30px; height: 30px; padding: 0; border-radius: 50%; font-size: 12px; line-height: 1; background: rgba(0, 0, 0, 0.6); color: #fff; border: 1px solid rgba(255, 255, 255, 0.35); }
+.meme-rating { position: absolute; top: 4px; left: 4px; font-size: 9px; letter-spacing: -1px; color: #facc15; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7); }
+.meme-ratings button { color: #ca8a04; }
+.meme-sounds { list-style: none; margin: 0; padding: 2px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+.meme-sounds > li:first-child { flex-basis: 100%; }
+.sound-pill { display: flex; align-items: stretch; flex: 0 1 calc(84px + var(--secs, 2) * 26px); max-width: 100%; min-width: 110px; border-radius: 14px; overflow: hidden; border: 1px solid var(--border); background: var(--panel); }
+.sound-wave { all: unset; position: relative; flex: 1; min-width: 0; padding: 4px 8px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.sound-wave svg { width: 100%; height: 22px; display: block; }
+.sound-wave rect { fill: color-mix(in srgb, rgb(var(--heat-rgb)) 55%, var(--muted)); }
+.sound-wave rect.done { fill: rgb(var(--heat-rgb)); }
+.sound-pill.playing { border-color: rgb(var(--heat-rgb)); }
+.sound-label { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 4px; align-items: center; }
+.sound-label .meme-rating { position: static; }
+.sound-secs { color: var(--muted); margin-left: auto; flex: none; }
+.sound-add { flex: none; width: 34px; padding: 0; border-radius: 0; border: 0; border-left: 1px solid var(--border); font-size: 18px; }
+
+/* Phone: no live blur behind sheets with a text field (it was redrawn on every letter typed). */
+@media (pointer: coarse) {
+  .search-backdrop, .confirm-card, .meme-kit { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+  .confirm-card { background: var(--panel); }
+}
+
+/* Graph: the time slider sits well above the phone's home bar. */
+.graph-time { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 36px); }
+.graph-time input[type="range"] { flex: 1; height: 32px; }

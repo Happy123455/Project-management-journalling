@@ -47,6 +47,28 @@ function categories(rel, name) {
   return tags.length ? tags : ["Other"];
 }
 const unwanted = (rel) => catalog.get(rel)?.rating === "never";
+/** The rating given in the meme-kit dashboard (kept as it is; the picker sorts and filters by it). */
+const rating = (rel) => catalog.get(rel)?.rating ?? catalog.get(rel)?.stars ?? null;
+
+/** A sound's length and a 48-bar loudness outline (digits 0–9) for the picker's wave. */
+function soundShape(file) {
+  try {
+    const pcm = execFileSync("ffmpeg", ["-v", "error", "-i", file, "-ac", "1", "-ar", "2000", "-f", "s16le", "-"], { maxBuffer: 64 * 1024 * 1024 });
+    const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.length / 2));
+    const bars = 48;
+    const per = Math.max(1, Math.floor(samples.length / bars));
+    const peaks = [];
+    for (let b = 0; b < bars; b++) {
+      let max = 0;
+      for (let i = b * per; i < Math.min(samples.length, (b + 1) * per); i++) max = Math.max(max, Math.abs(samples[i]));
+      peaks.push(max / 32768);
+    }
+    const top = Math.max(...peaks, 0.01);
+    return { duration: Math.round((samples.length / 2000) * 10) / 10, wave: peaks.map((p) => Math.round((p / top) * 9)).join("") };
+  } catch {
+    return {};
+  }
+}
 
 const files = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }).map((f) => path.join(dir, f)).filter((f) => fs.statSync(f).isFile()) : []);
 
@@ -58,7 +80,7 @@ for (const f of files(path.join(src, "photos")).filter((f) => /\.(jpe?g|png|webp
   if (unwanted(rel)) continue;
   const name = photoMeta[stem]?.name ?? title(stem);
   copy(f, rel);
-  items.push({ id: `photo:${stem}`, kind: "photo", name, file: rel, tags: categories(rel, name) });
+  items.push({ id: `photo:${stem}`, kind: "photo", name, file: rel, tags: categories(rel, name), rating: rating(rel) });
 }
 
 // GIF clips: looping mp4s with a jpg poster.
@@ -70,7 +92,7 @@ for (const f of files(path.join(src, "gifs")).filter((f) => /\.mp4$/i.test(f))) 
   copy(f, rel);
   if (fs.existsSync(poster)) copy(poster, `gifs/${stem}.jpg`);
   const name = title(stem);
-  items.push({ id: `gif:${stem}`, kind: "gif", name, file: rel, thumb: fs.existsSync(poster) ? `gifs/${stem}.jpg` : null, tags: categories(rel, name) });
+  items.push({ id: `gif:${stem}`, kind: "gif", name, file: rel, thumb: fs.existsSync(poster) ? `gifs/${stem}.jpg` : null, tags: categories(rel, name), rating: rating(rel) });
 }
 
 // Sounds: the loudness-levelled versions when the kit has them.
@@ -82,7 +104,7 @@ for (const f of files(soundDir).filter((f) => /\.(mp3|m4a|ogg|wav)$/i.test(f))) 
   if (unwanted(`sounds/${rel}`)) continue;
   copy(f, `sounds/${rel}`);
   const name = title(stem);
-  items.push({ id: `sound:${rel}`, kind: "sound", name, file: `sounds/${rel}`, group: path.dirname(rel) === "." ? null : path.dirname(rel), tags: categories(`sounds/${rel}`, name) });
+  items.push({ id: `sound:${rel}`, kind: "sound", name, file: `sounds/${rel}`, group: path.dirname(rel) === "." ? null : path.dirname(rel), tags: categories(`sounds/${rel}`, name), rating: rating(`sounds/${rel}`) ?? rating(path.relative(src, f)), ...soundShape(f) });
 }
 
 // Green-screen clips, cut to their punchline (at most 6 s), 360p, with their sound.
@@ -113,7 +135,7 @@ for (const c of [...new Set(catalog.values())].filter((c) => c.type === "greensc
   }
   bytes += fs.statSync(target).size;
   const name = title(c.id);
-  items.push({ id: `greenscreen:${c.id}`, kind: c.alpha ? "greenscreen" : "gif", name, file: rel, thumb, tags: [c.alpha ? "Green screen" : "Clips", ...categories(c.video, name)], sound: audio.length > 0 });
+  items.push({ id: `greenscreen:${c.id}`, kind: c.alpha ? "greenscreen" : "gif", name, file: rel, thumb, tags: [c.alpha ? "Green screen" : "Clips", ...categories(c.video, name)], sound: audio.length > 0, rating: c.rating ?? null });
 }
 
 fs.writeFileSync(path.join(out, "index.json"), JSON.stringify(items));
