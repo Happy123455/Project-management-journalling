@@ -5,9 +5,7 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { skyFor } from "../lib/sky";
 import { TIMESTAMP_RE } from "../lib/timestamp";
 
-const LONG_PRESS_MS = 450;
-
-/** The pill shown in place of a timestamp: sky colour, icon and "10:55"; hover or long-press shows it in full. */
+/** The pill shown in place of a timestamp: sky colour, icon and "10:55"; hover or a tap shows it in full. */
 function chip(full: string, hour: string, minute: string): HTMLElement {
   const sky = skyFor(Number(hour));
   const el = document.createElement("span");
@@ -23,19 +21,23 @@ function chip(full: string, hour: string, minute: string): HTMLElement {
     el.textContent = expanded ? `${sky.icon} ${full}` : short;
     el.classList.toggle("expanded", expanded);
   };
-  el.addEventListener("mouseenter", () => show(true));
-  el.addEventListener("mouseleave", () => show(false));
+  // Mouse: hover shows it in full. Touch: a tap opens or closes it (the phone fakes hovers on tap,
+  // which opened and closed it in the same moment, so those are ignored).
+  el.addEventListener("pointerenter", (e) => e.pointerType === "mouse" && show(true));
+  el.addEventListener("pointerleave", (e) => e.pointerType === "mouse" && show(false));
 
-  let timer: number | undefined;
-  el.addEventListener("touchstart", () => {
-    timer = window.setTimeout(() => show(!el.classList.contains("expanded")), LONG_PRESS_MS);
+  let start: { x: number; y: number } | null = null;
+  el.addEventListener("touchstart", (e) => {
+    start = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   }, { passive: true });
-  const cancel = () => window.clearTimeout(timer);
+  el.addEventListener("touchmove", (e) => {
+    if (start && Math.hypot(e.touches[0].clientX - start.x, e.touches[0].clientY - start.y) > 10) start = null;
+  }, { passive: true });
   el.addEventListener("touchend", (e) => {
-    cancel();
     e.preventDefault();
+    if (start) show(!el.classList.contains("expanded"));
+    start = null;
   });
-  el.addEventListener("touchmove", cancel, { passive: true });
   el.addEventListener("contextmenu", (e) => e.preventDefault());
   return el;
 }

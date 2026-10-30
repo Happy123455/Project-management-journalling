@@ -34,7 +34,7 @@ function MediaTile({ file, selecting, picked, onPick, onDragOut, dragIds }: {
   onDragOut?: (e: React.PointerEvent) => void;
 }) {
   const kind = fileKind(file.mime);
-  const { url } = useFileUrl(kind === "image" || kind === "video" ? file.id : null);
+  const { url } = useFileUrl(kind === "image" || kind === "video" ? file.id : null, kind === "video");
   const hold = useRef<number | undefined>(undefined);
   const open = () => {
     if (selecting) return onPick();

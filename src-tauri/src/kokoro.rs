@@ -17,7 +17,7 @@ use sherpa_onnx::{GenerationConfig, OfflineTts, OfflineTtsConfig, OfflineTtsKoko
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Model id and approximate download size in MB.
-const MODELS: &[(&str, u32)] = &[("kokoro-int8-en-v0_19", 98), ("kokoro-int8-multi-lang-v1_1", 140)];
+const MODELS: &[(&str, u32)] = &[("kokoro-int8-en-v0_19", 98), ("kokoro-int8-multi-lang-v1_1", 140), ("kokoro-en-v0_19", 305)];
 const URL_BASE: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/";
 
 static RUN: AtomicU64 = AtomicU64::new(0);
@@ -201,7 +201,7 @@ fn load(dir: &std::path::Path) -> Option<OfflineTts> {
                 lexicon: (!lexicon.is_empty()).then_some(lexicon),
                 ..Default::default()
             },
-            num_threads: 2,
+            num_threads: 4,
             provider: Some("cpu".into()),
             ..Default::default()
         },

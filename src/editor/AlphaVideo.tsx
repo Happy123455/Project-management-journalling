@@ -66,6 +66,9 @@ export function AlphaVideo({ src, onTap }: { src: string; onTap?: () => void }) 
     return () => {
       if ("cancelVideoFrameCallback" in v) (v as HTMLVideoElement & { cancelVideoFrameCallback: (h: number) => void }).cancelVideoFrameCallback(frame);
       cancelAnimationFrame(frame);
+      // Hand the GPU context back now: the phone allows only a few, and swiping through days
+      // full of memes used them all up (the page froze until old ones were reclaimed).
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
     };
   }, [src]);
   usePlayWhenVisible(video, [src]);

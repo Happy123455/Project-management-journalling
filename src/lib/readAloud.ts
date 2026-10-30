@@ -45,6 +45,7 @@ export interface VoiceProgress {
 export const MODEL_NAMES: Record<string, string> = {
   "kokoro-int8-en-v0_19": "Kokoro English",
   "kokoro-int8-multi-lang-v1_1": "Kokoro multi-language (incl. Hindi)",
+  "kokoro-en-v0_19": "Kokoro English HD (clearest, a bit slower)",
 };
 /** The English model's voices, in speaker-id order. */
 export const KOKORO_EN_VOICES = [

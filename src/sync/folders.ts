@@ -43,6 +43,8 @@ const split = (path: string): [string, string] => {
 /** Android: "Dynamic Journal Sync" in My Drive, through the Drive API (the Mac sees the same folder). */
 export class DriveFolder implements SyncFolder {
   constructor(private token: string) {}
+  /** Size and time of the files `list` saw, by path. */
+  private stamps = new Map<string, string>();
 
   private async call(url: string, init: RequestInit = {}): Promise<Response> {
     const res = await fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${this.token}` } });
@@ -51,8 +53,8 @@ export class DriveFolder implements SyncFolder {
     return res;
   }
 
-  private async search(q: string, fields: string): Promise<{ id: string; name: string }[]> {
-    const found: { id: string; name: string }[] = [];
+  private async search(q: string, fields: string): Promise<{ id: string; name: string; size?: string; modifiedTime?: string }[]> {
+    const found: { id: string; name: string; size?: string; modifiedTime?: string }[] = [];
     let pageToken = "";
     do {
       const params = new URLSearchParams({ q: `${q} and trashed = false`, fields: `nextPageToken, files(${fields})`, pageSize: "1000" });
@@ -97,7 +99,14 @@ export class DriveFolder implements SyncFolder {
 
   async list(dir: string) {
     const id = await this.dir(dir, false);
-    return id ? (await this.search(`${quote(id)} in parents`, "id, name")).map((f) => f.name) : [];
+    if (!id) return [];
+    const files = await this.search(`${quote(id)} in parents`, "id, name, size, modifiedTime");
+    for (const f of files) this.stamps.set(dir ? `${dir}/${f.name}` : f.name, `${f.size}-${f.modifiedTime}`);
+    return files.map((f) => f.name);
+  }
+
+  async stamp(path: string) {
+    return this.stamps.get(path) ?? null;
   }
 
   async read(path: string) {
@@ -157,6 +166,10 @@ class MacFolder implements SyncFolder {
   async exists(path: string) {
     return (await this.fs()).exists(this.at(path));
   }
+  async stamp(path: string) {
+    const info = await (await this.fs()).stat(this.at(path));
+    return `${info.size}-${info.mtime?.getTime()}`;
+  }
 }
 
 export type FolderLookup =
@@ -165,8 +178,8 @@ export type FolderLookup =
   | { kind: "pick" }
   | { kind: "unavailable"; reason: string };
 
-/** Finds the sync folder for this device. */
-export async function findSyncFolder(): Promise<FolderLookup> {
+/** Finds the sync folder for this device (`me`: its device id). */
+export async function findSyncFolder(me: string): Promise<FolderLookup> {
   if (window.JournalSync) {
     const token = await driveToken(false);
     return token ? { kind: "ready", folder: new DriveFolder(token), label: `Google Drive › My Drive › ${SYNC_FOLDER_NAME}` } : { kind: "pick" };
@@ -174,10 +187,20 @@ export async function findSyncFolder(): Promise<FolderLookup> {
   if (!("__TAURI_INTERNALS__" in window)) return { kind: "unavailable", reason: "Sync runs in the app." };
   const [fs, { homeDir, join }] = await Promise.all([import("@tauri-apps/plugin-fs"), import("@tauri-apps/api/path")]);
   const cloud = await join(await homeDir(), "Library", "CloudStorage");
-  const drives = (await fs.exists(cloud)) ? (await fs.readDir(cloud)).filter((e) => e.name.startsWith("GoogleDrive-")) : [];
+  // Drive leaves "GoogleDrive-<account> (date)" copies behind when an account is re-added; skip those.
+  const drives = (await fs.exists(cloud)) ? (await fs.readDir(cloud)).map((e) => e.name).filter((n) => /^GoogleDrive-[^ ]+$/.test(n)) : [];
   if (!drives.length) return { kind: "unavailable", reason: "Google Drive for desktop isn't set up on this Mac." };
-  const base = await join(cloud, drives[0].name, "My Drive", SYNC_FOLDER_NAME);
-  return { kind: "ready", folder: new MacFolder(base), label: `Google Drive › My Drive › ${SYNC_FOLDER_NAME}` };
+  // With several accounts signed in, use the one where other devices (the phone) already sync.
+  let best = drives[0];
+  let most = -1;
+  for (const d of drives.sort()) {
+    const events = await join(cloud, d, "My Drive", SYNC_FOLDER_NAME, "events");
+    const others = (await fs.exists(events)) ? (await fs.readDir(events)).filter((e) => e.name !== me).length : -1;
+    if (others > most) [best, most] = [d, others];
+  }
+  const base = await join(cloud, best, "My Drive", SYNC_FOLDER_NAME);
+  const account = best.slice("GoogleDrive-".length);
+  return { kind: "ready", folder: new MacFolder(base), label: `Google Drive (${account}) › My Drive › ${SYNC_FOLDER_NAME}` };
 }
 
 /** Android: Google sign-in (account chooser, then Drive consent); resolves true once signed in. */

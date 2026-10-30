@@ -148,6 +148,8 @@ export interface JournalStore {
   /** The file an embed points at: "attachments/<id>/<name>", or a bare file name (any letter case, newest first). */
   findFile(ref: string): Promise<FileRecord | null>;
   fileBytes(id: string): Promise<Uint8Array | null>;
+  /** A URL that streams the file straight from disk (the app only; the browser store has none). */
+  fileSrc?(id: string): Promise<string | null>;
   /** Everything needed to restore the journal: the database (or its JSON in the browser) plus every attachment. */
   exportFiles(): Promise<{ name: string; bytes: Uint8Array }[]>;
   /**

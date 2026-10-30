@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dayKey, dayTitle } from "../lib/timestamp";
 import { docText } from "../lib/words";
 import { MediaPeek, mediaItemsIn } from "../editor/MediaPeek";
@@ -97,15 +97,40 @@ function Countdown({ day }: { day: string }) {
   );
 }
 
+/** "3 Nov": the day in the thin, folded rows. */
+const shortDay = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+
+/** One reminder. Memoised: scrolling only re-renders the rows whose squeeze changed. */
+const UpcomingRow = React.memo(function UpcomingRow({ page, squeezed, stack, onPick }: { page: DayPage; squeezed: boolean; stack: number | null; onPick: (day: string) => void }) {
+  const text = useMemo(() => snippet(page), [page.content]);
+  const media = useMemo(() => mediaItemsIn(page.content), [page.content]);
+  return (
+    <li className={squeezed ? "squeezed" : ""} style={stack !== null ? ({ "--stack": stack } as React.CSSProperties) : undefined}>
+      <button type="button" className="reminder-open" onClick={() => onPick(page.day)}>
+        <span className="reminder-day">{dayTitle(page.day)}</span>
+        <span className="reminder-short">{shortDay(page.day)}</span>
+        <span className="reminder-text">{text}</span>
+        <Countdown day={page.day} />
+      </button>
+      <MediaPeek items={media} />
+    </li>
+  );
+});
+
 /**
  * Reminders still ahead, soonest first. Scrolling the list squeezes the ones that went past the
- * top into thin rows stacked there, so they stay in sight.
+ * top into thin rows stacked there, so they stay in sight. In the month, scrolling folds the whole
+ * list into a thin table: day, text and days left on one line each.
  */
 export function Upcoming({ pages, onPick, title = "Coming up" }: { pages: DayPage[]; onPick: (day: string) => void; title?: string }) {
   const list = useRef<HTMLUListElement>(null);
+  const section = useRef<HTMLElement>(null);
   const [squeezed, setSqueezed] = useState(0);
-  // In the month: once it is scrolled, every reminder folds to two lines (text; dashes + days left).
   const [folded, setFolded] = useState(false);
+  // The app hands a new callback on every render; the rows keep one that never changes.
+  const pick = useRef(onPick);
+  pick.current = onPick;
+  const stablePick = useCallback((day: string) => pick.current(day), []);
   useEffect(() => {
     const ul = list.current;
     const scroller = ul?.closest<HTMLElement>(".upcoming-scroll, .month-calendar");
@@ -116,8 +141,13 @@ export function Upcoming({ pages, onPick, title = "Coming up" }: { pages: DayPag
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         if (inMonth) {
-          // A little hysteresis so it doesn't flip back and forth at the threshold.
-          setFolded((f) => (f ? scroller.scrollTop > 4 : scroller.scrollTop > 24));
+          setFolded((f) => {
+            const next = f ? scroller.scrollTop > 4 : scroller.scrollTop > 24;
+            // Folding makes the list shorter; keep its height while folded so the month can't
+            // jump back to the top (which unfolded it again, over and over).
+            if (next !== f && section.current) section.current.style.minHeight = next ? `${section.current.offsetHeight}px` : "";
+            return next;
+          });
           return;
         }
         const top = scroller.getBoundingClientRect().top;
@@ -137,18 +167,11 @@ export function Upcoming({ pages, onPick, title = "Coming up" }: { pages: DayPag
   }, [pages.length]);
   if (!pages.length) return null;
   return (
-    <section className={folded ? "reminders upcoming folded" : "reminders upcoming"}>
+    <section ref={section} className={folded ? "reminders upcoming folded" : "reminders upcoming"}>
       <h2>{title}</h2>
       <ul ref={list}>
         {pages.map((p, i) => (
-          <li key={p.day} className={!folded && i < squeezed ? "squeezed" : ""} style={i < STACK_MAX ? ({ "--stack": i } as React.CSSProperties) : undefined}>
-            <button type="button" className="reminder-open" onClick={() => onPick(p.day)}>
-              <span className="reminder-day">{dayTitle(p.day)}</span>
-              <span className="reminder-text">{snippet(p)}</span>
-              <Countdown day={p.day} />
-            </button>
-            <MediaPeek items={mediaItemsIn(p.content)} />
-          </li>
+          <UpcomingRow key={p.day} page={p} squeezed={!folded && i < squeezed} stack={!folded && i < STACK_MAX ? i : null} onPick={stablePick} />
         ))}
       </ul>
     </section>

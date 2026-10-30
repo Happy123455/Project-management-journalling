@@ -270,6 +270,7 @@ button:hover { background: var(--panel); }
   white-space: nowrap;
   vertical-align: baseline;
   cursor: default;
+  -webkit-touch-callout: none;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -509,6 +510,8 @@ button:hover { background: var(--panel); }
 .meme-grid { overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; padding: 2px; }
 .meme-tile { position: relative; aspect-ratio: 1; padding: 0; overflow: hidden; border-radius: 12px; }
 .meme-tile img, .meme-tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.meme-noposter { position: absolute; inset: 0; display: grid; place-items: center; font-size: 28px; opacity: 0.6; }
+.meme-cell { content-visibility: auto; contain-intrinsic-size: auto 120px; }
 .meme-name { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 4px; font-size: 10px; color: #fff; background: rgba(0, 0, 0, 0.55); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .meme-badge { position: absolute; top: 4px; left: 4px; padding: 0 5px; font-size: 9px; font-weight: 700; color: #fff; background: rgba(0, 0, 0, 0.6); border-radius: 4px; }
 .meme-sounds { list-style: none; padding: 0; margin: 0; overflow-y: auto; display: grid; gap: 4px; }
@@ -1364,19 +1367,6 @@ button:hover { background: var(--glass-strong); }
 @keyframes peek-zoom { from { transform: scale(0.66); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes peek-fade { from { opacity: 0; } to { opacity: 1; } }
 
-/* Phone: project / person / log boxes use the full width of the screen */
-@media (pointer: coarse) {
-  .editor-body .tiptap > .block-box-head,
-  .editor-body .tiptap > .block-box-body {
-    margin-left: calc(-30px - 16px + env(safe-area-inset-left));
-    margin-right: calc(-16px + env(safe-area-inset-right));
-    border-left: none;
-    border-right: none;
-    border-radius: 0;
-  }
-  .editor-body .tiptap > .block-box-head { padding-left: 16px; }
-  .editor-body .tiptap > .block-box-body:not([data-indent]) { padding-left: 16px; }
-}
 .tap-video { display: block; }
 .tap-video video { display: block; width: 100%; }
 
@@ -1514,7 +1504,7 @@ button:hover { background: var(--lg-sheen), var(--glass-strong); }
 /* Phone: no live blur on anything that scrolls or slides; contain the panels' own scrolling. */
 @media (pointer: coarse) {
   .sidebar, .links-panel, .month-calendar, .year-panel, .keyboard-bar, .reminder-open, .drawer,
-  .year-backdrop.open, .toast, .search-panel, .upcoming-panel {
+  .year-backdrop.open, .toast, .search-panel, .upcoming-panel, .slash-menu, .meme-kit {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
@@ -1523,6 +1513,8 @@ button:hover { background: var(--lg-sheen), var(--glass-strong); }
   .keyboard-bar { background: var(--lg-panel); }
   .reminder-open { background: var(--lg-fill); }
   .toast { background: var(--lg-panel); }
+  .slash-menu, .meme-kit { background: var(--lg-panel); }
+  .slash-popup .slash-menu { animation-duration: 0.25s; }
 }
 .drawer, .year-panel, .upcoming-panel, .settings-panel, .search-panel {
   overscroll-behavior: contain;
@@ -1558,7 +1550,7 @@ html.overlay-open .page { touch-action: none; }
 @media (prefers-color-scheme: dark) { .countdown-weekends { color: #f9a8d4; } }
 
 /* Coming up: rows that scroll past the top squeeze into thin stacked rows that stay visible. */
-.upcoming li[style] { position: sticky; top: calc(var(--stack) * 26px); z-index: calc(10 - var(--stack)); }
+.upcoming-scroll .upcoming li[style] { position: sticky; top: calc(var(--stack) * 26px); z-index: calc(10 - var(--stack)); }
 .upcoming li .reminder-open { transition: padding 0.2s ease; }
 .upcoming li.squeezed .reminder-open { flex-direction: row; gap: 8px; align-items: center; padding: 2px 10px; height: 24px; overflow: hidden; background: var(--lg-sheen), var(--lg-panel); box-shadow: var(--lg-rim), 0 2px 8px rgba(0, 0, 0, 0.12); }
 .upcoming li.squeezed .countdown, .upcoming li.squeezed .reminder-day { display: none; }
@@ -1639,6 +1631,9 @@ html.overlay-open .page { touch-action: none; }
 .yt-embed.yt-fullscreen .yt-full-button { top: calc(env(safe-area-inset-top, 0px) + 10px); left: auto; right: 12px; }
 .yt-embed.yt-fullscreen .media-grip { display: none; }
 html.yt-full-open .month-calendar, html.yt-full-open .keyboard-bar { visibility: hidden; }
+/* While a video is full screen the note under it can't scroll (scrolling there kept the phone
+   re-laying out the page behind the playing video until it hung). */
+html.yt-full-open, html.yt-full-open body { overflow: hidden; overscroll-behavior: none; }
 
 /* Code blocks never push the page wider: long lines scroll sideways inside the block. */
 .tiptap pre, .code-block pre, pre { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
@@ -1667,13 +1662,19 @@ html.yt-full-open .month-calendar, html.yt-full-open .keyboard-bar { visibility:
   max-height: 2.4em; max-width: 12em; overflow: hidden;
 }
 .upcoming .cd-left { display: none; font-size: 0.72rem; font-weight: 700; margin-left: 6px; color: hsl(var(--countdown-hue) 80% 60%); }
-.upcoming.folded li { position: static; }
-.upcoming.folded .reminder-open { padding-top: 4px; padding-bottom: 4px; transition: padding 0.28s ease; }
-.upcoming.folded .reminder-day { max-height: 0; opacity: 0; margin: 0; }
-.upcoming.folded .countdown-days, .upcoming.folded .countdown-weekends { max-width: 0; opacity: 0; padding: 0; margin: 0; border-width: 0; }
-.upcoming.folded .cd-left { display: inline; }
-.upcoming.folded .reminder-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.upcoming.folded .countdown { margin-top: 2px; gap: 0; }
+.upcoming .countdown-bar { transition: max-width 0.28s ease, opacity 0.2s ease; max-width: 40em; }
+.upcoming .reminder-short { display: none; }
+/* Folded: a thin table, one line per reminder (day | text | days left), stacked tight. */
+.upcoming.folded ul { gap: 2px; }
+.upcoming.folded li { position: static; animation: none; }
+.upcoming.folded .reminder-open { flex-direction: row; align-items: center; gap: 8px; padding: 3px 10px; min-height: 26px; transition: padding 0.28s ease; }
+.upcoming.folded .reminder-day { max-height: 0; max-width: 0; opacity: 0; margin: 0; }
+.upcoming.folded .reminder-short { display: inline; flex: none; width: 4.4em; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; animation: fade-in 0.28s ease; }
+.upcoming.folded .countdown-days, .upcoming.folded .countdown-weekends, .upcoming.folded .countdown-bar { max-width: 0; opacity: 0; padding: 0; margin: 0; border-width: 0; overflow: hidden; }
+.upcoming.folded .cd-left { display: inline; min-width: 2.2em; text-align: right; font-variant-numeric: tabular-nums; margin-left: 0; }
+.upcoming.folded .reminder-text { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.upcoming.folded .countdown { margin: 0 0 0 auto; gap: 0; flex: none; flex-wrap: nowrap; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* Small play-only media in previews (Coming up, Mentioned in, Entries, To do). */
 .media-peek { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 2px; line-height: 0; }

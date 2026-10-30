@@ -9,7 +9,7 @@ import { formatTimestamp } from "../lib/timestamp";
 import { LinkHighlight } from "./linkHighlight";
 import { hasEmbeds } from "../lib/embeds";
 import { AttachmentFile, AttachmentImage, AttachmentMedia, insertFiles, mediaLeafText, pasteEmbeds, upgradeOldMedia } from "./attachments";
-import { JournalCodeBlock } from "./codeBlock";
+import { codeBlockFromSelection, JournalCodeBlock } from "./codeBlock";
 import { BlockInfoExtension } from "./blockInfo";
 import { BlockHandle } from "./BlockHandle";
 import { blockIndexAt, Blocks, indentBlock } from "./blocks";
@@ -126,7 +126,7 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
     { key: "bold", label: "B", title: "Bold (Cmd/Ctrl+B)", active: active.bold, run: () => editor.chain().focus().toggleBold().run() },
     { key: "italic", label: "I", title: "Italic (Cmd/Ctrl+I)", active: active.italic, run: () => editor.chain().focus().toggleItalic().run() },
     { key: "highlight", label: "H", title: "Highlight (Cmd/Ctrl+Shift+H)", active: active.highlight, run: () => editor.chain().focus().toggleHighlight().run() },
-    { key: "code", label: "</>", title: "Code block (or type ``` and Enter)", active: active.code, run: () => editor.chain().focus().toggleCodeBlock().run() },
+    { key: "code", label: "</>", title: "Code block (or type ``` and Enter)", active: active.code, run: () => codeBlockFromSelection(editor) },
     { key: "timestamp", label: "🕒", title: "Insert timestamp (Cmd/Ctrl+Shift+T)", run: () => editor.chain().focus().insertContent(formatTimestamp(new Date()) + " ").run() },
     { key: "info", label: "ⓘ", title: "Block info", run: onInfo },
     {
