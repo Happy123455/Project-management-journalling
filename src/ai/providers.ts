@@ -1,5 +1,5 @@
 export type Provider = "gemini" | "claude" | "local";
-export type AiTask = "grammar" | "organise" | "describe";
+export type AiTask = "grammar" | "organise" | "describe" | "chat";
 
 export const PROVIDERS: { id: Provider; name: string; keyHelp: string }[] = [
   { id: "gemini", name: "Gemini", keyHelp: "Create a key at aistudio.google.com → Get API key." },
@@ -20,9 +20,10 @@ export const AI_ACTORS = ["Gemini", "Claude"];
  * stronger one. Gemini names are from Google AI Studio's model list (October 2026).
  */
 export const DEFAULT_MODELS: Record<Provider, Record<AiTask, string>> = {
-  gemini: { grammar: "gemini-3.8-flash", organise: "gemini-3.1-pro-preview", describe: "gemini-3.8-flash" },
-  claude: { grammar: "claude-haiku-5-5", organise: "claude-sonnet-5-5", describe: "claude-haiku-5-5" },
-  local: { grammar: "qwen3:14b", organise: "qwen3:14b", describe: "qwen3:14b" },
+  // Chat journal: a cheap, fast model in the cloud; on the Mac the local model thinks first (free).
+  gemini: { grammar: "gemini-3.8-flash", organise: "gemini-3.1-pro-preview", describe: "gemini-3.8-flash", chat: "gemini-3.5-flash-lite" },
+  claude: { grammar: "claude-haiku-5-5", organise: "claude-sonnet-5-5", describe: "claude-haiku-5-5", chat: "claude-haiku-5-5" },
+  local: { grammar: "qwen3:14b", organise: "qwen3:14b", describe: "qwen3:14b", chat: "qwen3:14b" },
 };
 
 interface Price {

@@ -377,7 +377,7 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
           {s.provider === "local" ? (
             <LocalModelField
               model={modelFor(s, "grammar")}
-              onModel={(m) => update({ models: { ...s.models, local: { grammar: m, organise: m, describe: m } } })}
+              onModel={(m) => update({ models: { ...s.models, local: { grammar: m, organise: m, describe: m, chat: m } } })}
             />
           ) : (
             <KeyField provider={s.provider} />

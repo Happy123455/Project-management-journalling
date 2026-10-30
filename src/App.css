@@ -1726,3 +1726,11 @@ html.yt-full-open .month-calendar, html.yt-full-open .keyboard-bar { visibility:
 /* Graph: the time slider sits well above the phone's home bar. */
 .graph-time { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 36px); }
 .graph-time input[type="range"] { flex: 1; height: 32px; }
+
+/* Chat journal: AI replies on the left. */
+.chat-bubble.ai { align-self: flex-start; border-radius: 16px 16px 16px 4px; background: var(--panel); color: var(--text, inherit); border: 1px solid var(--border); }
+.chat-bubble.ai .chat-time { font-size: 10px; }
+.chat-bubble.thinking { opacity: 0.6; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.3; } }
+.chat-ai { margin-left: auto; font-size: 12px; padding: 4px 10px; border-radius: 999px; }
+.chat-ai.active { border-color: rgb(var(--heat-rgb)); color: rgb(var(--heat-rgb)); }
