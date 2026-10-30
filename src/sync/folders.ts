@@ -4,43 +4,133 @@ export const SYNC_FOLDER_NAME = "Dynamic Journal Sync";
 
 declare global {
   interface Window {
-    /** Android: the picked Google Drive folder (MainActivity.kt SyncBridge). */
+    /** Android: Google Drive sign-in (MainActivity.kt SyncBridge). */
     JournalSync?: {
-      folderName(): string;
-      pick(): void;
-      list(path: string): string;
-      read(path: string): string;
-      write(path: string, data: string): boolean;
-      exists(path: string): boolean;
+      driveToken(id: string, interactive: boolean): void;
     };
-    __journalSyncPicked?: (ok: boolean) => void;
+    __journalDriveToken?: (id: string, token: string) => void;
   }
 }
 
-const toB64 = (bytes: Uint8Array) => {
-  let s = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(s);
+const waiting = new Map<string, (token: string) => void>();
+let nextRequest = 0;
+
+/** Android: a Google Drive access token, or "" when Hapi hasn't signed in (or cancelled). */
+function driveToken(interactive: boolean): Promise<string> {
+  window.__journalDriveToken ??= (id, token) => {
+    waiting.get(id)?.(token);
+    waiting.delete(id);
+  };
+  const id = String(++nextRequest);
+  return new Promise((resolve) => {
+    waiting.set(id, resolve);
+    window.JournalSync?.driveToken(id, interactive);
+  });
+}
+
+const API = "https://www.googleapis.com/drive/v3/files";
+const UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
+const FOLDER = "application/vnd.google-apps.folder";
+/** Drive folder ids by path relative to the sync folder ("" is the sync folder itself); they never change. */
+const folderIds = new Map<string, string>();
+
+const quote = (name: string) => `'${name.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+const split = (path: string): [string, string] => {
+  const i = path.lastIndexOf("/");
+  return i < 0 ? ["", path] : [path.slice(0, i), path.slice(i + 1)];
 };
 
-/** Android: the folder Hapi picked once in the system picker (Google Drive appears there). */
-class AndroidFolder implements SyncFolder {
-  constructor(private bridge: NonNullable<Window["JournalSync"]>) {}
-  async list(dir: string) {
-    return JSON.parse(this.bridge.list(dir)) as string[];
+/** Android: "Dynamic Journal Sync" in My Drive, through the Drive API (the Mac sees the same folder). */
+export class DriveFolder implements SyncFolder {
+  constructor(private token: string) {}
+
+  private async call(url: string, init: RequestInit = {}): Promise<Response> {
+    const res = await fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${this.token}` } });
+    if (res.status === 401) throw new Error("Google Drive sign-in expired. Tap Sync now to sign in again.");
+    if (!res.ok && res.status !== 404) throw new Error(`Google Drive said ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    return res;
   }
-  async read(path: string) {
-    const data = this.bridge.read(path);
-    return data === "!" ? null : Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+
+  private async search(q: string, fields: string): Promise<{ id: string; name: string }[]> {
+    const found: { id: string; name: string }[] = [];
+    let pageToken = "";
+    do {
+      const params = new URLSearchParams({ q: `${q} and trashed = false`, fields: `nextPageToken, files(${fields})`, pageSize: "1000" });
+      if (pageToken) params.set("pageToken", pageToken);
+      const page = await (await this.call(`${API}?${params}`)).json();
+      found.push(...page.files);
+      pageToken = page.nextPageToken ?? "";
+    } while (pageToken);
+    return found;
   }
-  async write(path: string, bytes: Uint8Array) {
-    if (!this.bridge.write(path, toB64(bytes))) {
-      // Usually Drive refusing new files in that place (Shared with me, Computers, a Drive shortcut…).
-      throw new Error("This folder doesn't let the app add files. Choose a folder inside My Drive instead.");
+
+  private async child(parent: string, name: string, folder = false): Promise<string | null> {
+    const kind = folder ? ` and mimeType = '${FOLDER}'` : ` and mimeType != '${FOLDER}'`;
+    return (await this.search(`${quote(parent)} in parents and name = ${quote(name)}${kind}`, "id"))[0]?.id ?? null;
+  }
+
+  /** The folder's id, creating it (and its parents) when asked. */
+  private async dir(path: string, create: boolean): Promise<string | null> {
+    const known = folderIds.get(path);
+    if (known) return known;
+    const [up, name] = path ? split(path) : ["", SYNC_FOLDER_NAME];
+    const parent = path ? await this.dir(up, create) : "root";
+    if (!parent) return null;
+    let id = await this.child(parent, name, true);
+    if (!id && create) {
+      const res = await this.call(`${API}?fields=id`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, mimeType: FOLDER, parents: [parent] }),
+      });
+      id = (await res.json()).id as string;
     }
+    if (id) folderIds.set(path, id);
+    return id;
   }
+
+  private async file(path: string): Promise<string | null> {
+    const [up, name] = split(path);
+    const parent = await this.dir(up, false);
+    return parent ? this.child(parent, name) : null;
+  }
+
+  async list(dir: string) {
+    const id = await this.dir(dir, false);
+    return id ? (await this.search(`${quote(id)} in parents`, "id, name")).map((f) => f.name) : [];
+  }
+
+  async read(path: string) {
+    const id = await this.file(path);
+    if (!id) return null;
+    const res = await this.call(`${API}/${id}?alt=media`);
+    return res.ok ? new Uint8Array(await res.arrayBuffer()) : null;
+  }
+
+  async write(path: string, bytes: Uint8Array) {
+    const [up, name] = split(path);
+    const parent = (await this.dir(up, true))!;
+    const id = await this.child(parent, name);
+    if (id) {
+      await this.call(`${UPLOAD}/${id}?uploadType=media`, { method: "PATCH", body: new Blob([bytes as BlobPart]) });
+      return;
+    }
+    const boundary = `journal${Date.now()}`;
+    const body = new Blob([
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name, parents: [parent] })}\r\n`,
+      `--${boundary}\r\nContent-Type: application/octet-stream\r\n\r\n`,
+      bytes as BlobPart,
+      `\r\n--${boundary}--`,
+    ]);
+    await this.call(`${UPLOAD}?uploadType=multipart&fields=id`, {
+      method: "POST",
+      headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+      body,
+    });
+  }
+
   async exists(path: string) {
-    return this.bridge.exists(path);
+    return (await this.file(path)) !== null;
   }
 }
 
@@ -71,16 +161,15 @@ class MacFolder implements SyncFolder {
 
 export type FolderLookup =
   | { kind: "ready"; folder: SyncFolder; label: string }
-  /** Android, nothing picked yet: ask Hapi to choose the Drive folder. */
+  /** Android, not signed in to Google Drive yet. */
   | { kind: "pick" }
   | { kind: "unavailable"; reason: string };
 
 /** Finds the sync folder for this device. */
 export async function findSyncFolder(): Promise<FolderLookup> {
-  const bridge = window.JournalSync;
-  if (bridge) {
-    const name = bridge.folderName();
-    return name ? { kind: "ready", folder: new AndroidFolder(bridge), label: `Google Drive › ${name}` } : { kind: "pick" };
+  if (window.JournalSync) {
+    const token = await driveToken(false);
+    return token ? { kind: "ready", folder: new DriveFolder(token), label: `Google Drive › My Drive › ${SYNC_FOLDER_NAME}` } : { kind: "pick" };
   }
   if (!("__TAURI_INTERNALS__" in window)) return { kind: "unavailable", reason: "Sync runs in the app." };
   const [fs, { homeDir, join }] = await Promise.all([import("@tauri-apps/plugin-fs"), import("@tauri-apps/api/path")]);
@@ -91,13 +180,7 @@ export async function findSyncFolder(): Promise<FolderLookup> {
   return { kind: "ready", folder: new MacFolder(base), label: `Google Drive › My Drive › ${SYNC_FOLDER_NAME}` };
 }
 
-/** Android: opens the system folder picker; resolves when Hapi has chosen (true) or cancelled. */
-export function pickSyncFolder(): Promise<boolean> {
-  return new Promise((resolve) => {
-    window.__journalSyncPicked = (ok) => {
-      delete window.__journalSyncPicked;
-      resolve(ok);
-    };
-    window.JournalSync?.pick();
-  });
+/** Android: Google sign-in (account chooser, then Drive consent); resolves true once signed in. */
+export async function pickSyncFolder(): Promise<boolean> {
+  return !!(await driveToken(true));
 }
