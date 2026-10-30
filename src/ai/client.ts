@@ -38,6 +38,9 @@ export interface AiAnswer<T = unknown> {
 
 const GEMINI = "https://generativelanguage.googleapis.com/v1beta";
 
+/** Tried in order when the chosen Gemini model is busy or rate-limited. */
+const GEMINI_FALLBACKS = ["gemini-3.6-flash", "gemini-2.5-flash"];
+
 /** A Gemini API error as a short readable message. */
 async function geminiError(res: Response): Promise<Error> {
   let message = `${res.status} ${res.statusText}`;
@@ -60,7 +63,7 @@ async function callGemini(key: string, model: string, req: AiRequest) {
   // In the app, through Tauri's native HTTP: the Android WebView's own fetch to Google can hang
   // (a cross-site request with a key header). A stalled connection still ends in an error.
   const http = "__TAURI_INTERNALS__" in window ? (await import("@tauri-apps/plugin-http")).fetch : fetch;
-  const send = () => http(`${GEMINI}/models/${encodeURIComponent(model)}:generateContent`, {
+  const send = (model: string) => http(`${GEMINI}/models/${encodeURIComponent(model)}:generateContent`, {
     // Each attempt gets its own time limit.
     signal: AbortSignal.timeout(req.task === "organise" ? 90_000 : 25_000),
     method: "POST",
@@ -75,11 +78,17 @@ async function callGemini(key: string, model: string, req: AiRequest) {
     }),
   });
   // "High demand" (503) or a rate limit (429) usually passes in seconds: try twice more.
-  let res = await send();
+  // If it stays busy, fall back to the older Flash models (also free-tier).
+  const busy = (r: Response) => r.status === 503 || r.status === 429;
+  let res = await send(model);
   for (const wait of [2000, 5000]) {
-    if (res.status !== 503 && res.status !== 429) break;
+    if (!busy(res)) break;
     await new Promise((r) => setTimeout(r, wait));
-    res = await send();
+    res = await send(model);
+  }
+  for (const fallback of GEMINI_FALLBACKS.filter((m) => m !== model)) {
+    if (!busy(res)) break;
+    res = await send(fallback);
   }
   if (!res.ok) throw await geminiError(res);
   const body = await res.json();

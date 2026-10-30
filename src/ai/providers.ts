@@ -20,7 +20,7 @@ export const AI_ACTORS = ["Gemini", "Claude"];
  * stronger one. Gemini names are from Google AI Studio's model list (October 2026).
  */
 export const DEFAULT_MODELS: Record<Provider, Record<AiTask, string>> = {
-  gemini: { grammar: "gemini-3.8-flash", organise: "gemini-3.1-pro-preview", describe: "gemini-3.8-flash" },
+  gemini: { grammar: "gemini-3.8-flash", organise: "gemini-3.8-flash", describe: "gemini-3.8-flash" },
   claude: { grammar: "claude-haiku-5-5", organise: "claude-sonnet-5-5", describe: "claude-haiku-5-5" },
   local: { grammar: "qwen3:14b", organise: "qwen3:14b", describe: "qwen3:14b" },
 };
