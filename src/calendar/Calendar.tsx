@@ -97,21 +97,42 @@ interface MonthProps {
   shading: Shading;
   today: string;
   collapsed: boolean;
-  onToggle: () => void;
+  /** Folded further to a thin bar while typing. */
+  compact?: boolean;
+  /** Open (true) or fold (false) the month; no argument flips it. */
+  onToggle: (open?: boolean) => void;
   onPick: (day: string) => void;
   onOpenYear: () => void;
 }
 
 /** Month heat map at the top of the page; shrinks to the current week while writing. */
-export function MonthCalendar({ day, shading, today, collapsed, onToggle, onPick, onOpenYear, actions, below }: MonthProps & { actions?: React.ReactNode; below?: React.ReactNode }) {
+export function MonthCalendar({ day, shading, today, collapsed, compact, onToggle, onPick, onOpenYear, actions, below }: MonthProps & { actions?: React.ReactNode; below?: React.ReactNode }) {
   const [year, month] = day.split("-").map(Number);
+  // Pull the strip down to open the month, push the month up to fold it.
+  const drag = useRef<{ y: number; x: number } | null>(null);
   return (
     // While shrunk to one week, a tap anywhere on it opens the whole month (days can't be picked yet).
     <section
-      className={`month-calendar${collapsed ? " collapsed" : ""}${shading.search ? " search-mode" : ""}`}
-      onClick={collapsed ? onToggle : undefined}
+      className={`month-calendar${collapsed ? " collapsed" : ""}${compact ? " compact" : ""}${shading.search ? " search-mode" : ""}`}
+      onClick={collapsed ? () => onToggle(true) : undefined}
+      onTouchStart={(e) => (drag.current = { y: e.touches[0].clientY, x: e.touches[0].clientX })}
+      onTouchEnd={(e) => {
+        const start = drag.current;
+        drag.current = null;
+        if (!start) return;
+        const dy = e.changedTouches[0].clientY - start.y;
+        if (Math.abs(dy) < 30 || Math.abs(dy) < Math.abs(e.changedTouches[0].clientX - start.x) * 1.5) return;
+        if (dy > 0 && collapsed) onToggle(true);
+        // Not while the month's own list is being scrolled.
+        else if (dy < 0 && !collapsed && !(e.target as HTMLElement).closest?.(".reminders")) onToggle(false);
+      }}
     >
-      <div className="cal-bar">
+      {/* The whole bar is one big target: tap anywhere on it (not a button) to open or fold. */}
+      <div className="cal-bar" onClick={(e) => {
+        if (collapsed || (e.target as HTMLElement).closest("button")) return;
+        e.stopPropagation();
+        onToggle(false);
+      }}>
         <button
           type="button"
           className="cal-title"
@@ -131,6 +152,7 @@ export function MonthCalendar({ day, shading, today, collapsed, onToggle, onPick
         )}
         <button
           type="button"
+          className="cal-year"
           onClick={(e) => {
             e.stopPropagation();
             onOpenYear();
@@ -140,6 +162,7 @@ export function MonthCalendar({ day, shading, today, collapsed, onToggle, onPick
         </button>
       </div>
       <MonthGrid
+        key={collapsed ? "week" : "month"}
         year={year}
         month={month - 1}
         counts={shading.counts}
@@ -165,10 +188,12 @@ interface YearProps {
   onClose: () => void;
   onPick: (day: string) => void;
   onYear: (year: number) => void;
+  /** Swipe left on the year: everything coming up. */
+  onUpcoming?: () => void;
 }
 
 /** Slide-in panel with all twelve months; shades are relative to the busiest day of the year. */
-export function YearPanel({ year, day, shading, today, open, onClose, onPick, onYear }: YearProps) {
+export function YearPanel({ year, day, shading, today, open, onClose, onPick, onYear, onUpcoming }: YearProps) {
   const max = maxFor(shading, String(year), today);
   const touch = useRef<{ x: number; y: number } | null>(null);
 
@@ -192,13 +217,16 @@ export function YearPanel({ year, day, shading, today, open, onClose, onPick, on
           if (!start) return;
           const dx = e.changedTouches[0].clientX - start.x;
           const dy = e.changedTouches[0].clientY - start.y;
-          if (dx > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) onClose();
+          if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+          if (dx > 0) onClose();
+          else onUpcoming?.();
         }}
       >
         <header className="year-header">
           <button type="button" onClick={() => onYear(year - 1)} aria-label="Previous year">‹</button>
           <h2>{year}</h2>
           <button type="button" onClick={() => onYear(year + 1)} aria-label="Next year">›</button>
+          {onUpcoming && <button type="button" className="year-upcoming" onClick={onUpcoming} aria-label="Coming up">Coming up ›</button>}
           <button type="button" className="close" onClick={onClose} aria-label="Close year view">✕</button>
         </header>
         {/* Twelve months are only drawn while the year view is open. */}

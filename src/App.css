@@ -1448,3 +1448,176 @@ html.bubble-window body::before { display: none; }
 .mac-capture textarea { flex: 1; min-height: 60px; resize: none; font: inherit; color: inherit; background: transparent; border: 1px solid var(--border, #444); border-radius: 10px; padding: 8px; }
 .mac-capture-clip { display: grid; gap: 6px; }
 .mac-capture-actions { display: flex; align-items: center; justify-content: space-between; }
+
+/* ───────────── Batch 5: smooth + liquid glass v2 ─────────────
+   Smoothness first: the colour wash sits on its own fixed layer (no repaint per scroll), no
+   per-button GPU layers, and on the phone the big moving surfaces fake their glass with layered
+   gradients and rims instead of a live blur (a blur re-renders on every scrolled frame). */
+:root {
+  --lg-fill: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.56));
+  --lg-sheen: radial-gradient(120% 70% at 50% -10%, rgba(255, 255, 255, 0.75), transparent 60%);
+  --lg-rim: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(255, 255, 255, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+  --lg-drop: 0 8px 24px rgba(60, 40, 110, 0.12), 0 1px 2px rgba(30, 20, 60, 0.08);
+  --lg-panel: color-mix(in srgb, var(--bg) 93%, transparent);
+  --lg-press: rgba(var(--heat-rgb), 0.12);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --lg-fill: linear-gradient(180deg, rgba(70, 66, 92, 0.62), rgba(38, 36, 52, 0.62));
+    --lg-sheen: radial-gradient(120% 70% at 50% -10%, rgba(255, 255, 255, 0.14), transparent 60%);
+    --lg-rim: inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.25), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    --lg-drop: 0 10px 28px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+    --lg-panel: color-mix(in srgb, var(--bg) 95%, transparent);
+  }
+}
+
+body { background: var(--bg); background-attachment: scroll; }
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60vmax 50vmax at 10% -10%, var(--wash-1), transparent 70%),
+    radial-gradient(50vmax 45vmax at 110% 30%, var(--wash-2), transparent 70%),
+    radial-gradient(55vmax 40vmax at 30% 120%, var(--wash-3), transparent 70%);
+}
+#root { position: relative; z-index: 0; }
+
+/* Glass controls: gradient body, a bright top rim, a soft drop. Pills for small ones. */
+button {
+  background: var(--lg-sheen), var(--lg-fill);
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  box-shadow: var(--lg-rim), var(--lg-drop);
+  will-change: auto;
+}
+button:hover { background: var(--lg-sheen), var(--glass-strong); }
+@media (prefers-reduced-motion: no-preference) {
+  button, .ts-chip { will-change: auto; transition: transform 0.4s var(--spring), background-color 0.2s, box-shadow 0.2s; }
+  button:active { transform: scale(0.94); box-shadow: var(--lg-rim), 0 2px 6px rgba(0, 0, 0, 0.1); transition-duration: 0.06s; }
+  @media (hover: none) { button:hover { transform: none; } }
+}
+.cal-day, .day-list button, .cal-bar .cal-title, .tool { box-shadow: none; }
+.cal-day { background: var(--heat-empty); background-image: linear-gradient(rgba(var(--heat-rgb), var(--heat)), rgba(var(--heat-rgb), var(--heat))); }
+
+/* Menu: big rounded rows. */
+.sidebar-actions { gap: 8px; }
+.sidebar-actions button { padding: 11px 14px; font-size: 14px; border-radius: 16px; }
+.drawer h2 { letter-spacing: 0.06em; }
+.drawer .day-list button.active, .day-list button.active { background: var(--lg-sheen), var(--lg-fill); box-shadow: var(--lg-rim); border-radius: 12px; }
+.settings-section, .project-panel, .sync-status { background: var(--lg-sheen), var(--lg-fill); box-shadow: var(--lg-rim), var(--lg-drop); border-radius: 20px; }
+.panel-tabs, .media-scope { gap: 6px; }
+.panel-tabs button, .media-scope button { border-radius: 999px; }
+
+/* Phone: no live blur on anything that scrolls or slides; contain the panels' own scrolling. */
+@media (pointer: coarse) {
+  .sidebar, .links-panel, .month-calendar, .year-panel, .keyboard-bar, .reminder-open, .drawer,
+  .year-backdrop.open, .toast, .search-panel, .upcoming-panel {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  .month-calendar { background: var(--lg-sheen), var(--lg-panel); box-shadow: var(--lg-rim), var(--lg-drop); }
+  .drawer, .year-panel { background: var(--lg-sheen), var(--lg-panel); box-shadow: var(--lg-rim), 0 0 40px rgba(0, 0, 0, 0.25); }
+  .keyboard-bar { background: var(--lg-panel); }
+  .reminder-open { background: var(--lg-fill); }
+  .toast { background: var(--lg-panel); }
+}
+.drawer, .year-panel, .upcoming-panel, .settings-panel, .search-panel {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  contain: layout paint;
+}
+.drawer, .year-panel, .upcoming-panel { transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+/* A menu or sheet is open: the note behind it stays still. */
+html.overlay-open, html.overlay-open body { overflow: hidden; overscroll-behavior: none; }
+html.overlay-open .page { touch-action: none; }
+
+/* Week strip → thin bar while typing; the whole bar is a tap target. */
+.cal-bar { min-height: 34px; cursor: pointer; }
+.month-calendar { transition: padding 0.25s ease; }
+.month-calendar.compact { padding: 4px 10px; }
+.month-calendar.compact .cal-bar { margin-bottom: 3px; min-height: 28px; }
+.month-calendar.compact .cal-year, .month-calendar.compact .month-grid .weekday { display: none; }
+.month-calendar.compact .cal-day { aspect-ratio: auto; height: 6px; font-size: 0; border-radius: 3px; border-width: 0; }
+.month-calendar.compact .cal-day.selected { outline: 2px solid rgb(var(--heat-rgb)); outline-offset: 1px; }
+.month-calendar.compact .cal-actions button { height: 26px; }
+@media (prefers-reduced-motion: no-preference) {
+  .month-calendar .month-grid { animation: cal-open 0.28s cubic-bezier(0.22, 1, 0.36, 1); transform-origin: top; }
+  @keyframes cal-open { from { opacity: 0.4; transform: scaleY(0.85); } to { opacity: 1; transform: none; } }
+}
+
+/* Countdown: dashes per day, weekends as ovals (a Sat + Sun pair share one). */
+.countdown { flex-wrap: wrap; row-gap: 4px; }
+.countdown-bar { display: inline-flex; align-items: center; gap: 2px; -webkit-text-fill-color: initial; color: inherit; background: none; }
+.countdown-bar .cd-day { display: block; width: 6px; height: 3px; border-radius: 2px; background: hsl(var(--countdown-hue) 85% 62%); }
+.cd-weekend { display: inline-flex; gap: 2px; align-items: center; padding: 2px 3px; border-radius: 999px; border: 1.5px solid #f472b6; background: rgba(244, 114, 182, 0.16); }
+.cd-weekend i { display: block; width: 5px; height: 5px; border-radius: 50%; background: #f472b6; }
+.countdown-weekends { flex: none; font-size: 0.72rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; color: #db2777; background: rgba(244, 114, 182, 0.14); border: 1px solid rgba(244, 114, 182, 0.4); }
+@media (prefers-color-scheme: dark) { .countdown-weekends { color: #f9a8d4; } }
+
+/* Coming up: rows that scroll past the top squeeze into thin stacked rows that stay visible. */
+.upcoming li[style] { position: sticky; top: calc(var(--stack) * 26px); z-index: calc(10 - var(--stack)); }
+.upcoming li .reminder-open { transition: padding 0.2s ease; }
+.upcoming li.squeezed .reminder-open { flex-direction: row; gap: 8px; align-items: center; padding: 2px 10px; height: 24px; overflow: hidden; background: var(--lg-sheen), var(--lg-panel); box-shadow: var(--lg-rim), 0 2px 8px rgba(0, 0, 0, 0.12); }
+.upcoming li.squeezed .countdown, .upcoming li.squeezed .reminder-day { display: none; }
+.upcoming li.squeezed .reminder-text { font-size: 12px; }
+.upcoming-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(100vw, 520px); z-index: 12;
+  display: flex; flex-direction: column;
+  padding: 12px; padding-top: max(12px, calc(env(safe-area-inset-top) + 8px));
+  background: var(--lg-sheen), var(--lg-panel); box-shadow: var(--lg-rim), 0 0 40px rgba(0, 0, 0, 0.25);
+  transform: translateX(102%);
+}
+.upcoming-panel.open { transform: none; }
+.upcoming-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+.year-upcoming { margin-left: auto; border-radius: 999px; font-size: 13px; }
+.year-header .year-upcoming + .close { margin-left: 0; }
+
+/* Video hit box: a rim around the player selects it; the grip does too. */
+.tap-video.with-grip, .yt-embed {
+  position: relative;
+  display: block;
+  padding: 10px;
+  border-radius: 18px;
+  background: var(--lg-sheen), var(--lg-fill);
+  box-shadow: var(--lg-rim), var(--lg-drop);
+  cursor: pointer;
+}
+.tap-video.with-grip video { border-radius: 10px; }
+.media-grip {
+  position: absolute; top: -8px; left: -8px; z-index: 2;
+  width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  font-size: 15px; line-height: 1;
+}
+.attach-image.selected .tap-video, .attach-image.selected .yt-embed { outline: 2px solid rgb(var(--heat-rgb)); outline-offset: 1px; }
+/* YouTube player, ![](link) */
+.attach-image:has(.yt-embed) { min-width: 200px; }
+.attach-image:has(.yt-embed):not([style*="width"]) { width: min(100%, 560px); }
+.yt-embed iframe { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 10px; background: #000; }
+.attach-image.dragging iframe, .attach-image.selected iframe { pointer-events: none; }
+
+/* Media tab: pick several, add them, or hold and drag into the note. */
+.media-tile { position: relative; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.media-tile.picked { outline: 3px solid rgb(var(--heat-rgb)); outline-offset: -3px; }
+.media-check { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 800; color: #fff; background: rgba(0, 0, 0, 0.35); border: 2px solid #fff; }
+.media-tile.picked .media-check { background: rgb(var(--heat-rgb)); }
+.media-add { position: sticky; bottom: 8px; width: 100%; margin-top: 10px; padding: 10px; border-radius: 999px; font-weight: 700; color: #fff; background: rgb(var(--heat-rgb)); }
+.media-ghost { position: fixed; left: 0; top: 0; z-index: 80; width: 68px; height: 68px; border-radius: 20px; display: grid; place-items: center; font-size: 24px; font-weight: 800; pointer-events: none; background: var(--lg-sheen), var(--lg-fill); box-shadow: var(--lg-rim), 0 12px 30px rgba(0, 0, 0, 0.3); }
+
+/* "/" Project: existing ones first, as big tiles */
+.project-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; max-height: 40vh; overflow-y: auto; margin-bottom: 12px; overscroll-behavior: contain; }
+.project-pick button { padding: 12px 10px; text-align: left; border-radius: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-pick button.done { opacity: 0.6; }
+
+/* "/" Prompt builder: your words on top, the choice in between, the ready prompt below. */
+.prompt-builder { background: var(--lg-sheen), var(--lg-fill); box-shadow: var(--lg-rim), var(--lg-drop); border-radius: 20px; }
+.prompt-modes { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+.prompt-modes button { border-radius: 999px; font-size: 13px; padding: 6px 12px; }
+.prompt-modes button.active { color: rgb(var(--heat-rgb)); border-color: rgb(var(--heat-rgb)); }
+.prompt-convert { margin-left: auto; font-weight: 700; color: #fff !important; background: rgb(var(--heat-rgb)) !important; }
+.prompt-output-box { position: relative; }
+.prompt-output { margin-top: 0; padding-bottom: 40px; background: rgba(var(--heat-rgb), 0.06); }
+.prompt-copy { position: absolute; right: 8px; bottom: 8px; border-radius: 999px; font-weight: 700; }
+.prompt-error { color: #ef4444; }

@@ -87,6 +87,7 @@ function mediaData(attrs: Record<string, unknown>) {
 
 /** Media blocks as Obsidian-style embeds in copied plain text: ![[attachments/<id>/<name>]]. */
 export function mediaLeafText(node: PMNode): string {
+  if (node.type.name === "youtubeEmbed") return `![${node.attrs.width ? `|${node.attrs.width}` : ""}](${node.attrs.url})`;
   if (!["attachmentImage", "attachmentMedia", "attachmentFile"].includes(node.type.name)) return "";
   return embedText(node.attrs.fileId, node.attrs.name || "file", node.attrs.width);
 }
@@ -229,11 +230,11 @@ export const mediaNodeViewOptions = {
   stopEvent: ({ event }: { event: Event }) =>
     // Taps on a video or audio player go to the player: they play it without moving the cursor or
     // opening the keyboard.
-    !!(event.target as HTMLElement | null)?.closest?.(".attach-resize, .attach-toolbar, .attach-draggable, video, audio, canvas, .audio-pill, .peek-host, .tap-video"),
+    !!(event.target as HTMLElement | null)?.closest?.(".attach-resize, .attach-toolbar, .attach-draggable, video, audio, canvas, iframe, .audio-pill, .peek-host, .tap-video, .yt-embed"),
 };
 
 /** Shared frame for photos, videos and PDFs: width, placement, the resize handle and the placement toolbar. */
-function PlacedMedia({ node, updateAttributes, selected, editor, getPos, children }: NodeViewProps & { children: ReactNode }) {
+export function PlacedMedia({ node, updateAttributes, selected, editor, getPos, children }: NodeViewProps & { children: ReactNode }) {
   const { width, align, x, y } = node.attrs as { width: number | null; align: Align; x: number; y: number };
   const box = useRef<HTMLSpanElement>(null);
   const bar = useRef<HTMLSpanElement>(null);
@@ -372,7 +373,7 @@ function ImageView(props: NodeViewProps) {
   );
 }
 
-const placementAttributes = () => ({
+export const placementAttributes = () => ({
   fileId: { default: null, parseHTML: (el: HTMLElement) => el.getAttribute("data-file-id") },
   name: { default: "image", parseHTML: (el: HTMLElement) => el.getAttribute("data-name") ?? "image" },
   width: { default: null, parseHTML: (el: HTMLElement) => Number(el.getAttribute("data-width")) || null },
@@ -453,7 +454,7 @@ function PdfPreview({ fileId, name }: { fileId: string; name: string }) {
 }
 
 /** Selects a media node without focusing the text (no keyboard) or scrolling. */
-function selectMedia({ editor, getPos }: NodeViewProps) {
+export function selectMedia({ editor, getPos }: NodeViewProps) {
   const pos = getPos();
   if (typeof pos === "number" && editor.isEditable) editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)));
 }
@@ -489,7 +490,7 @@ function MediaView(props: NodeViewProps) {
             <LoopingClip src={url} />
           </PeekOnDoubleTap>
         ) : (
-                    <TapVideo src={url} />
+          <TapVideo src={url} onSelect={() => selectMedia(props)} />
         )
       ) : (
         <span className="attach-missing">{failed ? "Video not found" : "Loading…"}</span>
@@ -545,7 +546,7 @@ function FileView(props: NodeViewProps) {
             <LoopingClip src={url} />
           </PeekOnDoubleTap>
         ) : (
-                    <TapVideo src={url} />
+          <TapVideo src={url} onSelect={() => selectMedia(props)} />
         )
       ) : (
         <button type="button" className="attach-file-card" contentEditable={false} onClick={() => void openFile(fileId)}>

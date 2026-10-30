@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { askAi } from "../ai/client";
 import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { fillPrompt, promptFields } from "../lib/prompt";
 import { showToast } from "../lib/toast";
@@ -6,8 +7,106 @@ import { copyText } from "./codeBlock";
 
 const EXAMPLE = "Write a {{tone}} message to {{person}} about {{topic}}. Keep it under {{length}} words.";
 
-/** "/" Prompt: a reusable prompt with {{fields}}; fill them in and Copy the finished prompt. No AI is called. */
-function PromptView({ node, updateAttributes, editor }: NodeViewProps) {
+type Mode = "grammar" | "refine";
+
+const BRACES = "Words inside {curly braces} describe a word the writer couldn't find: replace each with the single best word or phrase for it (no braces left).";
+const SYSTEM: Record<Mode, string> = {
+  grammar: `Fix only spelling, grammar and punctuation in the user's text. Keep their wording, meaning, tone and language. ${BRACES} Reply with the corrected text only.`,
+  refine:
+    "You turn a person's rough description of the prompt they want into a ready-to-use prompt they will paste into another AI. " +
+    "Understand what they are really after, then write it as one short, refined prompt: the task, the context that matters, key constraints and the output they want. " +
+    `${BRACES} Keep it tight, in the second person to the AI, in the user's language. Reply with the prompt only: no title, no quotes, no notes.`,
+};
+
+/** AI answers can come wrapped in quotes, a code fence or a thinking block; keep just the prompt. */
+export function cleanAnswer(text: string): string {
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/g, "")
+    .trim()
+    .replace(/^```[\w-]*\n([\s\S]*?)\n```$/, "$1")
+    .replace(/^"([\s\S]*)"$/, "$1")
+    .trim();
+}
+
+/**
+ * "/" Prompt: write roughly what you want on top (with {a word you can't find} in braces), pick
+ * "Fix grammar" or "Make it a good prompt", and the AI writes the ready prompt below, with Copy.
+ */
+function PromptBuilder({ node, updateAttributes, editor }: NodeViewProps) {
+  const { title, raw, mode, output } = node.attrs as { title: string; raw: string; mode: Mode; output: string };
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const readOnly = !editor.isEditable;
+  const convert = async () => {
+    if (!raw.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const answer = await askAi({ task: mode === "grammar" ? "grammar" : "organise", system: SYSTEM[mode], text: raw, maxTokens: 1200 });
+      updateAttributes({ output: cleanAnswer(answer.text) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <NodeViewWrapper className="prompt-block prompt-builder" data-drag-handle="">
+      <div className="prompt-head" contentEditable={false}>
+        <span aria-hidden>🧩</span>
+        <input className="prompt-title" value={title} placeholder="Prompt name" readOnly={readOnly} onChange={(e) => updateAttributes({ title: e.target.value })} />
+      </div>
+      <textarea
+        className="prompt-template prompt-raw"
+        value={raw}
+        rows={4}
+        readOnly={readOnly}
+        placeholder="Describe what you want the prompt to do. Can't find a word? Describe it in {curly braces}."
+        onChange={(e) => updateAttributes({ raw: e.target.value })}
+      />
+      <div className="prompt-modes" contentEditable={false} role="radiogroup" aria-label="What to do">
+        {(
+          [
+            ["grammar", "✏️ Only fix grammar"],
+            ["refine", "✨ Make it a good prompt"],
+          ] as const
+        ).map(([m, label]) => (
+          <button key={m} type="button" role="radio" aria-checked={mode === m} className={mode === m ? "active" : ""} disabled={readOnly} onClick={() => updateAttributes({ mode: m })}>
+            {label}
+          </button>
+        ))}
+        <button type="button" className="prompt-convert" disabled={readOnly || busy || !raw.trim()} onClick={() => void convert()}>
+          {busy ? "Writing…" : "↓ Convert"}
+        </button>
+      </div>
+      {error && <p className="hint prompt-error">{error}</p>}
+      <div className="prompt-output-box">
+        <textarea
+          className="prompt-template prompt-output"
+          value={output}
+          rows={Math.min(14, Math.max(4, output.split("\n").length + 1))}
+          readOnly={readOnly}
+          placeholder="The ready-to-go prompt appears here."
+          onChange={(e) => updateAttributes({ output: e.target.value })}
+        />
+        <button
+          type="button"
+          className="prompt-copy"
+          disabled={!output.trim()}
+          onClick={async () => {
+            await copyText(output);
+            showToast("Prompt copied");
+          }}
+        >
+          📋 Copy
+        </button>
+      </div>
+    </NodeViewWrapper>
+  );
+}
+
+/** Older prompt blocks: a reusable template with {{fields}}; fill them in and Copy. */
+function PromptTemplateView({ node, updateAttributes, editor }: NodeViewProps) {
   const { title, template, values } = node.attrs as { title: string; template: string; values: Record<string, string> };
   const [editing, setEditing] = useState(!template);
   const fields = promptFields(template);
@@ -63,6 +162,10 @@ function PromptView({ node, updateAttributes, editor }: NodeViewProps) {
   );
 }
 
+function PromptView(props: NodeViewProps) {
+  return props.node.attrs.template && !props.node.attrs.raw ? <PromptTemplateView {...props} /> : <PromptBuilder {...props} />;
+}
+
 export const PromptBlock = Node.create({
   name: "promptBlock",
   group: "block",
@@ -72,6 +175,9 @@ export const PromptBlock = Node.create({
     return {
       title: { default: "", parseHTML: (el) => el.getAttribute("data-title") ?? "" },
       template: { default: "", parseHTML: (el) => el.getAttribute("data-template") ?? el.textContent ?? "" },
+      raw: { default: "", parseHTML: (el) => el.getAttribute("data-raw") ?? "" },
+      mode: { default: "refine", parseHTML: (el) => el.getAttribute("data-mode") ?? "refine" },
+      output: { default: "", parseHTML: (el) => el.getAttribute("data-output") ?? "" },
       values: {
         default: {},
         parseHTML: (el) => {
@@ -89,11 +195,11 @@ export const PromptBlock = Node.create({
   },
   renderHTML({ node, HTMLAttributes }) {
     const a = node.attrs;
-    return ["div", mergeAttributes(HTMLAttributes, { "data-prompt-block": "", "data-title": a.title, "data-template": a.template, "data-values": JSON.stringify(a.values) }), a.template];
+    return ["div", mergeAttributes(HTMLAttributes, { "data-prompt-block": "", "data-title": a.title, "data-template": a.template, "data-values": JSON.stringify(a.values), "data-raw": a.raw, "data-mode": a.mode, "data-output": a.output }), a.output || a.template || a.raw];
   },
   // Copied, searched and counted as the template itself.
   renderText({ node }) {
-    return [node.attrs.title, node.attrs.template].filter(Boolean).join("\n");
+    return [node.attrs.title, node.attrs.template, node.attrs.raw, node.attrs.output].filter(Boolean).join("\n");
   },
   addNodeView() {
     return ReactNodeViewRenderer(PromptView);

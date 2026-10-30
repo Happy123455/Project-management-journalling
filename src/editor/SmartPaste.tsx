@@ -233,6 +233,16 @@ export function SmartPaste({ editor }: { editor: Editor }) {
           <button type="button" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={() => act(() => insertClip(editor, clip, false))}>
             {clip.kind === "url" ? (youtubeId(clip.url) ? "Paste video" : "Paste link") : "Paste"}
           </button>
+          {clip.kind === "url" && youtubeId(clip.url) && (
+            <button
+              type="button"
+              onPointerDown={keepFocus}
+              onMouseDown={keepFocus}
+              onClick={() => act(() => editor.chain().focus().insertContent({ type: "youtubeEmbed", attrs: { url: clip.url } }).run())}
+            >
+              ▶ As player
+            </button>
+          )}
           <button type="button" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={() => act(() => insertClip(editor, clip, true))}>
             As code
           </button>
