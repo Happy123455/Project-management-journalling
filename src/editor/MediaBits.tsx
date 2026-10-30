@@ -75,9 +75,33 @@ export function AudioPill({ src, icon }: { src: string; icon: string }) {
 }
 
 /** A video in a note: tap plays or pauses it, without focusing the text or scrolling the page. */
-export function TapVideo({ src }: { src: string }) {
+export function TapVideo({ src, onSelect }: { src: string; onSelect?: () => void }) {
   return (
-    <span className="tap-video" contentEditable={false}>
+    // The frame around the player is its hit box: a tap there (or on the grip) selects the video,
+    // for resizing, placing or deleting; taps on the player itself still play it.
+    <span
+      className={onSelect ? "tap-video with-grip" : "tap-video"}
+      contentEditable={false}
+      onPointerDown={(e) => {
+        if (e.target !== e.currentTarget || !onSelect) return;
+        e.preventDefault();
+        onSelect();
+      }}
+    >
+      {onSelect && (
+        <button
+          type="button"
+          className="media-grip"
+          aria-label="Select video"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onSelect();
+          }}
+        >
+          ⤢
+        </button>
+      )}
       <video
         src={src}
         controls

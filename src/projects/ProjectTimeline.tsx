@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
+import { MediaPeek, mediaItemsIn } from "../editor/MediaPeek";
 import { dayColor, entryFor, gapDays, numberEntries, type ProjectEntry } from "../lib/projectDays";
 import type { JournalStore, NamedPage } from "../store";
 
@@ -52,6 +53,7 @@ export function ProjectTimeline({ store, page, refreshKey, onOpenDay }: { store:
                   <span className="timeline-date">{short(e.day)}</span>
                   <span className="timeline-first">{e.lines[0].trim()}</span>
                 </button>
+                <MediaPeek items={mediaItemsIn(e.blocks as never)} />
                 {open === e.day && (
                   <div className="timeline-body">
                     {e.lines.map((l, j) => (

@@ -68,22 +68,24 @@ export interface Point {
  * the bottom), and each page or tag branches out to the left or right at the height of the day
  * that first mentions it.
  */
-export function treeLayout(graph: Graph, gap = 34): Map<string, Point> {
+export function treeLayout(graph: Graph, gap = 56): Map<string, Point> {
   const pos = new Map<string, Point>();
   const days = graph.nodes.filter((n) => n.kind === "day").sort((a, b) => a.label.localeCompare(b.label));
-  days.forEach((d, i) => pos.set(d.id, { x: 0, y: -i * gap }));
+  // Days zig-zag a little either side of the trunk so neighbours don't touch.
+  days.forEach((d, i) => pos.set(d.id, { x: i % 2 ? 16 : -16, y: -i * gap }));
   const dayIndex = new Map(days.map((d, i) => [d.day, i]));
   const hubs = graph.nodes.filter((n) => n.kind !== "day").sort((a, b) => (a.day ?? "~").localeCompare(b.day ?? "~") || a.label.localeCompare(b.label));
-  const usedLeft: number[] = [];
-  const usedRight: number[] = [];
+  // Each side has columns (lanes) outward from the trunk; a branch takes the nearest lane that is
+  // free around its height, so labels never sit on top of each other.
+  const lanes: Record<1 | -1, number[][]> = { 1: [], [-1]: [] };
   hubs.forEach((h, i) => {
     const level = h.day ? (dayIndex.get(h.day) ?? days.length) : days.length;
-    const side = i % 2 === 0 ? 1 : -1;
-    const used = side > 0 ? usedRight : usedLeft;
-    // Push further out when this height is already taken on that side.
-    const reach = used.filter((y) => Math.abs(y - level) < 2.5).length;
-    used.push(level);
-    pos.set(h.id, { x: side * (140 + reach * 120 + Math.min(h.degree, 8) * 6), y: -level * gap - 10 });
+    const side: 1 | -1 = i % 2 === 0 ? 1 : -1;
+    const sideLanes = lanes[side];
+    let lane = sideLanes.findIndex((ys) => ys.every((y) => Math.abs(y - level) >= 1.6));
+    if (lane < 0) lane = sideLanes.push([]) - 1;
+    sideLanes[lane].push(level);
+    pos.set(h.id, { x: side * (130 + lane * 150), y: -level * gap - 14 });
   });
   return pos;
 }

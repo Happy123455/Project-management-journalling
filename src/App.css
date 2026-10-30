@@ -1448,3 +1448,289 @@ html.bubble-window body::before { display: none; }
 .mac-capture textarea { flex: 1; min-height: 60px; resize: none; font: inherit; color: inherit; background: transparent; border: 1px solid var(--border, #444); border-radius: 10px; padding: 8px; }
 .mac-capture-clip { display: grid; gap: 6px; }
 .mac-capture-actions { display: flex; align-items: center; justify-content: space-between; }
+
+/* ───────────── Batch 5: smooth + liquid glass v2 ─────────────
+   Smoothness first: the colour wash sits on its own fixed layer (no repaint per scroll), no
+   per-button GPU layers, and on the phone the big moving surfaces fake their glass with layered
+   gradients and rims instead of a live blur (a blur re-renders on every scrolled frame). */
+:root {
+  --lg-fill: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.56));
+  --lg-sheen: radial-gradient(120% 70% at 50% -10%, rgba(255, 255, 255, 0.75), transparent 60%);
+  --lg-rim: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(255, 255, 255, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+  --lg-drop: 0 8px 24px rgba(60, 40, 110, 0.12), 0 1px 2px rgba(30, 20, 60, 0.08);
+  --lg-panel: color-mix(in srgb, var(--bg) 93%, transparent);
+  --lg-press: rgba(var(--heat-rgb), 0.12);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --lg-fill: linear-gradient(180deg, rgba(70, 66, 92, 0.62), rgba(38, 36, 52, 0.62));
+    --lg-sheen: radial-gradient(120% 70% at 50% -10%, rgba(255, 255, 255, 0.14), transparent 60%);
+    --lg-rim: inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.25), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    --lg-drop: 0 10px 28px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+    --lg-panel: color-mix(in srgb, var(--bg) 95%, transparent);
+  }
+}
+
+body { background: var(--bg); background-attachment: scroll; }
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60vmax 50vmax at 10% -10%, var(--wash-1), transparent 70%),
+    radial-gradient(50vmax 45vmax at 110% 30%, var(--wash-2), transparent 70%),
+    radial-gradient(55vmax 40vmax at 30% 120%, var(--wash-3), transparent 70%);
+}
+#root { position: relative; z-index: 0; }
+
+/* Glass controls: gradient body, a bright top rim, a soft drop. Pills for small ones. */
+button {
+  background: var(--lg-sheen), var(--lg-fill);
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  box-shadow: var(--lg-rim), var(--lg-drop);
+  will-change: auto;
+}
+button:hover { background: var(--lg-sheen), var(--glass-strong); }
+@media (prefers-reduced-motion: no-preference) {
+  button, .ts-chip { will-change: auto; transition: transform 0.4s var(--spring), background-color 0.2s, box-shadow 0.2s; }
+  button:active { transform: scale(0.94); box-shadow: var(--lg-rim), 0 2px 6px rgba(0, 0, 0, 0.1); transition-duration: 0.06s; }
+  @media (hover: none) { button:hover { transform: none; } }
+}
+.cal-day, .day-list button, .cal-bar .cal-title, .tool { box-shadow: none; }
+.cal-day { background: var(--heat-empty); background-image: linear-gradient(rgba(var(--heat-rgb), var(--heat)), rgba(var(--heat-rgb), var(--heat))); }
+
+/* Menu: big rounded rows. */
+.sidebar-actions { gap: 8px; }
+.sidebar-actions button { padding: 11px 14px; font-size: 14px; border-radius: 16px; }
+.drawer h2 { letter-spacing: 0.06em; }
+.drawer .day-list button.active, .day-list button.active { background: var(--lg-sheen), var(--lg-fill); box-shadow: var(--lg-rim); border-radius: 12px; }
+.settings-section, .project-panel, .sync-status { background: var(--lg-sheen), var(--lg-fill); box-shadow: var(--lg-rim), var(--lg-drop); border-radius: 20px; }
+.panel-tabs, .media-scope { gap: 6px; }
+.panel-tabs button, .media-scope button { border-radius: 999px; }
+
+/* Phone: no live blur on anything that scrolls or slides; contain the panels' own scrolling. */
+@media (pointer: coarse) {
+  .sidebar, .links-panel, .month-calendar, .year-panel, .keyboard-bar, .reminder-open, .drawer,
+  .year-backdrop.open, .toast, .search-panel, .upcoming-panel {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  .month-calendar { background: var(--lg-sheen), var(--lg-panel); box-shadow: var(--lg-rim), var(--lg-drop); }
+  .drawer, .year-panel { background: var(--lg-sheen), var(--lg-panel); box-shadow: var(--lg-rim), 0 0 40px rgba(0, 0, 0, 0.25); }
+  .keyboard-bar { background: var(--lg-panel); }
+  .reminder-open { background: var(--lg-fill); }
+  .toast { background: var(--lg-panel); }
+}
+.drawer, .year-panel, .upcoming-panel, .settings-panel, .search-panel {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  contain: layout paint;
+}
+.drawer, .year-panel, .upcoming-panel { transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+/* A menu or sheet is open: the note behind it stays still. */
+html.overlay-open, html.overlay-open body { overflow: hidden; overscroll-behavior: none; }
+html.overlay-open .page { touch-action: none; }
+
+/* Week strip → thin bar while typing; the whole bar is a tap target. */
+.cal-bar { min-height: 34px; cursor: pointer; }
+.month-calendar { transition: padding 0.25s ease; }
+.month-calendar.compact { padding: 4px 10px; }
+.month-calendar.compact .cal-bar { margin-bottom: 3px; min-height: 28px; }
+.month-calendar.compact .cal-year, .month-calendar.compact .month-grid .weekday { display: none; }
+.month-calendar.compact .cal-day { aspect-ratio: auto; height: 6px; font-size: 0; border-radius: 3px; border-width: 0; }
+.month-calendar.compact .cal-day.selected { outline: 2px solid rgb(var(--heat-rgb)); outline-offset: 1px; }
+.month-calendar.compact .cal-actions button { height: 26px; }
+@media (prefers-reduced-motion: no-preference) {
+  .month-calendar .month-grid { animation: cal-open 0.28s cubic-bezier(0.22, 1, 0.36, 1); transform-origin: top; }
+  @keyframes cal-open { from { opacity: 0.4; transform: scaleY(0.85); } to { opacity: 1; transform: none; } }
+}
+
+/* Countdown: dashes per day, weekends as ovals (a Sat + Sun pair share one). */
+.countdown { flex-wrap: wrap; row-gap: 4px; }
+.countdown-bar { display: inline-flex; align-items: center; gap: 2px; -webkit-text-fill-color: initial; color: inherit; background: none; }
+.countdown-bar .cd-day { display: block; width: 6px; height: 3px; border-radius: 2px; background: hsl(var(--countdown-hue) 85% 62%); }
+.cd-weekend { display: inline-flex; gap: 2px; align-items: center; padding: 2px 3px; border-radius: 999px; border: 1.5px solid #f472b6; background: rgba(244, 114, 182, 0.16); }
+.cd-weekend i { display: block; width: 5px; height: 5px; border-radius: 50%; background: #f472b6; }
+.countdown-weekends { flex: none; font-size: 0.72rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; color: #db2777; background: rgba(244, 114, 182, 0.14); border: 1px solid rgba(244, 114, 182, 0.4); }
+@media (prefers-color-scheme: dark) { .countdown-weekends { color: #f9a8d4; } }
+
+/* Coming up: rows that scroll past the top squeeze into thin stacked rows that stay visible. */
+.upcoming li[style] { position: sticky; top: calc(var(--stack) * 26px); z-index: calc(10 - var(--stack)); }
+.upcoming li .reminder-open { transition: padding 0.2s ease; }
+.upcoming li.squeezed .reminder-open { flex-direction: row; gap: 8px; align-items: center; padding: 2px 10px; height: 24px; overflow: hidden; background: var(--lg-sheen), var(--lg-panel); box-shadow: var(--lg-rim), 0 2px 8px rgba(0, 0, 0, 0.12); }
+.upcoming li.squeezed .countdown, .upcoming li.squeezed .reminder-day { display: none; }
+.upcoming li.squeezed .reminder-text { font-size: 12px; }
+.upcoming-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(100vw, 520px); z-index: 12;
+  display: flex; flex-direction: column;
+  padding: 12px; padding-top: max(12px, calc(env(safe-area-inset-top) + 8px));
+  background: var(--lg-sheen), var(--lg-panel); box-shadow: var(--lg-rim), 0 0 40px rgba(0, 0, 0, 0.25);
+  transform: translateX(102%);
+}
+.upcoming-panel.open { transform: none; }
+.upcoming-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+.year-upcoming { margin-left: auto; border-radius: 999px; font-size: 13px; }
+.year-header .year-upcoming + .close { margin-left: 0; }
+
+/* Video hit box: a rim around the player selects it; the grip does too. */
+.tap-video.with-grip, .yt-embed {
+  position: relative;
+  display: block;
+  padding: 10px;
+  border-radius: 18px;
+  background: var(--lg-sheen), var(--lg-fill);
+  box-shadow: var(--lg-rim), var(--lg-drop);
+  cursor: pointer;
+}
+.tap-video.with-grip video { border-radius: 10px; }
+.media-grip {
+  position: absolute; top: -8px; left: -8px; z-index: 2;
+  width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  font-size: 15px; line-height: 1;
+}
+.attach-image.selected .tap-video, .attach-image.selected .yt-embed { outline: 2px solid rgb(var(--heat-rgb)); outline-offset: 1px; }
+/* YouTube player, ![](link) */
+.attach-image:has(.yt-embed) { min-width: 200px; }
+.attach-image:has(.yt-embed):not([style*="width"]) { width: min(100%, 560px); }
+.yt-embed iframe { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 10px; background: #000; }
+.attach-image.dragging iframe, .attach-image.selected iframe { pointer-events: none; }
+
+/* Media tab: pick several, add them, or hold and drag into the note. */
+.media-tile { position: relative; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.media-tile.picked { outline: 3px solid rgb(var(--heat-rgb)); outline-offset: -3px; }
+.media-check { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 800; color: #fff; background: rgba(0, 0, 0, 0.35); border: 2px solid #fff; }
+.media-tile.picked .media-check { background: rgb(var(--heat-rgb)); }
+.media-add { position: sticky; bottom: 8px; width: 100%; margin-top: 10px; padding: 10px; border-radius: 999px; font-weight: 700; color: #fff; background: rgb(var(--heat-rgb)); }
+.media-ghost { position: fixed; left: 0; top: 0; z-index: 80; width: 68px; height: 68px; border-radius: 20px; display: grid; place-items: center; font-size: 24px; font-weight: 800; pointer-events: none; background: var(--lg-sheen), var(--lg-fill); box-shadow: var(--lg-rim), 0 12px 30px rgba(0, 0, 0, 0.3); }
+
+/* "/" Project: existing ones first, as big tiles */
+.project-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; max-height: 40vh; overflow-y: auto; margin-bottom: 12px; overscroll-behavior: contain; }
+.project-pick button { padding: 12px 10px; text-align: left; border-radius: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-pick button.done { opacity: 0.6; }
+
+/* "/" Prompt builder: your words on top, the choice in between, the ready prompt below. */
+.prompt-builder { background: var(--lg-sheen), var(--lg-fill); box-shadow: var(--lg-rim), var(--lg-drop); border-radius: 20px; }
+.prompt-modes { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+.prompt-modes button { border-radius: 999px; font-size: 13px; padding: 6px 12px; }
+.prompt-modes button.active { color: rgb(var(--heat-rgb)); border-color: rgb(var(--heat-rgb)); }
+.prompt-convert { margin-left: auto; font-weight: 700; color: #fff !important; background: rgb(var(--heat-rgb)) !important; }
+.prompt-output-box { position: relative; }
+.prompt-output { margin-top: 0; padding-bottom: 40px; background: rgba(var(--heat-rgb), 0.06); }
+.prompt-copy { position: absolute; right: 8px; bottom: 8px; border-radius: 999px; font-weight: 700; }
+.prompt-error { color: #ef4444; }
+
+/* ───── Batch 6 ───── */
+/* Media: sizes, a second resize corner on the left, full width (centred, edge to edge). */
+.attach-resize.left { right: auto; left: 6px; cursor: nesw-resize; }
+.attach-toolbar .attach-sizes { display: inline-flex; gap: 2px; margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--border); }
+.attach-image.align-full { display: block; margin: 8px 0; width: 100% !important; transform: none !important; }
+@media (max-width: 700px) {
+  .attach-image.align-full { width: 100vw !important; max-width: 100vw; margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); }
+  .attach-image.align-full .yt-embed iframe { border-radius: 0; }
+}
+.attach-image.selected iframe { pointer-events: auto; }
+.attach-image.dragging iframe { pointer-events: none; }
+.yt-full-button { position: absolute; top: 6px; left: 6px; z-index: 3; width: 32px; height: 32px; padding: 0; border-radius: 10px; font-size: 16px; line-height: 1; background: rgba(0, 0, 0, 0.55); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); }
+.yt-embed.yt-fullscreen { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: #000; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); border-radius: 0; }
+.yt-embed.yt-fullscreen iframe { width: 100%; height: auto; max-height: 100%; aspect-ratio: 16 / 9; border-radius: 0; }
+.yt-embed.yt-fullscreen .yt-full-button { top: calc(env(safe-area-inset-top, 0px) + 10px); left: auto; right: 12px; }
+.yt-embed.yt-fullscreen .media-grip { display: none; }
+html.yt-full-open .month-calendar, html.yt-full-open .keyboard-bar { visibility: hidden; }
+
+/* Code blocks never push the page wider: long lines scroll sideways inside the block. */
+.tiptap pre, .code-block pre, pre { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+.tiptap pre code { white-space: pre; display: block; min-width: max-content; }
+.tiptap { overflow-wrap: anywhere; }
+.page, .editor-body { min-width: 0; max-width: 100%; }
+
+/* Week strip: a swipe on it never scrolls the note; in the thin bar the days are not separate targets. */
+.month-calendar.collapsed { touch-action: none; overflow-anchor: none; }
+.month-calendar { overflow-anchor: none; }
+.month-calendar.compact .cal-day { pointer-events: none; }
+.cal-spacer { flex: none; }
+.cal-scrim { position: fixed; inset: 0; z-index: 24; background: rgba(0, 0, 0, 0.18); }
+.month-calendar.floating {
+  position: fixed; z-index: 25; left: 8px; right: 8px; margin: 0 auto; max-width: 804px;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px);
+  overflow-y: auto; overscroll-behavior: contain;
+}
+.month-calendar:not(.collapsed) { touch-action: pan-y; }
+
+/* Coming up inside the month: scrolling the month folds every reminder to two lines,
+   its text and its dashes with the days left. */
+.upcoming .reminder-day, .upcoming .countdown-days, .upcoming .countdown-weekends {
+  transition: max-height 0.28s ease, max-width 0.28s ease, opacity 0.2s ease, margin 0.28s ease, padding 0.28s ease;
+  max-height: 2.4em; max-width: 12em; overflow: hidden;
+}
+.upcoming .cd-left { display: none; font-size: 0.72rem; font-weight: 700; margin-left: 6px; color: hsl(var(--countdown-hue) 80% 60%); }
+.upcoming.folded li { position: static; }
+.upcoming.folded .reminder-open { padding-top: 4px; padding-bottom: 4px; transition: padding 0.28s ease; }
+.upcoming.folded .reminder-day { max-height: 0; opacity: 0; margin: 0; }
+.upcoming.folded .countdown-days, .upcoming.folded .countdown-weekends { max-width: 0; opacity: 0; padding: 0; margin: 0; border-width: 0; }
+.upcoming.folded .cd-left { display: inline; }
+.upcoming.folded .reminder-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.upcoming.folded .countdown { margin-top: 2px; gap: 0; }
+
+/* Small play-only media in previews (Coming up, Mentioned in, Entries, To do). */
+.media-peek { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 2px; line-height: 0; }
+.peek-item { position: relative; display: inline-block; width: 96px; height: 64px; border-radius: 10px; overflow: hidden; background: rgba(0, 0, 0, 0.35); flex: none; }
+.peek-item img, .peek-item video, .peek-item iframe { width: 100%; height: 100%; object-fit: cover; border: 0; display: block; }
+.peek-item.peek-audio { width: 200px; height: 40px; background: none; }
+.peek-item.peek-audio audio { width: 100%; height: 40px; }
+.peek-youtube { width: 128px; height: 72px; }
+.peek-youtube button { all: unset; display: block; width: 100%; height: 100%; cursor: pointer; }
+.peek-play { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 20px; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); line-height: 1; }
+.peek-loading { animation: none; opacity: 0.4; }
+.upcoming.folded .media-peek { display: none; }
+.reminders li { flex-wrap: wrap; }
+.reminders li > .media-peek, .reference-card + .media-peek, li > .reference + .media-peek { flex-basis: 100%; margin-left: 4px; }
+.timeline-row > .media-peek { margin: 4px 0 2px 8px; }
+.project-task-text .media-peek { margin-top: 4px; }
+
+/* Meme kit: the whole grid scrolls inside the sheet (nothing hidden behind its bottom edge). */
+.meme-kit { display: flex; flex-direction: column; max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px); overflow: hidden; }
+.meme-kit .meme-grid, .meme-kit .meme-sounds { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); }
+.meme-kit .meme-chips { flex: none; }
+.meme-grid { grid-auto-flow: dense; }
+.meme-cell { position: relative; aspect-ratio: 1; }
+.meme-cell .meme-tile { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; }
+.meme-cell.playing { grid-column: span 2; grid-row: span 2; }
+.meme-cell.playing .meme-tile video { object-fit: contain; background: #000; }
+.meme-cell.playing .meme-tile video.stacked { height: 200%; object-fit: cover; object-position: top; }
+.meme-clip-play { position: absolute; right: 4px; bottom: 22px; z-index: 2; width: 30px; height: 30px; padding: 0; border-radius: 50%; font-size: 12px; line-height: 1; background: rgba(0, 0, 0, 0.6); color: #fff; border: 1px solid rgba(255, 255, 255, 0.35); }
+.meme-rating { position: absolute; top: 4px; left: 4px; font-size: 9px; letter-spacing: -1px; color: #facc15; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7); }
+.meme-ratings button { color: #ca8a04; }
+.meme-sounds { list-style: none; margin: 0; padding: 2px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+.meme-sounds > li:first-child { flex-basis: 100%; }
+.sound-pill { display: flex; align-items: stretch; flex: 0 1 calc(84px + var(--secs, 2) * 26px); max-width: 100%; min-width: 110px; border-radius: 14px; overflow: hidden; border: 1px solid var(--border); background: var(--panel); }
+.sound-wave { all: unset; position: relative; flex: 1; min-width: 0; padding: 4px 8px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.sound-wave svg { width: 100%; height: 22px; display: block; }
+.sound-wave rect { fill: color-mix(in srgb, rgb(var(--heat-rgb)) 55%, var(--muted)); }
+.sound-wave rect.done { fill: rgb(var(--heat-rgb)); }
+.sound-pill.playing { border-color: rgb(var(--heat-rgb)); }
+.sound-label { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 4px; align-items: center; }
+.sound-label .meme-rating { position: static; }
+.sound-secs { color: var(--muted); margin-left: auto; flex: none; }
+.sound-add { flex: none; width: 34px; padding: 0; border-radius: 0; border: 0; border-left: 1px solid var(--border); font-size: 18px; }
+
+/* Phone: no live blur behind sheets with a text field (it was redrawn on every letter typed). */
+@media (pointer: coarse) {
+  .search-backdrop, .confirm-card, .meme-kit { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+  .confirm-card { background: var(--panel); }
+}
+
+/* Graph: the time slider sits well above the phone's home bar. */
+.graph-time { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 36px); }
+.graph-time input[type="range"] { flex: 1; height: 32px; }
+
+/* Chat journal: AI replies on the left. */
+.chat-bubble.ai { align-self: flex-start; border-radius: 16px 16px 16px 4px; background: var(--panel); color: var(--text, inherit); border: 1px solid var(--border); }
+.chat-bubble.ai .chat-time { font-size: 10px; }
+.chat-bubble.thinking { opacity: 0.6; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.3; } }
+.chat-ai { margin-left: auto; font-size: 12px; padding: 4px 10px; border-radius: 999px; }
+.chat-ai.active { border-color: rgb(var(--heat-rgb)); color: rgb(var(--heat-rgb)); }

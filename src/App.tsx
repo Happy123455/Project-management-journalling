@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import type { Editor, JSONContent } from "@tiptap/react";
 import { MonthCalendar, YearPanel } from "./calendar/Calendar";
-import { DueReminders, Upcoming } from "./calendar/Upcoming";
+import { DueReminders, Upcoming, UpcomingPanel } from "./calendar/Upcoming";
 import { BacklinkList, PageView, TagView, type LinkHandlers } from "./pages/LinkViews";
-import { DaysList, Drawer, InfoTabs } from "./panels/Panels";
+import { DaysList, Drawer, InfoTabs, MEDIA_DRAG, type InsertMedia } from "./panels/Panels";
 import { RestoreButton } from "./panels/Restore";
 import { SyncStatus } from "./sync/SyncStatus";
 import { useSync } from "./sync/useSync";
@@ -30,8 +30,8 @@ import { searchTerms } from "./lib/search";
 import { fileKind } from "./lib/files";
 import { mediaIdsIn } from "./lib/media";
 import { autoBackup, exportBackup } from "./backup";
-import { fileUrl, openFile, setAttachmentStore, showPdf, showPhoto } from "./editor/attachments";
-import { JournalEditor } from "./editor/JournalEditor";
+import { fileUrl, mediaNode, openFile, setAttachmentStore, showPdf, showPhoto } from "./editor/attachments";
+import { flushPendingEdits, JournalEditor } from "./editor/JournalEditor";
 import { CaptureHost } from "./editor/CaptureHost";
 import { PdfHost } from "./editor/PdfHost";
 import { PhotoHost } from "./editor/PhotoHost";
@@ -57,7 +57,10 @@ function App() {
   const [status, setStatus] = useState("");
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [calendarCollapsed, setCalendarCollapsed] = useState(false);
+  // While typing, the week strip folds further to a thin bar; scrolling up a little brings it back.
+  const [calendarCompact, setCalendarCompact] = useState(false);
   const [yearOpen, setYearOpen] = useState(false);
+  const [upcomingOpen, setUpcomingOpen] = useState(false);
   const [yearShown, setYearShown] = useState(() => new Date().getFullYear());
   // What the main area shows: today's/any day's page, a named page, or a tag.
   const [route, setRoute] = useState<{ kind: "day" } | { kind: "page"; page: NamedPage } | { kind: "tag"; tag: string }>({ kind: "day" });
@@ -82,7 +85,9 @@ function App() {
   // The day `page` and `content` were loaded for: the editor waits until it matches `day`, so it is
   // never created for one day with another day's text.
   const [loadedDay, setLoadedDay] = useState<string | null>(null);
-  const swipe = useRef<{ x: number; y: number; onBar: boolean } | null>(null);
+  const swipe = useRef<{ x: number; y: number; t: number; onBar: boolean } | null>(null);
+  // The next day opens to read, not to type (after a swipe between days).
+  const previewNext = useRef(false);
   const pending = useRef<{ day: string; content: JSONContent; plainText: string } | null>(null);
   const timer = useRef<number | undefined>(undefined);
 
@@ -141,6 +146,8 @@ function App() {
   });
 
   const flush = useCallback(async () => {
+    // The editor hands over its text once typing pauses; take what was typed just now too.
+    flushPendingEdits();
     window.clearTimeout(timer.current);
     const next = pending.current;
     if (!store || !next) return;
@@ -210,14 +217,73 @@ function App() {
   const openedAt = useRef(0);
   useEffect(() => {
     let lastY = window.scrollY;
+    // Only scrolls the finger (or wheel) made count. The page also moves by itself when the strip
+    // changes height or the caret moves; reacting to that folded and unfolded the strip on every
+    // letter typed (the flicker) and could loop.
+    let userAt = 0;
+    const byUser = () => Date.now() - userAt < 600;
+    let touchY: number | null = null;
+    let pulled = 0;
     const onScroll = () => {
       const y = window.scrollY;
-      if (y > lastY + 4 && y > 60 && Date.now() - openedAt.current > 900) setCalendarCollapsed(true);
+      if (byUser()) {
+        if (y > lastY + 4 && y > 60 && Date.now() - openedAt.current > 900) setCalendarCollapsed(true);
+        // Up by a little: the thin bar opens back to the week.
+        if (y < lastY) {
+          upBy += lastY - y;
+          if (upBy > 24) setCalendarCompact(false);
+        } else upBy = 0;
+      }
       lastY = y;
     };
+    let upBy = 0;
+    const onTouchStart = (e: globalThis.TouchEvent) => {
+      userAt = Date.now();
+      touchY = e.touches[0]?.clientY ?? null;
+      pulled = 0;
+    };
+    // Dragging the note down (to scroll up) also works at the very top, where nothing scrolls.
+    const onTouchMove = (e: globalThis.TouchEvent) => {
+      userAt = Date.now();
+      const y = e.touches[0]?.clientY;
+      if (touchY == null || y == null) return;
+      pulled = y - touchY;
+      if (pulled > 36 && window.scrollY < 4) setCalendarCompact(false);
+    };
+    const onWheel = () => (userAt = Date.now());
+    // Typing in the note folds the strip to its thin bar.
+    const onInput = (e: Event) => {
+      if (!(e.target as HTMLElement).closest?.(".tiptap")) return;
+      setCalendarCollapsed(true);
+      setCalendarCompact(true);
+    };
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("wheel", onWheel, { passive: true });
+    document.addEventListener("beforeinput", onInput, true);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("wheel", onWheel);
+      document.removeEventListener("beforeinput", onInput, true);
+    };
   }, []);
+
+  // A menu, the year view or a sheet is open: the note behind it can't scroll or be typed into.
+  const overlayOpen = drawerOpen || yearOpen || upcomingOpen || settingsOpen || searchOpen || graphOpen || mindOpen || chatOpen || !!nexus;
+  useEffect(() => {
+    document.documentElement.classList.toggle("overlay-open", overlayOpen);
+    if (overlayOpen) (document.activeElement as HTMLElement | null)?.closest?.(".tiptap") && (document.activeElement as HTMLElement).blur();
+  }, [overlayOpen]);
+  // The drawer's lists are only drawn while it is open (and while it slides away).
+  const [drawerShown, setDrawerShown] = useState(false);
+  useEffect(() => {
+    if (drawerOpen) return setDrawerShown(true);
+    const t = window.setTimeout(() => setDrawerShown(false), 300);
+    return () => window.clearTimeout(t);
+  }, [drawerOpen]);
 
   // Shared in from other apps (Android share sheet), or a quick note from the shortcut/tile:
   // add it to today's note and show today; for a quick note, open the keyboard at the end.
@@ -292,8 +358,14 @@ function App() {
 
   useEffect(() => {
     const onHide = () => void flush();
+    // Phone: switching apps never fires beforeunload; save when the page is hidden.
+    const onVisibility = () => document.visibilityState === "hidden" && onHide();
     window.addEventListener("beforeunload", onHide);
-    return () => window.removeEventListener("beforeunload", onHide);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("beforeunload", onHide);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [flush]);
 
   const onChange = useCallback(
@@ -394,28 +466,52 @@ function App() {
   const onTouchStart = (e: TouchEvent) => {
     const target = e.target as HTMLElement;
     // Not a gesture: a popup or control in use, or text being selected.
-    if (target.closest?.(NO_SWIPE) || !(window.getSelection()?.isCollapsed ?? true)) {
+    // The open drawer can be pushed back with a swipe (not from a control or field in it).
+    const inDrawer = drawerOpen && !!target.closest?.(".drawer") && !target.closest?.("input, textarea, video, .media-grid");
+    if ((!inDrawer && target.closest?.(NO_SWIPE)) || !(window.getSelection()?.isCollapsed ?? true)) {
       swipe.current = null;
       return;
     }
-    swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, onBar: !!target.closest?.(".month-calendar") };
+    swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: e.timeStamp, onBar: !!target.closest?.(".month-calendar") };
   };
-  // A right swipe on the week strip pulls the drawer out under the finger as it goes.
+  // Panels follow the finger: a right swipe on the week strip (or from the left edge) pulls the
+  // drawer out, a left swipe on the strip pulls the year view in, and a left swipe on the open
+  // drawer pushes it back. Moved once per frame, on the GPU (transform only).
+  const frame = useRef(0);
+  const panelUnderFinger = (dx: number, start: { x: number; onBar: boolean }) => {
+    if (drawerOpen) return dx < 0 ? { el: document.querySelector<HTMLElement>(".drawer"), at: (w: number) => `translate3d(${Math.max(dx, -w)}px,0,0)` } : null;
+    if (yearOpen) return null;
+    if (dx > 0 && (start.onBar || start.x < 28)) return { el: document.querySelector<HTMLElement>(".drawer"), at: (w: number) => `translate3d(calc(-100% + ${Math.min(dx, w)}px),0,0)` };
+    if (dx < 0 && start.onBar && route.kind === "day") return { el: document.querySelector<HTMLElement>(".year-panel"), at: (w: number) => `translate3d(calc(100% - ${Math.min(-dx, w)}px),0,0)` };
+    return null;
+  };
   const onTouchMove = (e: TouchEvent) => {
     const start = swipe.current;
-    if (!start?.onBar || drawerOpen || yearOpen) return;
+    if (!start) return;
     const dx = e.touches[0].clientX - start.x;
     const dy = e.touches[0].clientY - start.y;
-    const drawer = document.querySelector<HTMLElement>(".drawer");
-    if (!drawer || dx < 8 || Math.abs(dx) < Math.abs(dy)) return;
-    drawer.style.transition = "none";
-    drawer.style.transform = `translateX(calc(-100% + ${Math.min(dx, drawer.offsetWidth)}px))`;
+    if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    const panel = panelUnderFinger(dx, start);
+    if (!panel?.el) return;
+    const el = panel.el;
+    cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => {
+      el.style.transition = "none";
+      el.style.transform = panel.at(el.offsetWidth);
+    });
   };
   const runCanvas = (action: CanvasAction) => {
     const editor = document.querySelector<HTMLElement & { editor?: Editor }>(".tiptap")?.editor;
-    if (action === "prev") void goTo(addDays(day, -1));
-    else if (action === "next") void goTo(addDays(day, 1));
-    else if (action === "today") void goTo(today);
+    // Another day by swipe: it opens to read (keyboard down, at its end); tap the text to write there.
+    const preview = (next: string) => {
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      window.JournalShare?.hideKeyboard?.();
+      previewNext.current = true;
+      void goTo(next);
+    };
+    if (action === "prev") preview(addDays(day, -1));
+    else if (action === "next") preview(addDays(day, 1));
+    else if (action === "today") preview(today);
     else if (action === "top") window.scrollTo({ top: 0, behavior: "smooth" });
     else if (action === "end") window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
     else if (action === "search") setSearchOpen(true);
@@ -427,15 +523,18 @@ function App() {
   const onTouchEnd = (e: TouchEvent) => {
     const start = swipe.current;
     swipe.current = null;
-    const drawer = document.querySelector<HTMLElement>(".drawer");
-    if (drawer) {
-      drawer.style.transition = "";
-      drawer.style.transform = "";
+    cancelAnimationFrame(frame.current);
+    for (const el of document.querySelectorAll<HTMLElement>(".drawer, .year-panel")) {
+      el.style.transition = "";
+      el.style.transform = "";
     }
     if (!start || yearOpen) return;
     const dx = e.changedTouches[0].clientX - start.x;
     const dy = e.changedTouches[0].clientY - start.y;
-    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    // A quick flick counts as much as a long drag.
+    const fast = Math.abs(dx) / Math.max(1, e.timeStamp - start.t) > 0.5;
+    if ((Math.abs(dx) < 70 && !(fast && Math.abs(dx) > 30)) || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (!drawerOpen && dx > 0 && start.x < 28 && !start.onBar) return setDrawerOpen(true);
     if (drawerOpen) return dx < 0 && setDrawerOpen(false);
     // The week strip: right opens the menu, left the year (fixed). The note: as set in Settings.
     if (start.onBar) return dx > 0 ? setDrawerOpen(true) : route.kind === "day" ? openYear() : undefined;
@@ -483,8 +582,39 @@ function App() {
     }
   };
 
+  // Media from the menu back into the note: where it was dropped, or at the cursor.
+  const insertMedia: InsertMedia = (files, at) => {
+    setDrawerOpen(false);
+    const editor = document.querySelector<HTMLElement & { editor?: Editor }>(".tiptap")?.editor;
+    if (!editor || !files.length) return;
+    const nodes = files.map(mediaNode);
+    const pos = at ? editor.view.posAtCoords({ left: at.x, top: at.y })?.pos : undefined;
+    if (pos == null) editor.chain().focus().insertContent(nodes).run();
+    else editor.chain().focus().insertContentAt(pos, nodes).run();
+  };
+  useEffect(() => {
+    const close = () => setDrawerOpen(false);
+    window.addEventListener("journal:close-drawer", close);
+    return () => window.removeEventListener("journal:close-drawer", close);
+  }, []);
+  // Mac: tiles dragged from the Media tab into the note.
+  useEffect(() => {
+    const onDrop = (e: DragEvent) => {
+      const raw = e.dataTransfer?.getData(MEDIA_DRAG);
+      if (!raw || !store || !(e.target as HTMLElement).closest?.(".tiptap")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const ids = JSON.parse(raw) as string[];
+      void Promise.all(ids.map((id) => store.getFile(id))).then((f) => insertMedia(f.filter((x): x is NonNullable<typeof x> => !!x), { x: e.clientX, y: e.clientY }));
+    };
+    document.addEventListener("drop", onDrop, true);
+    return () => document.removeEventListener("drop", onDrop, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store]);
+
   const infoTabs = (
     <InfoTabs
+      onInsertMedia={route.kind === "day" ? insertMedia : undefined}
       links={route.kind === "day" ? links : pageLinks}
       mediaIds={route.kind === "day" ? mediaIdsIn(content) : []}
       store={store}
@@ -519,7 +649,7 @@ function App() {
         </div>
       </aside>
 
-      <main className="page">
+      <main className="page" inert={overlayOpen || undefined}>
         {route.kind === "page" && store ? (
           <PageView
             key={route.page.id}
@@ -566,13 +696,16 @@ function App() {
               shading={shading}
               today={today}
               collapsed={calendarCollapsed}
-              onToggle={() => {
-                if (calendarCollapsed) openedAt.current = Date.now();
-                setCalendarCollapsed((c) => !c);
+              compact={calendarCollapsed && calendarCompact}
+              onToggle={(open) => {
+                const next = open ?? calendarCollapsed;
+                if (next) openedAt.current = Date.now();
+                setCalendarCompact(false);
+                setCalendarCollapsed(!next);
               }}
               onPick={goTo}
               onOpenYear={openYear}
-              below={<Upcoming pages={reminders.filter((r) => r.day > today && r.day !== day).slice(0, 5)} onPick={goTo} />}
+              below={<Upcoming pages={reminders.filter((r) => r.day > today && r.day !== day)} onPick={goTo} />}
               actions={
                 <>
                   <button type="button" onClick={() => setDrawerOpen(true)} aria-label="Open menu">☰</button>
@@ -598,8 +731,13 @@ function App() {
                   initialContent={content}
                   onChange={onChange}
                   onReminder={pickReminderDay}
+                  autofocus={!previewNext.current}
                   onReady={(t) => {
                     setText(t);
+                    if (previewNext.current) {
+                      previewNext.current = false;
+                      requestAnimationFrame(() => window.scrollTo({ top: document.documentElement.scrollHeight }));
+                    }
                     // A quick note: put the cursor at the end and bring up the keyboard.
                     if (quickNote.current) {
                       const voice = quickNote.current === "voice";
@@ -630,7 +768,7 @@ function App() {
       <aside className="links-panel">{infoTabs}</aside>
 
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        {store && (
+        {drawerShown && store && (
           <ProjectList
             store={store}
             refreshKey={`${syncTick}:${days.length}:${route.kind}`}
@@ -640,7 +778,7 @@ function App() {
             }}
           />
         )}
-        <h2>Days</h2>
+        {drawerShown && <><h2>Days</h2>
         <DaysList
           days={days}
           day={day}
@@ -650,7 +788,7 @@ function App() {
             void goTo(d);
           }}
         />
-        {infoTabs}
+        {infoTabs}</>}
         <div className="sidebar-actions">
           <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))}>🕸 Graph view</button>
           <button type="button" onClick={() => (setDrawerOpen(false), setMindOpen(true))}>🧠 Mind map</button>
@@ -729,6 +867,17 @@ function App() {
         onClose={() => setYearOpen(false)}
         onPick={goTo}
         onYear={setYearShown}
+        onUpcoming={() => setUpcomingOpen(true)}
+      />
+      <UpcomingPanel
+        open={upcomingOpen}
+        pages={reminders.filter((r) => r.day > today)}
+        onPick={(d) => {
+          setUpcomingOpen(false);
+          setYearOpen(false);
+          void goTo(d);
+        }}
+        onClose={() => setUpcomingOpen(false)}
       />
     </div>
   );

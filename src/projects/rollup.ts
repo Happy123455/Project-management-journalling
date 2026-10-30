@@ -8,18 +8,22 @@ export interface RolledTask {
   task: Task;
   day: string | null;
   title: string | null;
+  /** The task's own line as written (for its photos and videos). */
+  node?: JSONContent;
 }
+
+const nodeAt = (doc: JSONContent, path: number[]) => path.reduce<JSONContent | undefined>((n, i) => n?.content?.[i], doc);
 
 /** The project page's own tasks, plus every task elsewhere that links to it or carries its tag. */
 export async function loadProjectTasks(store: JournalStore, project: NamedPage): Promise<RolledTask[]> {
   const own = await store.getPage(project.title);
-  const out: RolledTask[] = (own ? extractTasks(own.content) : []).map((task) => ({ task, day: null, title: project.title }));
+  const out: RolledTask[] = (own ? extractTasks(own.content) : []).map((task) => ({ task, day: null, title: project.title, node: nodeAt(own!.content, task.path) }));
   const refs = [...(await store.references("wikilink", project.title)), ...(await store.references("tag", projectTag(project.title)))];
   const seen = new Set<string>([project.id]);
   for (const ref of refs) {
     if (seen.has(ref.blockId)) continue;
     seen.add(ref.blockId);
-    for (const task of projectTasks(ref.content, project.title)) out.push({ task, day: ref.day, title: ref.title });
+    for (const task of projectTasks(ref.content, project.title)) out.push({ task, day: ref.day, title: ref.title, node: nodeAt(ref.content as JSONContent, task.path) });
   }
   return out;
 }

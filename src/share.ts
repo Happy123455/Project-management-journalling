@@ -8,7 +8,7 @@ import type { JournalStore } from "./store";
 declare global {
   interface Window {
     /** Android: shares and quick-note launches (MainActivity.kt ShareBridge). */
-    JournalShare?: { take(): string; showKeyboard(): void; takeNotes?(): string };
+    JournalShare?: { take(): string; showKeyboard(): void; hideKeyboard?(): void; takeNotes?(): string };
     /** Android: Settings → Floating bubble (MainActivity.kt BubbleBridge). */
     JournalBubble?: { enabled(): boolean; canDraw(): boolean; setEnabled(on: boolean): boolean };
   }

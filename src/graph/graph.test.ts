@@ -27,7 +27,7 @@ describe("graph", () => {
   it("grows the tree upwards in date order, branching out at first mention", () => {
     const pos = treeLayout(buildGraph(links));
     expect(pos.get("day:2026-10-25")!.y).toBeLessThan(pos.get("day:2026-10-20")!.y);
-    expect(pos.get("day:2026-10-20")!.x).toBe(0);
+    expect(Math.abs(pos.get("day:2026-10-20")!.x)).toBeLessThanOrEqual(16);
     expect(Math.abs(pos.get("page:ravi")!.x)).toBeGreaterThan(100);
   });
 

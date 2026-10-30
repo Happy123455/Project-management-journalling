@@ -1,4 +1,5 @@
 import { showToast } from "../lib/toast";
+import { MediaPeek, mediaItemsIn } from "../editor/MediaPeek";
 import { countsTowardsLimit, MAX_ACTIVE_PROJECTS } from "../lib/projects";
 import { useEffect, useState } from "react";
 import type { ProjectStatus } from "../lib/projects";
@@ -43,7 +44,11 @@ export function ProjectPanel({ store, page, refreshKey, onChanged, onOpenDay }: 
   const row = (item: RolledTask, i: number) => (
     <li key={i} className={item.task.checked ? "project-task done" : "project-task"}>
       <input type="checkbox" checked={item.task.checked} onChange={() => void toggle(item)} aria-label={item.task.text} />
-      <span className="project-task-text">{item.task.text}</span>
+      <span className="project-task-text">
+        {item.task.text}
+        {/* The task's own line only, not the tasks nested under it. */}
+        <MediaPeek items={mediaItemsIn((item.node?.content ?? []).filter((c) => !/List$/.test(c.type ?? "")))} />
+      </span>
       {item.day && (
         <button type="button" className="project-task-where" onClick={() => onOpenDay(item.day!)}>
           {dayTitle(item.day).replace(/^\w+, /, "")}

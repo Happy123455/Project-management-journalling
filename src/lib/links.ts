@@ -45,7 +45,7 @@ const textOf = (b: Block): string => (b.text ?? "") + (b.content ?? []).map(text
  * blocks after it, or a list item's sub-items), so a project's, person's or log's page shows
  * everything written under its [[link]]. Nested lines come back indented with two spaces per level.
  */
-export function mentionsWithChildren(doc: Block | null | undefined, kind: "wikilink" | "tag", target: string): string[] {
+export function mentionsWithChildren(doc: Block | null | undefined, kind: "wikilink" | "tag", target: string, taken?: Block[]): string[] {
   const out: string[] = [];
   const mentions = (t: string) => linesMentioning(t, kind, target).length > 0;
   const items = (list: Block, depth: number, include: boolean) => {
@@ -53,6 +53,7 @@ export function mentionsWithChildren(doc: Block | null | undefined, kind: "wikil
       const own = (item.content ?? []).filter((c) => !/List$/.test(c.type ?? "")).map(textOf).join(" ");
       const take = include || mentions(own);
       if (take && own.trim()) out.push("  ".repeat(depth) + own);
+      if (take) taken?.push(...(item.content ?? []).filter((c) => !/List$/.test(c.type ?? "")));
       for (const sub of (item.content ?? []).filter((c) => /List$/.test(c.type ?? ""))) items(sub, depth + 1, take);
     }
   };
@@ -66,8 +67,10 @@ export function mentionsWithChildren(doc: Block | null | undefined, kind: "wikil
     const text = textOf(b);
     if (!mentions(text)) continue;
     out.push(text);
+    taken?.push(b);
     const level = Number(b.attrs?.indent ?? 0);
     for (let j = i + 1; j < blocks.length && Number(blocks[j].attrs?.indent ?? 0) > level; j++) {
+      taken?.push(blocks[j]);
       const t = textOf(blocks[j]);
       if (t.trim()) out.push("  ".repeat(Number(blocks[j].attrs?.indent ?? 0) - level) + t);
     }

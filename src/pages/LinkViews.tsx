@@ -6,6 +6,7 @@ import { dayTitle } from "../lib/timestamp";
 import { showError } from "../lib/toast";
 import { ProjectPanel } from "../projects/ProjectPanel";
 import { ProjectTimeline } from "../projects/ProjectTimeline";
+import { MediaPeek, mediaItemsIn } from "../editor/MediaPeek";
 import { InspirationGrid } from "./InspirationGrid";
 import type { JournalStore, LinkKind, NamedPage, Reference } from "../store";
 
@@ -21,7 +22,9 @@ export interface LinkHandlers {
 /** One block that mentions the page or tag: where it is, and the lines that mention it. */
 function ReferenceCard({ reference, kind, target, handlers }: { reference: Reference; kind: LinkKind; target: string; handlers: LinkHandlers }) {
   // The mentioning lines with what's nested under them (a project's sub-points, a person's notes…).
-  const lines = mentionsWithChildren(reference.content as never, kind, target);
+  const taken: never[] = [];
+  const lines = mentionsWithChildren(reference.content as never, kind, target, taken);
+  const media = mediaItemsIn(taken);
   const open = () => (reference.day ? handlers.onOpenDay(reference.day, lines[0]?.trim()) : handlers.onOpenLink(reference.title ?? ""));
   return (
     <li>
@@ -31,6 +34,7 @@ function ReferenceCard({ reference, kind, target, handlers }: { reference: Refer
           <span key={i} className="reference-line" style={{ paddingLeft: `${(line.match(/^ */)![0].length / 2) * 14}px` }}>{line.trim()}</span>
         ))}
       </button>
+      <MediaPeek items={media} />
     </li>
   );
 }

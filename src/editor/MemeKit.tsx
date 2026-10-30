@@ -13,6 +13,54 @@ interface KitItem {
   group?: string | null;
   /** Picker categories (scripts/import-meme-kit.mjs). */
   tags?: string[];
+  /** As rated in the meme-kit dashboard (a number, stars or a word). */
+  rating?: number | string | null;
+  /** Sounds: length in seconds and a 48-bar loudness outline, digits 0–9. */
+  duration?: number;
+  wave?: string;
+}
+
+const RATING_WORDS: Record<string, number> = { never: 0, bad: 1, meh: 2, ok: 2, okay: 2, maybe: 2, fine: 2, good: 3, nice: 3, great: 4, love: 5, loved: 5, best: 5, top: 5, gold: 5, favourite: 5, favorite: 5, must: 5 };
+/** A dashboard rating as 0–5 (null when unrated or unknown). */
+export function ratingScore(r: KitItem["rating"]): number | null {
+  if (r == null || r === "") return null;
+  if (typeof r === "number") return r > 5 ? Math.round(r / 20) : r;
+  const s = String(r).toLowerCase().trim();
+  if (/^\d+(\.\d+)?$/.test(s)) return Math.min(5, Number(s));
+  const stars = (s.match(/★|⭐/g) ?? []).length;
+  if (stars) return stars;
+  return RATING_WORDS[s] ?? null;
+}
+const stars = (n: number) => "★".repeat(Math.max(0, Math.round(n)));
+
+/** A sound as a pill: as wide as it is long, with its wave; tap plays it, + adds it. */
+function SoundPill({ item, playing, progress, starred, busy, onPlay, onPick, onStar }: {
+  item: KitItem; playing: boolean; progress: number; starred: boolean; busy: boolean; onPlay: () => void; onPick: () => void; onStar: () => void;
+}) {
+  const press = useLongPress(onStar);
+  const { consumed, ...handlers } = press;
+  const bars = (item.wave ?? "3".repeat(24)).split("").map(Number);
+  const secs = item.duration ?? 2;
+  return (
+    <li className={playing ? "sound-pill playing" : "sound-pill"} style={{ "--secs": Math.min(secs, 12) } as React.CSSProperties}>
+      <button type="button" className="sound-wave" {...handlers} onClick={() => !consumed() && onPlay()} aria-label={`Play ${item.name}`}>
+        <svg viewBox={`0 0 ${bars.length * 3} 20`} preserveAspectRatio="none" aria-hidden>
+          {bars.map((b, i) => (
+            <rect key={i} x={i * 3} y={10 - (b + 1)} width={2} height={(b + 1) * 2} rx={1} className={playing && i / bars.length < progress ? "done" : ""} />
+          ))}
+        </svg>
+        <span className="sound-label">
+          {starred && <span className="meme-star">★</span>}
+          {item.name}
+          <span className="sound-secs">{secs.toFixed(secs < 10 ? 1 : 0)}s</span>
+          {ratingScore(item.rating) ? <span className="meme-rating">{stars(ratingScore(item.rating)!)}</span> : null}
+        </span>
+      </button>
+      <button type="button" className="sound-add" disabled={busy} onClick={onPick} aria-label={`Add ${item.name}`}>
+        {busy ? "…" : "+"}
+      </button>
+    </li>
+  );
 }
 
 const RECENT = "Recent";
@@ -100,18 +148,26 @@ export function MemeKit() {
     writeList("favourites", next);
   };
   const preview = useRef<HTMLAudioElement | null>(null);
+  const [minRating, setMinRating] = useState(0);
+  const [playingSound, setPlayingSound] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [playingClip, setPlayingClip] = useState<string | null>(null);
 
   useEffect(() => {
     const onOpen = (e: Event) => {
       setOpen((e as CustomEvent<{ editor: Editor; tab: Tab }>).detail);
       setQuery("");
       setCategory(ALL);
+      setPlayingClip(null);
       void loadIndex().then(setItems);
     };
     window.addEventListener("journal:meme-kit", onOpen);
     return () => window.removeEventListener("journal:meme-kit", onOpen);
   }, []);
-  useEffect(() => () => preview.current?.pause(), [open]);
+  useEffect(() => () => {
+    preview.current?.pause();
+    setPlayingSound(null);
+  }, [open]);
 
   const inTab = useMemo(() => (items ?? []).filter((i) => (open?.tab === "sounds" ? i.kind === "sound" : i.kind !== "sound")), [items, open?.tab]);
   /** The tab's categories, biggest first, after Recent and Favourites. */
@@ -128,8 +184,13 @@ export function MemeKit() {
     if (category === RECENT) list = recent.map((id) => inTab.find((i) => i.id === id)).filter((i): i is KitItem => !!i);
     else if (category === FAVOURITES) list = favourites.map((id) => inTab.find((i) => i.id === id)).filter((i): i is KitItem => !!i);
     else if (category !== ALL) list = inTab.filter((i) => i.tags?.includes(category));
+    if (minRating) list = list.filter((i) => (ratingScore(i.rating) ?? 0) >= minRating);
+    // Best rated first (Recent and Favourites keep their own order).
+    if (category !== RECENT && category !== FAVOURITES) list = [...list].sort((a, b) => (ratingScore(b.rating) ?? 0) - (ratingScore(a.rating) ?? 0));
     return q ? list.filter((i) => `${i.name} ${(i.tags ?? []).join(" ")}`.toLowerCase().includes(q)) : list;
-  }, [inTab, category, query, recent, favourites]);
+  }, [inTab, category, query, recent, favourites, minRating]);
+  /** The ratings this tab has, for the filter chips. */
+  const ratings = useMemo(() => [...new Set(inTab.map((i) => ratingScore(i.rating)).filter((n): n is number => !!n))].sort((a, b) => b - a), [inTab]);
 
   if (!open) return null;
   const close = () => setOpen(null);
@@ -158,8 +219,14 @@ export function MemeKit() {
 
   const play = (item: KitItem) => {
     preview.current?.pause();
-    preview.current = new Audio(KIT + item.file);
-    void preview.current.play();
+    if (playingSound === item.id) return setPlayingSound(null);
+    const audio = new Audio(KIT + item.file);
+    preview.current = audio;
+    setPlayingSound(item.id);
+    setProgress(0);
+    audio.ontimeupdate = () => audio.duration && setProgress(audio.currentTime / audio.duration);
+    audio.onended = () => setPlayingSound((p) => (p === item.id ? null : p));
+    void audio.play();
   };
 
   return (
@@ -187,6 +254,16 @@ export function MemeKit() {
             </button>
           ))}
         </div>
+        {ratings.length > 0 && (
+          <div className="meme-chips meme-ratings" role="tablist" aria-label="Rating">
+            <button type="button" className={minRating === 0 ? "active" : ""} onClick={() => setMinRating(0)}>Any rating</button>
+            {ratings.map((r) => (
+              <button key={r} type="button" className={minRating === r ? "active" : ""} onClick={() => setMinRating(r)}>
+                {stars(r)}{r < 5 ? "+" : ""}
+              </button>
+            ))}
+          </div>
+        )}
         {(category === FAVOURITES || category === RECENT) && !shown.length && (
           <p className="hint">{category === FAVOURITES ? "Long-press anything to star it." : "Things you add show up here."}</p>
         )}
@@ -197,29 +274,48 @@ export function MemeKit() {
               <button type="button" onClick={() => (close(), openVoiceRecorder(open.editor, "sound"))}>🎙 Record your own sound…</button>
             </li>
             {shown.map((i) => (
-              <li key={i.id}>
-                <button type="button" className="meme-play" onClick={() => play(i)} aria-label={`Play ${i.name}`}>▶</button>
-                <Pickable className="meme-sound-name" onPick={() => void pick(i)} onStar={() => toggleFavourite(i.id)} disabled={!!busy}>
-                  {favourites.includes(i.id) && <span className="meme-star">★</span>}
-                  {busy === i.id ? "Adding…" : i.name}
-                </Pickable>
-              </li>
+              <SoundPill
+                key={i.id}
+                item={i}
+                playing={playingSound === i.id}
+                progress={progress}
+                starred={favourites.includes(i.id)}
+                busy={busy === i.id}
+                onPlay={() => play(i)}
+                onPick={() => void pick(i)}
+                onStar={() => toggleFavourite(i.id)}
+              />
             ))}
           </ul>
         ) : (
           <div className="meme-grid">
-            {shown.map((i) => (
-              <Pickable key={i.id} className="meme-tile" onPick={() => void pick(i)} onStar={() => toggleFavourite(i.id)} disabled={!!busy} title={i.name}>
-                {i.kind === "gif" || i.kind === "greenscreen" ? (
-                  i.thumb ? <img src={KIT + i.thumb} alt="" loading="lazy" /> : <video src={KIT + i.file} muted />
-                ) : (
-                  <img src={KIT + i.file} alt="" loading="lazy" />
-                )}
-                {i.kind !== "photo" && <span className="meme-badge">{i.kind === "greenscreen" ? "🟩 CLIP" : "GIF"}</span>}
-                {favourites.includes(i.id) && <span className="meme-star">★</span>}
-                <span className="meme-name">{busy === i.id ? "Adding…" : i.name}</span>
-              </Pickable>
-            ))}
+            {shown.map((i) => {
+              const clip = i.kind === "gif" || i.kind === "greenscreen";
+              const playing = playingClip === i.id;
+              return (
+                <div key={i.id} className={playing ? "meme-cell playing" : "meme-cell"}>
+                  <Pickable className="meme-tile" onPick={() => void pick(i)} onStar={() => toggleFavourite(i.id)} disabled={!!busy} title={i.name}>
+                    {playing ? (
+                      // Plays right where it is, bigger and with its sound; tap it to add it.
+                      <video className={i.kind === "greenscreen" ? "stacked" : ""} src={KIT + i.file} autoPlay loop playsInline />
+                    ) : clip ? (
+                      i.thumb ? <img src={KIT + i.thumb} alt="" loading="lazy" /> : <video src={KIT + i.file} muted preload="metadata" />
+                    ) : (
+                      <img src={KIT + i.file} alt="" loading="lazy" />
+                    )}
+                    {i.kind !== "photo" && !playing && <span className="meme-badge">{i.kind === "greenscreen" ? "🟩 CLIP" : "GIF"}</span>}
+                    {favourites.includes(i.id) && <span className="meme-star">★</span>}
+                    {ratingScore(i.rating) ? <span className="meme-rating">{stars(ratingScore(i.rating)!)}</span> : null}
+                    <span className="meme-name">{busy === i.id ? "Adding…" : playing ? `Tap to add · ${i.name}` : i.name}</span>
+                  </Pickable>
+                  {clip && (
+                    <button type="button" className="meme-clip-play" onClick={() => setPlayingClip(playing ? null : i.id)} aria-label={playing ? "Stop" : `Play ${i.name}`}>
+                      {playing ? "■" : "▶"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

@@ -312,6 +312,14 @@ class MainActivity : TauriActivity() {
         (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
       }
     }
+
+    @JavascriptInterface
+    fun hideKeyboard() {
+      runOnUiThread {
+        val view = webView ?: return@runOnUiThread
+        (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(view.windowToken, 0)
+      }
+    }
   }
 
   /**

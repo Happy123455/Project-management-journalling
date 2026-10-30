@@ -91,17 +91,18 @@ async function callGemini(key: string, model: string, req: AiRequest) {
   return { text, input: u.promptTokenCount ?? 0, output: (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0) };
 }
 
-/** Ollama's chat API on this Mac (JSON mode when a schema is given; no thinking, for speed). */
+/** Ollama's chat API on this Mac (JSON mode when a schema is given; thinking only for the chat journal). */
 async function callOllama(model: string, req: AiRequest) {
   const http = (await import("@tauri-apps/plugin-http")).fetch;
   const res = await http(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
-    signal: AbortSignal.timeout(req.task === "organise" ? 300_000 : 120_000),
+    signal: AbortSignal.timeout(req.task === "organise" || req.task === "chat" ? 300_000 : 120_000),
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
       stream: false,
-      think: false,
+      // The chat journal gets the reasoning model's thinking (it's local and free); edits stay quick.
+      think: req.task === "chat",
       ...(req.schema ? { format: req.schema } : {}),
       options: { num_ctx: 8192 },
       messages: [

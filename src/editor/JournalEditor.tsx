@@ -19,6 +19,7 @@ import { saveToInspiration } from "./inspiration";
 import { readAloud } from "../lib/readAloud";
 import { isLoneUrl, LinkCard } from "./linkCard";
 import { PromptBlock } from "./promptBlock";
+import { YoutubeEmbed, youtubeEmbedFrom } from "./youtubeEmbed";
 import { FindHighlight, findKey } from "./findHighlight";
 import { LogBlock } from "./logBlock";
 import { KeyboardBar, useTouchDevice } from "./KeyboardBar";
@@ -54,6 +55,15 @@ interface Tool {
   active?: boolean;
   disabled?: boolean;
 }
+
+/** Edits typed but not yet handed to `onChange` (it runs once typing pauses, not per letter). */
+const pendingEmits = new Set<() => void>();
+/** Hands every open editor's latest text to its `onChange` now (before saving or switching day). */
+export function flushPendingEdits() {
+  for (const emit of [...pendingEmits]) emit();
+}
+/** Serialising the whole note per letter made typing stall on long days; wait for a short pause. */
+const EMIT_DELAY_MS = 250;
 
 const TOOLS_KEY = "dynamic-journal.toolbar";
 /** The phone bar's tool order and hidden tools, kept on this device. */
@@ -206,6 +216,16 @@ export function JournalEditor({
   const touch = useTouchDevice();
   const [infoOpen, setInfoOpen] = useState(false);
   const editorRef = useRef<Editor | null>(null);
+  const emitTimer = useRef<number | undefined>(undefined);
+  const changeRef = useRef(onChange);
+  changeRef.current = onChange;
+  const emit = useRef(() => {
+    window.clearTimeout(emitTimer.current);
+    pendingEmits.delete(emit.current);
+    const e = editorRef.current;
+    if (!e || e.isDestroyed) return;
+    changeRef.current(e.getJSON(), e.getText({ blockSeparator: "\n" }));
+  });
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
@@ -217,6 +237,7 @@ export function JournalEditor({
       AttachmentMedia,
       AttachmentFile,
       LinkCard,
+      YoutubeEmbed,
       PromptBlock,
       LinkHighlight.configure({ onOpenLink: (t) => onOpenLink?.(t), onOpenTag: (t) => onOpenTag?.(t) }),
       LinkSuggest.configure({ pageNames: () => pageNames?.() ?? Promise.resolve([]) }),
@@ -250,6 +271,12 @@ export function JournalEditor({
         // Copied from this app: the HTML already carries the media, let the normal paste handle it.
         if (data.getData("text/html").includes("data-file-id")) return false;
         const text = data.getData("text/plain");
+        // ![](youtube link), like Obsidian: a player right in the note.
+        const yt = youtubeEmbedFrom(text);
+        if (yt) {
+          editor.chain().focus().insertContent({ type: "youtubeEmbed", attrs: yt }).run();
+          return true;
+        }
         // A lone link becomes a preview card (it falls back to a plain link by itself).
         if (isLoneUrl(text)) {
           editor.chain().focus().insertContent({ type: "linkCard", attrs: { url: text.trim() } }).run();
@@ -273,9 +300,23 @@ export function JournalEditor({
       onReady?.(editor.getText({ blockSeparator: "\n" }));
       upgradeOldMedia(editor);
     },
-    onUpdate: ({ editor, transaction }) =>
-      onChange(editor.getJSON(), editor.getText({ blockSeparator: "\n" }), transaction.getMeta("aiActor") as string | undefined),
+    onUpdate: ({ editor, transaction }) => {
+      const actor = transaction.getMeta("aiActor") as string | undefined;
+      if (actor) {
+        // Anything typed before goes first, then the AI's edit on its own.
+        if (pendingEmits.has(emit.current)) emit.current();
+        return changeRef.current(editor.getJSON(), editor.getText({ blockSeparator: "\n" }), actor);
+      }
+      pendingEmits.add(emit.current);
+      window.clearTimeout(emitTimer.current);
+      emitTimer.current = window.setTimeout(emit.current, EMIT_DELAY_MS);
+    },
   });
+
+  // Leaving the note (another day, a linked page): hand over what was typed last.
+  useEffect(() => () => {
+    if (pendingEmits.has(emit.current)) emit.current();
+  }, []);
 
   editorRef.current = editor;
 
