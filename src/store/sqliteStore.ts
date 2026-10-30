@@ -9,7 +9,7 @@ import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
 import { Serial } from "./serial";
 import type { JSONContent } from "@tiptap/react";
 import { fileEventBody, newFileRecord } from "./files";
-import { eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
+import { docKey, eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
 import { withPatch } from "./props";
 import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
 
@@ -461,9 +461,20 @@ export class SqliteStore implements JournalStore {
         if (!cur || key.join("\u0000") > cur.join("\u0000")) slot[which] = key;
       }
     }
+    const docs: LocalState["docs"] = new Map();
+    if (blockIds.length) {
+      const marks = blockIds.map((_, i) => `$${i + 1}`).join(",");
+      const blocks = await this.db.select<{ id: string; content: string }[]>(`SELECT id, content FROM blocks WHERE id IN (${marks})`, blockIds);
+      const befores = await this.db.select<{ block_id: string; before: string }[]>(
+        `SELECT block_id, before FROM events WHERE before IS NOT NULL AND op IN ('create','update') AND block_id IN (${marks})`,
+        blockIds,
+      );
+      for (const b of blocks) docs.set(b.id, { current: docKey(b.content), befores: new Set() });
+      for (const r of befores) docs.get(r.block_id)?.befores.add(docKey(r.before));
+    }
     const ids = await this.db.select<{ id: string }[]>("SELECT id FROM events");
     const fileIds = await this.db.select<{ id: string }[]>("SELECT id FROM files");
-    return { eventIds: new Set(ids.map((r) => r.id)), latest, fileIds: new Set(fileIds.map((r) => r.id)) };
+    return { eventIds: new Set(ids.map((r) => r.id)), latest, fileIds: new Set(fileIds.map((r) => r.id)), docs };
   }
 
   applySync(plan: MergePlan, blobs: Map<string, Uint8Array>) {
@@ -486,6 +497,11 @@ export class SqliteStore implements JournalStore {
           [b.blockId, type, day, startProps, b.updatedAt],
         );
         const doc = b.content ? eventDocument(b.content) : null;
+        if (doc && b.merged) {
+          // Both devices wrote here: the kept-both document is a new edit of this device's.
+          const [cur] = await this.db.select<{ content: string }[]>("SELECT content FROM blocks WHERE id = $1", [b.blockId]);
+          await this.logEvent(b.blockId, "sync", "update", cur?.content ?? null, JSON.stringify(doc), b.updatedAt);
+        }
         if (doc) await this.db.execute("UPDATE blocks SET content = $1, updated_at = $2 WHERE id = $3", [JSON.stringify(doc), b.updatedAt, b.blockId]);
         // Day props hold reminder flags; page props hold the title and project info.
         if (b.props) await this.db.execute("UPDATE blocks SET props = $1, updated_at = $2 WHERE id = $3", [b.props, b.updatedAt, b.blockId]);

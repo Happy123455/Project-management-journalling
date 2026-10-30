@@ -7,7 +7,7 @@ import { countWords, docText } from "../lib/words";
 import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
 import { Serial } from "./serial";
 import { fileEventBody, fromBase64, newFileRecord, toBase64 } from "./files";
-import { eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
+import { docKey, eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
 import { withPatch } from "./props";
 import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
 import type { JSONContent } from "@tiptap/react";
@@ -336,7 +336,15 @@ export class MemoryStore implements JournalStore {
       const cur = slot[which];
       if (!cur || key.join("\u0000") > cur.join("\u0000")) slot[which] = key;
     }
-    return { eventIds: new Set(this.data.events.map((e) => e.id)), latest, fileIds: new Set(Object.keys(this.files)) };
+    const docs: LocalState["docs"] = new Map();
+    for (const id of blockIds) {
+      const page = Object.values(this.data.pages).find((p) => p.id === id) ?? this.named[id];
+      if (page) docs.set(id, { current: JSON.stringify(page.content), befores: new Set() });
+    }
+    for (const e of this.data.events) {
+      if (e.before && (e.op === "create" || e.op === "update")) docs.get(e.blockId)?.befores.add(docKey(e.before));
+    }
+    return { eventIds: new Set(this.data.events.map((e) => e.id)), latest, fileIds: new Set(Object.keys(this.files)), docs };
   }
 
   applySync(plan: MergePlan, blobs: Map<string, Uint8Array>) {
@@ -347,6 +355,11 @@ export class MemoryStore implements JournalStore {
         if (b.meta.kind !== "block") continue;
         const content = b.content ? eventDocument(b.content) : undefined;
         const props = b.props ? JSON.parse(b.props) : undefined;
+        if (content && b.merged) {
+          // Both devices wrote here: the kept-both document is a new edit of this device's.
+          const cur = b.meta.type === "day" ? this.data.pages[b.meta.day] : this.named[b.blockId];
+          this.logEvent(b.blockId, "sync", "update", cur ? JSON.stringify(cur.content) : null, JSON.stringify(content), b.updatedAt);
+        }
         if (b.meta.type === "day") {
           const cur = this.data.pages[b.meta.day];
           const page: DayPage = cur ?? { id: b.blockId, day: b.meta.day, content: { type: "doc", content: [] }, props: {}, updatedAt: b.updatedAt };
