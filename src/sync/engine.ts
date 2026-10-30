@@ -1,5 +1,5 @@
 import type { JournalStore } from "../store/types";
-import { fromLines, monthOf, planMerge, toLines, type SyncRecord } from "./merge";
+import { fromLines, planMerge, toLines, type SyncRecord } from "./merge";
 
 /** The shared folder (Google Drive), seen as paths relative to "Dynamic Journal Sync/". */
 export interface SyncFolder {
@@ -9,7 +9,32 @@ export interface SyncFolder {
   /** Creates parent folders as needed and replaces the file. */
   write(path: string, bytes: Uint8Array): Promise<void>;
   exists(path: string): Promise<boolean>;
+  /** Something that changes whenever the file does (size and time), when cheap to know. */
+  stamp?(path: string): Promise<string | null>;
 }
+
+/** What this device remembers between rounds, so it doesn't download what it already has. */
+export interface SyncMemory {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+}
+
+/** Remembers nothing between calls (tests); the app keeps it in localStorage. */
+export const memoryOnly = (): SyncMemory => {
+  const m = new Map<string, string>();
+  return { get: (k) => m.get(k) ?? null, set: (k, v) => void m.set(k, v) };
+};
+
+/** Sent: this device's files in the folder, the events in them, the attachments uploaded. Seen: other devices' files imported. */
+interface Remembered {
+  files: string[];
+  ids: string[];
+  hashes: string[];
+  seen: string[];
+}
+
+/** Month files from before sync wrote new events into new files; older app versions still add to them. */
+const LEGACY = /^\d{4}-\d{2}\.jsonl$/;
 
 export interface SyncResult {
   exported: number;
@@ -22,42 +47,63 @@ const dec = new TextDecoder();
 
 /**
  * One sync round:
- * 1. write this device's new events to events/<device>/<yyyy-mm>.jsonl (only ever its own files)
+ * 1. write this device's new events to a new events/<device>/<time>.jsonl (only ever its own files)
  *    and its attachments to files/<hash>;
- * 2. read every other device's files, and import the events this device doesn't have yet.
+ * 2. read the other devices' files it hasn't read yet, and import the events this device doesn't have.
+ * Files are never rewritten, so on the phone a round only downloads what's new (mobile data).
  */
-export async function syncOnce(store: JournalStore, folder: SyncFolder): Promise<SyncResult> {
+export async function syncOnce(store: JournalStore, folder: SyncFolder, memory: SyncMemory = memoryOnly()): Promise<SyncResult> {
   const me = store.deviceId;
+  const saved = memory.get("journal.sync");
+  let mem: Remembered = saved ? JSON.parse(saved) : { files: [], ids: [], hashes: [], seen: [] };
+  const remember = () => memory.set("journal.sync", JSON.stringify(mem));
 
   // 1. Export.
   const own = await store.syncRecords();
-  let exported = 0;
-  const byMonth = new Map<string, SyncRecord[]>();
-  for (const r of own) byMonth.set(monthOf(r.event.createdAt), [...(byMonth.get(monthOf(r.event.createdAt)) ?? []), r]);
-  for (const [month, records] of byMonth) {
-    const path = `events/${me}/${month}.jsonl`;
-    const existing = fromLines(dec.decode((await folder.read(path)) ?? new Uint8Array()));
-    const have = new Set(existing.map((r) => r.event.id));
-    const missing = records.filter((r) => !have.has(r.event.id));
-    if (!missing.length) continue;
-    await folder.write(path, enc.encode(toLines([...existing, ...missing])));
-    exported += missing.length;
+  const ownFiles = (await folder.list(`events/${me}`)).filter((f) => f.endsWith(".jsonl"));
+  if (!saved || ownFiles.length !== mem.files.length || ownFiles.some((f) => !mem.files.includes(f))) {
+    // First round here, or a different folder (another Drive account): see what's already there.
+    const ids = new Set<string>();
+    for (const f of ownFiles) for (const r of fromLines(dec.decode((await folder.read(`events/${me}/${f}`)) ?? new Uint8Array()))) ids.add(r.event.id);
+    mem = { files: ownFiles, ids: [...ids], hashes: [], seen: saved ? mem.seen : [] };
   }
+  const sent = new Set(mem.ids);
+  const missing = own.filter((r) => !sent.has(r.event.id));
+  if (missing.length) {
+    const name = `${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 6)}.jsonl`;
+    await folder.write(`events/${me}/${name}`, enc.encode(toLines(missing)));
+    mem.files.push(name);
+    mem.ids.push(...missing.map((r) => r.event.id));
+  }
+  remember();
+  const uploaded = new Set(mem.hashes);
   for (const r of own) {
-    if (r.meta.kind !== "file") continue;
+    if (r.meta.kind !== "file" || uploaded.has(r.meta.file.hash)) continue;
     const path = `files/${r.meta.file.hash}`;
-    if (await folder.exists(path)) continue;
-    const bytes = await store.fileBytes(r.meta.file.id);
-    if (bytes) await folder.write(path, bytes);
+    if (!(await folder.exists(path))) {
+      const bytes = await store.fileBytes(r.meta.file.id);
+      if (!bytes) continue;
+      await folder.write(path, bytes);
+    }
+    uploaded.add(r.meta.file.hash);
+    mem.hashes.push(r.meta.file.hash);
+    remember();
   }
 
   // 2. Import from every other device.
   const incoming: SyncRecord[] = [];
+  const seen = new Set(mem.seen);
+  const read: string[] = [];
   for (const device of await folder.list("events")) {
     if (device === me) continue;
     for (const file of await folder.list(`events/${device}`)) {
       if (!file.endsWith(".jsonl")) continue;
-      incoming.push(...fromLines(dec.decode((await folder.read(`events/${device}/${file}`)) ?? new Uint8Array())));
+      const path = `events/${device}/${file}`;
+      const stamp = (await folder.stamp?.(path)) ?? (LEGACY.test(file) ? null : "");
+      const key = stamp === null ? null : `${path}@${stamp}`;
+      if (key && seen.has(key)) continue;
+      incoming.push(...fromLines(dec.decode((await folder.read(path)) ?? new Uint8Array())));
+      if (key) read.push(key);
     }
   }
   // Pages both devices made for the same day (or name) before syncing are one page here.
@@ -74,7 +120,11 @@ export async function syncOnce(store: JournalStore, folder: SyncFolder): Promise
     if (bytes) blobs.set(f.hash, bytes);
   }
   if (plan.events.length || plan.files.length) await store.applySync(plan, blobs);
-  return { exported, imported: plan.events.length, files: blobs.size };
+  // A legacy month file is read again when it changes; drop its older stamps.
+  const replaced = new Set(read.map((k) => k.slice(0, k.lastIndexOf("@"))));
+  mem.seen = [...mem.seen.filter((k) => !replaced.has(k.slice(0, k.lastIndexOf("@")))), ...read];
+  remember();
+  return { exported: missing.length, imported: plan.events.length, files: blobs.size };
 }
 
 /** A folder in memory, for tests and the browser preview. */

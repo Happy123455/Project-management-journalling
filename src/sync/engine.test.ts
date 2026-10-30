@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../store/memoryStore";
-import { MemoryFolder, syncOnce } from "./engine";
+import { MemoryFolder, memoryOnly, syncOnce } from "./engine";
 
 const doc = (text: string) => ({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
 const at = (iso: string) => vi.setSystemTime(new Date(iso));
@@ -114,5 +114,39 @@ describe("phone notes survive syncing with the Mac", () => {
       expect(new Set(got.content.map((n) => JSON.stringify(n)))).toEqual(new Set(want.content.map((n) => JSON.stringify(n))));
     }
     expect((await phone.getDay("2026-10-29"))?.content).toEqual((await mac.getDay("2026-10-29"))?.content);
+  });
+});
+
+describe("sync on mobile data", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("downloads only what's new after the first round", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    at("2026-10-30T08:00:00Z");
+    const folder = new MemoryFolder();
+    const reads: string[] = [];
+    const read = folder.read.bind(folder);
+    folder.read = async (path) => (reads.push(path), read(path));
+    const phone = new MemoryStore(undefined, "phone");
+    const mac = new MemoryStore(undefined, "mac");
+    const phoneMemory = memoryOnly();
+    await mac.saveDay({ day: "2026-10-30", content: doc("mac"), plainText: "" });
+    await syncOnce(mac, folder);
+    await syncOnce(phone, folder, phoneMemory);
+    expect((await phone.getDay("2026-10-30"))?.content).toEqual(doc("mac"));
+
+    reads.length = 0;
+    await phone.saveDay({ day: "2026-10-31", content: doc("phone"), plainText: "" });
+    expect((await syncOnce(phone, folder, phoneMemory)).imported).toBe(0);
+    expect(reads).toEqual([]);
+
+    // The Mac's next edit is one new small file; the phone reads just that.
+    at("2026-10-30T09:00:00Z");
+    await mac.saveDay({ day: "2026-10-30", content: doc("mac again"), plainText: "" });
+    await syncOnce(mac, folder);
+    reads.length = 0;
+    await syncOnce(phone, folder, phoneMemory);
+    expect(reads).toHaveLength(1);
+    expect((await phone.getDay("2026-10-30"))?.content).toEqual(doc("mac again"));
   });
 });
