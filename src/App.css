@@ -1550,7 +1550,7 @@ html.overlay-open .page { touch-action: none; }
 @media (prefers-color-scheme: dark) { .countdown-weekends { color: #f9a8d4; } }
 
 /* Coming up: rows that scroll past the top squeeze into thin stacked rows that stay visible. */
-.upcoming li[style] { position: sticky; top: calc(var(--stack) * 26px); z-index: calc(10 - var(--stack)); }
+.upcoming-scroll .upcoming li[style] { position: sticky; top: calc(var(--stack) * 26px); z-index: calc(10 - var(--stack)); }
 .upcoming li .reminder-open { transition: padding 0.2s ease; }
 .upcoming li.squeezed .reminder-open { flex-direction: row; gap: 8px; align-items: center; padding: 2px 10px; height: 24px; overflow: hidden; background: var(--lg-sheen), var(--lg-panel); box-shadow: var(--lg-rim), 0 2px 8px rgba(0, 0, 0, 0.12); }
 .upcoming li.squeezed .countdown, .upcoming li.squeezed .reminder-day { display: none; }
