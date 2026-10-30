@@ -52,6 +52,7 @@
     "fs:allow-read-dir",
     "fs:allow-remove",
     "fs:allow-exists",
+    "fs:allow-stat",
     "fs:allow-read-file",
     { "identifier": "http:default", "allow": [{ "url": "https://*" }, { "url": "http://*" }] }
   ]

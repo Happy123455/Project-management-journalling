@@ -1,8 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { coalesce } from "../lib/coalesce";
 import type { JournalStore } from "../store";
-import { syncOnce } from "./engine";
+import { syncOnce, type SyncMemory } from "./engine";
 import { findSyncFolder, pickSyncFolder } from "./folders";
+
+/** What sync remembers between rounds (what it sent and read), so it only moves what's new. */
+const localMemory: SyncMemory = {
+  get: (key) => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set: (key, value) => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // Full or blocked: the next round just checks the folder again.
+    }
+  },
+};
 
 const EVERY_MS = 3 * 60 * 1000;
 const AFTER_SAVE_MS = 15 * 1000;
@@ -29,12 +47,12 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
     () =>
       coalesce(async () => {
         if (!store) return;
-        const found = await findSyncFolder();
+        const found = await findSyncFolder(store.deviceId);
         if (found.kind === "pick") return setStatus({ state: "needs-folder" });
         if (found.kind === "unavailable") return setStatus({ state: "off", reason: found.reason });
         setStatus({ state: "syncing", label: found.label, last: last.current });
         try {
-          const result = await syncOnce(store, found.folder);
+          const result = await syncOnce(store, found.folder, localMemory);
           last.current = new Date();
           setStatus({ state: "ok", label: found.label, last: last.current });
           if (result.imported || result.files) imported.current();
