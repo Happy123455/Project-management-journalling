@@ -386,6 +386,13 @@ export class SqliteStore implements JournalStore {
     return fs.readFile(file.path, { baseDir: fs.BaseDirectory.AppData });
   }
 
+  async fileSrc(id: string) {
+    const file = await this.getFile(id);
+    if (!file) return null;
+    const [{ convertFileSrc }, { appDataDir, join }] = await Promise.all([import("@tauri-apps/api/core"), import("@tauri-apps/api/path")]);
+    return convertFileSrc(await join(await appDataDir(), file.path));
+  }
+
   restore(entries: { name: string; bytes: Uint8Array }[], source: string) {
     return this.writes.run(async () => {
       const db = entries.find((e) => e.name === "journal.db");

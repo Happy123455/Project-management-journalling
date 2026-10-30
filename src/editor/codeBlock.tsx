@@ -1,6 +1,6 @@
 import { useState } from "react";
 import CodeBlock from "@tiptap/extension-code-block";
-import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
+import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, type Editor, type NodeViewProps } from "@tiptap/react";
 
 /** "```" or "```js" alone on a line: Enter turns the line into a code block in that language. */
 export const FENCE_RE = /^```([\w+#-]*)$/;
@@ -94,3 +94,28 @@ export const JournalCodeBlock = CodeBlock.extend({
     };
   },
 });
+
+/**
+ * The toolbar's Code button. With several lines selected, all of them become one code block
+ * (also from lists and headings), not a block per line. Anything that isn't text (a photo, a
+ * video) would be lost in a code block, so then each line is toggled on its own as before.
+ */
+export function codeBlockFromSelection(editor: Editor) {
+  const { state } = editor;
+  const { $from, $to, empty } = state.selection;
+  if (empty || $from.sameParent($to) || editor.isActive("codeBlock")) return editor.chain().focus().toggleCodeBlock().run();
+  const from = $from.before(1);
+  const to = $to.after(1);
+  let media = false;
+  state.doc.nodesBetween(from, to, (n) => {
+    if (n.isInline && !n.isText && n.type.name !== "hardBreak") media = true;
+    return !media;
+  });
+  if (media) return editor.chain().focus().toggleCodeBlock().run();
+  const text = state.doc.textBetween(from, to, "\n", (leaf) => (leaf.type.name === "hardBreak" ? "\n" : ""));
+  return editor
+    .chain()
+    .focus()
+    .insertContentAt({ from, to }, { type: "codeBlock", content: text ? [{ type: "text", text }] : [] })
+    .run();
+}

@@ -4,7 +4,7 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { NodeSelection } from "@tiptap/pm/state";
 import { qrContent } from "../lib/capture";
 import { AlphaVideo } from "./AlphaVideo";
-import { AudioPill, PeekOnDoubleTap, TapVideo } from "./MediaBits";
+import { AudioPill, leaveText, PeekOnDoubleTap, TapVideo } from "./MediaBits";
 import { usePlayWhenVisible } from "./usePlayWhenVisible";
 import { embedText, parseEmbeds } from "../lib/embeds";
 import { placeBar } from "../lib/placement";
@@ -38,17 +38,38 @@ export function fileUrl(id: string): Promise<string> {
   return url;
 }
 
-export function useFileUrl(id: string | null) {
+/** Streamed from disk, never read whole into memory (videos, sounds), once the app's file server works. */
+let streaming: Promise<boolean> | null = null;
+export function mediaUrl(id: string): Promise<string> {
+  const ready = urls.get(id);
+  if (ready || !store?.fileSrc) return ready ?? fileUrl(id);
+  const s = store;
+  return (async () => {
+    const src = await s.fileSrc!(id);
+    if (!src) throw new Error("missing file");
+    // Checked once: if the file server isn't reachable, every file goes the old way.
+    streaming ??= fetch(src, { method: "HEAD" }).then((r) => r.ok, () => false);
+    return (await streaming) ? src : fileUrl(id);
+  })();
+}
+
+/** Remembers a file that was just added, so showing it doesn't read it back from disk. */
+function primeUrl(id: string, blob: Blob) {
+  if (!urls.has(id)) urls.set(id, Promise.resolve(URL.createObjectURL(blob)));
+}
+
+/** A displayable URL for a stored file; `stream` for players (see mediaUrl), not for canvases or images. */
+export function useFileUrl(id: string | null, stream = false) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     if (!id) return;
     let live = true;
-    fileUrl(id).then((u) => live && setUrl(u)).catch(() => live && setFailed(true));
+    (stream ? mediaUrl(id) : fileUrl(id)).then((u) => live && setUrl(u)).catch(() => live && setFailed(true));
     return () => {
       live = false;
     };
-  }, [id]);
+  }, [id, stream]);
   return { url, failed };
 }
 
@@ -144,7 +165,11 @@ export function upgradeOldMedia(editor: Editor) {
 export async function insertFiles(editor: Editor, files: File[]) {
   if (!store || !files.length) return;
   const records: FileRecord[] = [];
-  for (const f of files) records.push(await store.saveFile({ name: f.name || "file", mime: f.type, bytes: new Uint8Array(await f.arrayBuffer()) }));
+  for (const f of files) {
+    const record = await store.saveFile({ name: f.name || "file", mime: f.type, bytes: new Uint8Array(await f.arrayBuffer()) });
+    primeUrl(record.id, f);
+    records.push(record);
+  }
   const nodes = records.map(mediaNode);
   editor.chain().focus().insertContent(nodes).run();
 }
@@ -499,16 +524,38 @@ export function selectMedia({ editor, getPos }: NodeViewProps) {
   if (typeof pos === "number" && editor.isEditable) editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)));
 }
 
-/** A meme/GIF clip: loops silently, and only while on screen. */
-function LoopingClip({ src }: { src: string }) {
+/** A meme/GIF clip: loops silently, and only while on screen. Tap: from the start with sound (and selected); tap again to mute. */
+function LoopingClip({ src, onTap }: { src: string; onTap?: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
+  const [muted, setMuted] = useState(true);
   usePlayWhenVisible(video, [src]);
-  return <video ref={video} src={src} autoPlay loop muted playsInline />;
+  return (
+    <video
+      ref={video}
+      src={src}
+      autoPlay
+      loop
+      muted={muted}
+      playsInline
+      preload="metadata"
+      title={muted ? "Tap for sound" : "Tap to mute"}
+      // Never focus the text (that would open the keyboard and scroll).
+      onPointerDown={(e) => (e.preventDefault(), leaveText())}
+      onClick={() => {
+        const v = video.current;
+        if (v && muted) v.currentTime = 0;
+        setMuted((m) => !m);
+        void v?.play().catch(() => {});
+        onTap?.();
+      }}
+    />
+  );
 }
 
 function MediaView(props: NodeViewProps) {
   const { fileId, kind, name } = props.node.attrs as { fileId: string; kind: "video" | "pdf" | "audio"; name: string };
-  const { url, failed } = useFileUrl(kind === "video" || kind === "audio" ? fileId : null);
+  // Green-screen clips are drawn on a canvas, which needs the file in memory; other players stream it.
+  const { url, failed } = useFileUrl(kind === "video" || kind === "audio" ? fileId : null, !name.startsWith("greenscreen-"));
   return (
     <PlacedMedia {...props}>
       {kind === "pdf" ? (
@@ -527,7 +574,7 @@ function MediaView(props: NodeViewProps) {
           </PeekOnDoubleTap>
         ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
           <PeekOnDoubleTap peek={() => <video src={url} autoPlay loop playsInline controls />}>
-            <LoopingClip src={url} />
+            <LoopingClip src={url} onTap={() => selectMedia(props)} />
           </PeekOnDoubleTap>
         ) : (
           <TapVideo src={url} onSelect={() => selectMedia(props)} />
@@ -572,7 +619,7 @@ function FileView(props: NodeViewProps) {
   const { node } = props;
   const { fileId, name, mime, size } = node.attrs as { fileId: string; name: string; mime: string; size: number };
   const kind = fileKind(mime);
-  const { url } = useFileUrl(kind === "video" ? fileId : null);
+  const { url } = useFileUrl(kind === "video" ? fileId : null, !name.startsWith("greenscreen-"));
   return (
     <NodeViewWrapper className={`attach-file kind-${kind}`} data-drag-handle="">
       {kind === "video" && url ? (
@@ -583,7 +630,7 @@ function FileView(props: NodeViewProps) {
           </PeekOnDoubleTap>
         ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
           <PeekOnDoubleTap peek={() => <video src={url} autoPlay loop playsInline controls />}>
-            <LoopingClip src={url} />
+            <LoopingClip src={url} onTap={() => selectMedia(props)} />
           </PeekOnDoubleTap>
         ) : (
           <TapVideo src={url} onSelect={() => selectMedia(props)} />

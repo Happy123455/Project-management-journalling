@@ -15,6 +15,12 @@ export function youtubeEmbedFrom(text: string): { url: string; width: number | n
 
 const TYPED_RE = /!\[[^\]|\n]*(?:\|(\d+))?\]\((https?:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)\/[^\s)]+)\)/;
 
+/**
+ * The phone's web view has no real full screen: YouTube's own button there froze the app on the
+ * way in or out. It's hidden on Android; the ⛶ button on the player does it instead.
+ */
+const ANDROID = typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+
 function startSeconds(url: string): number {
   try {
     const t = new URL(url).searchParams.get("t") ?? "";
@@ -82,11 +88,11 @@ function YoutubeView(props: NodeViewProps) {
         </button>
         {id ? (
           <iframe
-            src={`https://www.youtube-nocookie.com/embed/${id}?playsinline=1&rel=0${start ? `&start=${start}` : ""}`}
+            src={`https://www.youtube-nocookie.com/embed/${id}?playsinline=1&rel=0${start ? `&start=${start}` : ""}${ANDROID ? "&fs=0" : ""}`}
             title="YouTube video"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+            allow={`accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture${ANDROID ? "" : "; fullscreen"}`}
             referrerPolicy="strict-origin-when-cross-origin"
-            allowFullScreen
+            allowFullScreen={!ANDROID}
             loading="lazy"
           />
         ) : (
