@@ -34,6 +34,8 @@ export interface ProjectEntry {
   lines: string[];
   /** "Day" set by hand in Block info on the mentioning line. */
   manual?: number;
+  /** The blocks those lines come from (for their photos and videos). */
+  blocks?: Block[];
 }
 
 /** Day N per entry (not per calendar day): a hand-set Day wins, otherwise one more than the entry before. */
@@ -55,7 +57,8 @@ interface Block {
 
 /** One day's entry for a project: its mentioning lines, and a hand-set Day if a mentioning block has one. */
 export function entryFor(day: string, content: Block | null, title: string): ProjectEntry | null {
-  const lines = mentionsWithChildren(content, "wikilink", title);
+  const taken: Block[] = [];
+  const lines = mentionsWithChildren(content, "wikilink", title, taken);
   if (!lines.length) return null;
   let manual: number | undefined;
   const find = (b: Block) => {
@@ -66,5 +69,5 @@ export function entryFor(day: string, content: Block | null, title: string): Pro
     b.content?.forEach(find);
   };
   if (content) find(content);
-  return { day, lines, manual };
+  return { day, lines, manual, blocks: taken };
 }

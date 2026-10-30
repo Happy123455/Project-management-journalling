@@ -1621,3 +1621,72 @@ html.overlay-open .page { touch-action: none; }
 .prompt-output { margin-top: 0; padding-bottom: 40px; background: rgba(var(--heat-rgb), 0.06); }
 .prompt-copy { position: absolute; right: 8px; bottom: 8px; border-radius: 999px; font-weight: 700; }
 .prompt-error { color: #ef4444; }
+
+/* ───── Batch 6 ───── */
+/* Media: sizes, a second resize corner on the left, full width (centred, edge to edge). */
+.attach-resize.left { right: auto; left: 6px; cursor: nesw-resize; }
+.attach-toolbar .attach-sizes { display: inline-flex; gap: 2px; margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--border); }
+.attach-image.align-full { display: block; margin: 8px 0; width: 100% !important; transform: none !important; }
+@media (max-width: 700px) {
+  .attach-image.align-full { width: 100vw !important; max-width: 100vw; margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); }
+  .attach-image.align-full .yt-embed iframe { border-radius: 0; }
+}
+.attach-image.selected iframe { pointer-events: auto; }
+.attach-image.dragging iframe { pointer-events: none; }
+.yt-full-button { position: absolute; top: 6px; left: 6px; z-index: 3; width: 32px; height: 32px; padding: 0; border-radius: 10px; font-size: 16px; line-height: 1; background: rgba(0, 0, 0, 0.55); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); }
+.yt-embed.yt-fullscreen { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: #000; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); border-radius: 0; }
+.yt-embed.yt-fullscreen iframe { width: 100%; height: auto; max-height: 100%; aspect-ratio: 16 / 9; border-radius: 0; }
+.yt-embed.yt-fullscreen .yt-full-button { top: calc(env(safe-area-inset-top, 0px) + 10px); left: auto; right: 12px; }
+.yt-embed.yt-fullscreen .media-grip { display: none; }
+html.yt-full-open .month-calendar, html.yt-full-open .keyboard-bar { visibility: hidden; }
+
+/* Code blocks never push the page wider: long lines scroll sideways inside the block. */
+.tiptap pre, .code-block pre, pre { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+.tiptap pre code { white-space: pre; display: block; min-width: max-content; }
+.tiptap { overflow-wrap: anywhere; }
+.page, .editor-body { min-width: 0; max-width: 100%; }
+
+/* Week strip: a swipe on it never scrolls the note; in the thin bar the days are not separate targets. */
+.month-calendar.collapsed { touch-action: none; overflow-anchor: none; }
+.month-calendar { overflow-anchor: none; }
+.month-calendar.compact .cal-day { pointer-events: none; }
+.cal-spacer { flex: none; }
+.cal-scrim { position: fixed; inset: 0; z-index: 24; background: rgba(0, 0, 0, 0.18); }
+.month-calendar.floating {
+  position: fixed; z-index: 25; left: 8px; right: 8px; margin: 0 auto; max-width: 804px;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px);
+  overflow-y: auto; overscroll-behavior: contain;
+}
+.month-calendar:not(.collapsed) { touch-action: pan-y; }
+
+/* Coming up inside the month: scrolling the month folds every reminder to two lines,
+   its text and its dashes with the days left. */
+.upcoming .reminder-day, .upcoming .countdown-days, .upcoming .countdown-weekends {
+  transition: max-height 0.28s ease, max-width 0.28s ease, opacity 0.2s ease, margin 0.28s ease, padding 0.28s ease;
+  max-height: 2.4em; max-width: 12em; overflow: hidden;
+}
+.upcoming .cd-left { display: none; font-size: 0.72rem; font-weight: 700; margin-left: 6px; color: hsl(var(--countdown-hue) 80% 60%); }
+.upcoming.folded li { position: static; }
+.upcoming.folded .reminder-open { padding-top: 4px; padding-bottom: 4px; transition: padding 0.28s ease; }
+.upcoming.folded .reminder-day { max-height: 0; opacity: 0; margin: 0; }
+.upcoming.folded .countdown-days, .upcoming.folded .countdown-weekends { max-width: 0; opacity: 0; padding: 0; margin: 0; border-width: 0; }
+.upcoming.folded .cd-left { display: inline; }
+.upcoming.folded .reminder-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.upcoming.folded .countdown { margin-top: 2px; gap: 0; }
+
+/* Small play-only media in previews (Coming up, Mentioned in, Entries, To do). */
+.media-peek { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 2px; line-height: 0; }
+.peek-item { position: relative; display: inline-block; width: 96px; height: 64px; border-radius: 10px; overflow: hidden; background: rgba(0, 0, 0, 0.35); flex: none; }
+.peek-item img, .peek-item video, .peek-item iframe { width: 100%; height: 100%; object-fit: cover; border: 0; display: block; }
+.peek-item.peek-audio { width: 200px; height: 40px; background: none; }
+.peek-item.peek-audio audio { width: 100%; height: 40px; }
+.peek-youtube { width: 128px; height: 72px; }
+.peek-youtube button { all: unset; display: block; width: 100%; height: 100%; cursor: pointer; }
+.peek-play { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 20px; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); line-height: 1; }
+.peek-loading { animation: none; opacity: 0.4; }
+.upcoming.folded .media-peek { display: none; }
+.reminders li { flex-wrap: wrap; }
+.reminders li > .media-peek, .reference-card + .media-peek, li > .reference + .media-peek { flex-basis: 100%; margin-left: 4px; }
+.timeline-row > .media-peek { margin: 4px 0 2px 8px; }
+.project-task-text .media-peek { margin-top: 4px; }

@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useRef, type CSSProperties } from "react";
+import React, { memo, useEffect, useRef, useState, type CSSProperties } from "react";
 import { dayKey } from "../lib/timestamp";
 import { heat } from "../lib/words";
 
@@ -110,72 +110,83 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
   const [year, month] = day.split("-").map(Number);
   // Pull the strip down to open the month, push the month up to fold it.
   const drag = useRef<{ y: number; x: number } | null>(null);
+  const section = useRef<HTMLElement>(null);
+  // Opened while pinned at the top of a scrolled note: the month floats over the note as a sheet
+  // (fully below the status bar), and the note underneath doesn't move.
+  const [floating, setFloating] = useState(false);
+  const stripHeight = useRef(0);
+  const lastToggle = useRef(0);
+  const toggle = (open: boolean) => {
+    // Quick repeated taps count once (each one re-lays out the month).
+    if (Date.now() - lastToggle.current < 350) return;
+    lastToggle.current = Date.now();
+    if (open) {
+      const el = section.current;
+      stripHeight.current = el?.offsetHeight ?? 0;
+      setFloating(!!el && window.scrollY > 0 && el.getBoundingClientRect().top < 40);
+    }
+    onToggle(open);
+  };
+  useEffect(() => {
+    if (collapsed) setFloating(false);
+  }, [collapsed]);
+  const sheet = floating && !collapsed;
   return (
-    // While shrunk to one week, a tap anywhere on it opens the whole month (days can't be picked yet).
-    <section
-      className={`month-calendar${collapsed ? " collapsed" : ""}${compact ? " compact" : ""}${shading.search ? " search-mode" : ""}`}
-      onClick={collapsed ? () => onToggle(true) : undefined}
-      onTouchStart={(e) => (drag.current = { y: e.touches[0].clientY, x: e.touches[0].clientX })}
-      onTouchEnd={(e) => {
-        const start = drag.current;
-        drag.current = null;
-        if (!start) return;
-        const dy = e.changedTouches[0].clientY - start.y;
-        if (Math.abs(dy) < 30 || Math.abs(dy) < Math.abs(e.changedTouches[0].clientX - start.x) * 1.5) return;
-        if (dy > 0 && collapsed) onToggle(true);
-        // Not while the month's own list is being scrolled.
-        else if (dy < 0 && !collapsed && !(e.target as HTMLElement).closest?.(".reminders")) onToggle(false);
-      }}
-    >
-      {/* The whole bar is one big target: tap anywhere on it (not a button) to open or fold. */}
-      <div className="cal-bar" onClick={(e) => {
-        if (collapsed || (e.target as HTMLElement).closest("button")) return;
-        e.stopPropagation();
-        onToggle(false);
-      }}>
-        <button
-          type="button"
-          className="cal-title"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
-          aria-expanded={!collapsed}
-        >
-          {MONTH_NAMES[month - 1]} {year} {collapsed ? "▾" : "▴"}
-        </button>
-        {/* Pinned at the top as a week strip: menu, search and chat stay within reach. */}
-        {collapsed && actions && (
-          <span className="cal-actions" onClick={(e) => e.stopPropagation()}>
-            {actions}
-          </span>
-        )}
-        <button
-          type="button"
-          className="cal-year"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenYear();
-          }}
-        >
-          Year ›
-        </button>
-      </div>
-      <MonthGrid
-        key={collapsed ? "week" : "month"}
-        year={year}
-        month={month - 1}
-        counts={shading.counts}
-        max={maxFor(shading, day.slice(0, 7), today)}
-        search={shading.search}
-        selected={day}
-        today={today}
-        onPick={collapsed ? () => {} : onPick}
-        weekOnly={collapsed}
-      />
-      {/* "Coming up" opens with the month, wherever the calendar is pinned. */}
-      {!collapsed && below}
-    </section>
+    <>
+      {sheet && <div className="cal-spacer" style={{ height: stripHeight.current }} />}
+      {sheet && <div className="cal-scrim" onClick={() => toggle(false)} />}
+      <section
+        ref={section}
+        className={`month-calendar${collapsed ? " collapsed" : ""}${compact ? " compact" : ""}${sheet ? " floating" : ""}${shading.search ? " search-mode" : ""}`}
+        // A day opens that day; anywhere else (not a button) opens the week into the month, or folds the month back.
+        onClick={(e) => {
+          const t = e.target as HTMLElement;
+          if (t.closest("button, a, input, .reminders")) return;
+          toggle(collapsed);
+        }}
+        onTouchStart={(e) => (drag.current = { y: e.touches[0].clientY, x: e.touches[0].clientX })}
+        onTouchEnd={(e) => {
+          const start = drag.current;
+          drag.current = null;
+          if (!start) return;
+          const dy = e.changedTouches[0].clientY - start.y;
+          if (Math.abs(dy) < 30 || Math.abs(dy) < Math.abs(e.changedTouches[0].clientX - start.x) * 1.5) return;
+          if (dy > 0 && collapsed) toggle(true);
+          // Not while the month's own list is being scrolled.
+          else if (dy < 0 && !collapsed && !(e.target as HTMLElement).closest?.(".reminders") && !(section.current && section.current.scrollTop > 0)) toggle(false);
+        }}
+      >
+        <div className="cal-bar">
+          <button
+            type="button"
+            className="cal-title"
+            onClick={() => toggle(collapsed)}
+            aria-expanded={!collapsed}
+          >
+            {MONTH_NAMES[month - 1]} {year} {collapsed ? "▾" : "▴"}
+          </button>
+          {/* Menu, search and chat stay within reach, on the week strip and in the month. */}
+          {actions && <span className="cal-actions">{actions}</span>}
+          <button type="button" className="cal-year" onClick={onOpenYear}>
+            Year ›
+          </button>
+        </div>
+        <MonthGrid
+          key={collapsed ? "week" : "month"}
+          year={year}
+          month={month - 1}
+          counts={shading.counts}
+          max={maxFor(shading, day.slice(0, 7), today)}
+          search={shading.search}
+          selected={day}
+          today={today}
+          onPick={onPick}
+          weekOnly={collapsed}
+        />
+        {/* "Coming up" opens with the month, wherever the calendar is pinned. */}
+        {!collapsed && below}
+      </section>
+    </>
   );
 }
 

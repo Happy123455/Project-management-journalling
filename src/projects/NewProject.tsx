@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { showError, showToast } from "../lib/toast";
 import { countsTowardsLimit, MAX_ACTIVE_PROJECTS } from "../lib/projects";
@@ -23,6 +23,8 @@ export function insertProjectBlock(editor: Editor, title: string) {
 export function NewProject({ store }: { store: JournalStore | null }) {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [name, setName] = useState("");
+  // The list filters a moment behind the typing, so letters appear at once.
+  const deferredName = useDeferredValue(name);
   // When 4 are already active: those, so one can be paused to make room.
   const [full, setFull] = useState<NamedPage[]>([]);
   const [logging, setLogging] = useState(false);
@@ -38,16 +40,21 @@ export function NewProject({ store }: { store: JournalStore | null }) {
         const active = all.filter(countsTowardsLimit);
         setFull(active.length >= MAX_ACTIVE_PROJECTS ? active : []);
         // Active and paused ones first, logging projects with them; finished ones last.
-        setExisting([...all].sort((a, b) => Number(a.props.project?.status === "done") - Number(b.props.project?.status === "done")));
+        // From "/" Log: logging projects first.
+        const rank = (p: NamedPage) => (detail.logging && p.props.project?.kind !== "logging" ? 2 : 0) + Number(p.props.project?.status === "done");
+        setExisting([...all].sort((a, b) => rank(a) - rank(b)));
       });
     };
     window.addEventListener("journal:new-project", onOpen);
     return () => window.removeEventListener("journal:new-project", onOpen);
-  }, []);
+    // Needs the opened store: listening from the first render (store not open yet) never listed any.
+  }, [store]);
   useEffect(() => {
     // Phone: no keyboard over the list until "new" is wanted.
     if (editor && !matchMedia("(pointer: coarse)").matches) input.current?.focus();
   }, [editor]);
+  const needle = deferredName.trim().toLowerCase();
+  const shown = useMemo(() => existing.filter((p) => !needle || p.title.toLowerCase().includes(needle)), [existing, needle]);
   if (!editor || !store) return null;
 
   const create = async () => {
@@ -78,8 +85,7 @@ export function NewProject({ store }: { store: JournalStore | null }) {
           <>
             <h2>{logging ? "🪵 Log into a project" : "📌 Pick a project"}</h2>
             <div className="project-pick">
-              {existing
-                .filter((p) => !name.trim() || p.title.toLowerCase().includes(name.trim().toLowerCase()))
+              {shown
                 .map((p) => (
                   <button
                     key={p.id}

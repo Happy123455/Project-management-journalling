@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { askAi } from "../ai/client";
 import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { fillPrompt, promptFields } from "../lib/prompt";
@@ -29,6 +29,49 @@ export function cleanAnswer(text: string): string {
 }
 
 /**
+ * A text field inside a note block that keeps its letters to itself while typing and writes them
+ * into the note after a short pause (and on leaving the field). Writing into the note on every
+ * letter redrew the whole block and saved the page each time, which made typing hang.
+ */
+function useLazyText(value: string, commit: (v: string) => void) {
+  const [text, setText] = useState(value);
+  const timer = useRef<number | undefined>(undefined);
+  const latest = useRef({ text, commit });
+  latest.current = { text, commit };
+  const editing = useRef(false);
+  useEffect(() => {
+    if (!editing.current) setText(value);
+  }, [value]);
+  const flush = () => {
+    window.clearTimeout(timer.current);
+    editing.current = false;
+    if (latest.current.text !== value) latest.current.commit(latest.current.text);
+  };
+  useEffect(() => () => {
+    window.clearTimeout(timer.current);
+    if (editing.current) latest.current.commit(latest.current.text);
+  }, []);
+  return {
+    value: text,
+    onChange: (e: { target: { value: string } }) => {
+      editing.current = true;
+      setText(e.target.value);
+      window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(flush, 600);
+    },
+    onBlur: flush,
+  };
+}
+
+function LazyInput({ value, onCommit, ...rest }: Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange"> & { value: string; onCommit: (v: string) => void }) {
+  return <input {...rest} {...useLazyText(value, onCommit)} />;
+}
+
+function LazyTextarea({ value, onCommit, ...rest }: Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange"> & { value: string; onCommit: (v: string) => void }) {
+  return <textarea {...rest} {...useLazyText(value, onCommit)} />;
+}
+
+/**
  * "/" Prompt: write roughly what you want on top (with {a word you can't find} in braces), pick
  * "Fix grammar" or "Make it a good prompt", and the AI writes the ready prompt below, with Copy.
  */
@@ -54,15 +97,15 @@ function PromptBuilder({ node, updateAttributes, editor }: NodeViewProps) {
     <NodeViewWrapper className="prompt-block prompt-builder" data-drag-handle="">
       <div className="prompt-head" contentEditable={false}>
         <span aria-hidden>🧩</span>
-        <input className="prompt-title" value={title} placeholder="Prompt name" readOnly={readOnly} onChange={(e) => updateAttributes({ title: e.target.value })} />
+        <LazyInput className="prompt-title" value={title} placeholder="Prompt name" readOnly={readOnly} onCommit={(v) => updateAttributes({ title: v })} />
       </div>
-      <textarea
+      <LazyTextarea
         className="prompt-template prompt-raw"
         value={raw}
         rows={4}
         readOnly={readOnly}
         placeholder="Describe what you want the prompt to do. Can't find a word? Describe it in {curly braces}."
-        onChange={(e) => updateAttributes({ raw: e.target.value })}
+        onCommit={(v) => updateAttributes({ raw: v })}
       />
       <div className="prompt-modes" contentEditable={false} role="radiogroup" aria-label="What to do">
         {(
@@ -81,13 +124,13 @@ function PromptBuilder({ node, updateAttributes, editor }: NodeViewProps) {
       </div>
       {error && <p className="hint prompt-error">{error}</p>}
       <div className="prompt-output-box">
-        <textarea
+        <LazyTextarea
           className="prompt-template prompt-output"
           value={output}
           rows={Math.min(14, Math.max(4, output.split("\n").length + 1))}
           readOnly={readOnly}
           placeholder="The ready-to-go prompt appears here."
-          onChange={(e) => updateAttributes({ output: e.target.value })}
+          onCommit={(v) => updateAttributes({ output: v })}
         />
         <button
           type="button"
@@ -118,17 +161,17 @@ function PromptTemplateView({ node, updateAttributes, editor }: NodeViewProps) {
     <NodeViewWrapper className="prompt-block" data-drag-handle="">
       <div className="prompt-head" contentEditable={false}>
         <span aria-hidden>🧩</span>
-        <input className="prompt-title" value={title} placeholder="Prompt name" readOnly={readOnly} onChange={(e) => updateAttributes({ title: e.target.value })} />
+        <LazyInput className="prompt-title" value={title} placeholder="Prompt name" readOnly={readOnly} onCommit={(v) => updateAttributes({ title: v })} />
         <button type="button" onClick={() => setEditing(!editing)}>{editing ? "Done" : "Edit template"}</button>
       </div>
       {editing ? (
-        <textarea
+        <LazyTextarea
           className="prompt-template"
           value={template}
           placeholder={EXAMPLE}
           rows={4}
           readOnly={readOnly}
-          onChange={(e) => updateAttributes({ template: e.target.value })}
+          onCommit={(v) => updateAttributes({ template: v })}
         />
       ) : null}
       {fields.length > 0 && (
@@ -136,7 +179,7 @@ function PromptTemplateView({ node, updateAttributes, editor }: NodeViewProps) {
           {fields.map((f) => (
             <label key={f}>
               <span>{f}</span>
-              <input value={values[f] ?? ""} readOnly={readOnly} onChange={(e) => updateAttributes({ values: { ...values, [f]: e.target.value } })} />
+              <LazyInput value={values[f] ?? ""} readOnly={readOnly} onCommit={(v) => updateAttributes({ values: { ...node.attrs.values, [f]: v } })} />
             </label>
           ))}
         </div>

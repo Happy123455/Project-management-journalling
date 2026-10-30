@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { dayKey, dayTitle } from "../lib/timestamp";
 import { docText } from "../lib/words";
+import { MediaPeek, mediaItemsIn } from "../editor/MediaPeek";
 import type { DayPage } from "../store";
 
 /** First line of a page, cut short for a one-line preview. */
@@ -29,6 +30,7 @@ export function DueReminders({ pages, onPick, onDone }: DueProps) {
               <span className="reminder-text">{snippet(p)}</span>
             </button>
             <button type="button" className="reminder-done" onClick={() => onDone(p.day)}>✓ Done</button>
+            <MediaPeek items={mediaItemsIn(p.content)} />
           </li>
         ))}
       </ul>
@@ -85,6 +87,7 @@ function Countdown({ day }: { day: string }) {
         {marks}
         {left > BAR_MAX && <span className="countdown-more">+{left - BAR_MAX}</span>}
       </span>
+      <span className="cd-left">{left}</span>
       {saturdays + sundays > 0 && (
         <span className="countdown-weekends" title={`${saturdays} Saturdays and ${sundays} Sundays before the day`}>
           {saturdays} Sat · {sundays} Sun
@@ -101,14 +104,22 @@ function Countdown({ day }: { day: string }) {
 export function Upcoming({ pages, onPick, title = "Coming up" }: { pages: DayPage[]; onPick: (day: string) => void; title?: string }) {
   const list = useRef<HTMLUListElement>(null);
   const [squeezed, setSqueezed] = useState(0);
+  // In the month: once it is scrolled, every reminder folds to two lines (text; dashes + days left).
+  const [folded, setFolded] = useState(false);
   useEffect(() => {
     const ul = list.current;
     const scroller = ul?.closest<HTMLElement>(".upcoming-scroll, .month-calendar");
     if (!ul || !scroller) return;
     let frame = 0;
+    const inMonth = scroller.classList.contains("month-calendar");
     const onScroll = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
+        if (inMonth) {
+          // A little hysteresis so it doesn't flip back and forth at the threshold.
+          setFolded((f) => (f ? scroller.scrollTop > 4 : scroller.scrollTop > 24));
+          return;
+        }
         const top = scroller.getBoundingClientRect().top;
         let n = 0;
         for (const li of ul.children) {
@@ -126,16 +137,17 @@ export function Upcoming({ pages, onPick, title = "Coming up" }: { pages: DayPag
   }, [pages.length]);
   if (!pages.length) return null;
   return (
-    <section className="reminders upcoming">
+    <section className={folded ? "reminders upcoming folded" : "reminders upcoming"}>
       <h2>{title}</h2>
       <ul ref={list}>
         {pages.map((p, i) => (
-          <li key={p.day} className={i < squeezed ? "squeezed" : ""} style={i < STACK_MAX ? ({ "--stack": i } as React.CSSProperties) : undefined}>
+          <li key={p.day} className={!folded && i < squeezed ? "squeezed" : ""} style={i < STACK_MAX ? ({ "--stack": i } as React.CSSProperties) : undefined}>
             <button type="button" className="reminder-open" onClick={() => onPick(p.day)}>
               <span className="reminder-day">{dayTitle(p.day)}</span>
               <span className="reminder-text">{snippet(p)}</span>
               <Countdown day={p.day} />
             </button>
+            <MediaPeek items={mediaItemsIn(p.content)} />
           </li>
         ))}
       </ul>

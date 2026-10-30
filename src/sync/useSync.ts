@@ -53,9 +53,16 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
     if (!store) return;
     void syncNow.current();
     const timer = window.setInterval(() => void syncNow.current(), EVERY_MS);
-    const onVisible = () => document.visibilityState === "visible" && void syncNow.current();
+    // Coming back to the app: sync once things have settled, not in the same moment the page is
+    // redrawn (that stalled the first touches after returning from YouTube or another app).
+    let back: number | undefined;
+    const onVisible = () => {
+      window.clearTimeout(back);
+      if (document.visibilityState === "visible") back = window.setTimeout(() => void syncNow.current(), 2500);
+    };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
+      window.clearTimeout(back);
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };

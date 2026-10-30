@@ -86,6 +86,8 @@ function App() {
   // never created for one day with another day's text.
   const [loadedDay, setLoadedDay] = useState<string | null>(null);
   const swipe = useRef<{ x: number; y: number; t: number; onBar: boolean } | null>(null);
+  // The next day opens to read, not to type (after a swipe between days).
+  const previewNext = useRef(false);
   const pending = useRef<{ day: string; content: JSONContent; plainText: string } | null>(null);
   const timer = useRef<number | undefined>(undefined);
 
@@ -215,17 +217,40 @@ function App() {
   const openedAt = useRef(0);
   useEffect(() => {
     let lastY = window.scrollY;
+    // Only scrolls the finger (or wheel) made count. The page also moves by itself when the strip
+    // changes height or the caret moves; reacting to that folded and unfolded the strip on every
+    // letter typed (the flicker) and could loop.
+    let userAt = 0;
+    const byUser = () => Date.now() - userAt < 600;
+    let touchY: number | null = null;
+    let pulled = 0;
     const onScroll = () => {
       const y = window.scrollY;
-      if (y > lastY + 4 && y > 60 && Date.now() - openedAt.current > 900) setCalendarCollapsed(true);
-      // Up by a little (not the caret nudging the page): the thin bar opens back to the week.
-      if (y < lastY) {
-        upBy += lastY - y;
-        if (upBy > 28) setCalendarCompact(false);
-      } else upBy = 0;
+      if (byUser()) {
+        if (y > lastY + 4 && y > 60 && Date.now() - openedAt.current > 900) setCalendarCollapsed(true);
+        // Up by a little: the thin bar opens back to the week.
+        if (y < lastY) {
+          upBy += lastY - y;
+          if (upBy > 24) setCalendarCompact(false);
+        } else upBy = 0;
+      }
       lastY = y;
     };
     let upBy = 0;
+    const onTouchStart = (e: globalThis.TouchEvent) => {
+      userAt = Date.now();
+      touchY = e.touches[0]?.clientY ?? null;
+      pulled = 0;
+    };
+    // Dragging the note down (to scroll up) also works at the very top, where nothing scrolls.
+    const onTouchMove = (e: globalThis.TouchEvent) => {
+      userAt = Date.now();
+      const y = e.touches[0]?.clientY;
+      if (touchY == null || y == null) return;
+      pulled = y - touchY;
+      if (pulled > 36 && window.scrollY < 4) setCalendarCompact(false);
+    };
+    const onWheel = () => (userAt = Date.now());
     // Typing in the note folds the strip to its thin bar.
     const onInput = (e: Event) => {
       if (!(e.target as HTMLElement).closest?.(".tiptap")) return;
@@ -233,9 +258,15 @@ function App() {
       setCalendarCompact(true);
     };
     window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("wheel", onWheel, { passive: true });
     document.addEventListener("beforeinput", onInput, true);
     return () => {
       window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("wheel", onWheel);
       document.removeEventListener("beforeinput", onInput, true);
     };
   }, []);
@@ -471,9 +502,16 @@ function App() {
   };
   const runCanvas = (action: CanvasAction) => {
     const editor = document.querySelector<HTMLElement & { editor?: Editor }>(".tiptap")?.editor;
-    if (action === "prev") void goTo(addDays(day, -1));
-    else if (action === "next") void goTo(addDays(day, 1));
-    else if (action === "today") void goTo(today);
+    // Another day by swipe: it opens to read (keyboard down, at its end); tap the text to write there.
+    const preview = (next: string) => {
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      window.JournalShare?.hideKeyboard?.();
+      previewNext.current = true;
+      void goTo(next);
+    };
+    if (action === "prev") preview(addDays(day, -1));
+    else if (action === "next") preview(addDays(day, 1));
+    else if (action === "today") preview(today);
     else if (action === "top") window.scrollTo({ top: 0, behavior: "smooth" });
     else if (action === "end") window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
     else if (action === "search") setSearchOpen(true);
@@ -693,8 +731,13 @@ function App() {
                   initialContent={content}
                   onChange={onChange}
                   onReminder={pickReminderDay}
+                  autofocus={!previewNext.current}
                   onReady={(t) => {
                     setText(t);
+                    if (previewNext.current) {
+                      previewNext.current = false;
+                      requestAnimationFrame(() => window.scrollTo({ top: document.documentElement.scrollHeight }));
+                    }
                     // A quick note: put the cursor at the end and bring up the keyboard.
                     if (quickNote.current) {
                       const voice = quickNote.current === "voice";
