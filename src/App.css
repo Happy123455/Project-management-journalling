@@ -1871,3 +1871,6 @@ html.ambience-daylight .ambience-layer {
 }
 /* Evening and morning: a warm amber band while the sun is low. */
 html.ambience-daylight.sun-low .ambience-layer { background-color: rgba(255, 150, 60, 0.35); }
+/* The menu (☰) always opens above the open month. */
+.drawer-backdrop { z-index: 44; }
+.drawer { z-index: 45; }
