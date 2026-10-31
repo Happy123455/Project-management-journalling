@@ -1,4 +1,4 @@
-import type { SyncFolder } from "./engine";
+import type { StorageUsage, SyncFolder } from "./engine";
 
 export const SYNC_FOLDER_NAME = "Dynamic Journal Sync";
 
@@ -109,6 +109,25 @@ export class DriveFolder implements SyncFolder {
     return this.stamps.get(path) ?? null;
   }
 
+  async usage(): Promise<StorageUsage> {
+    const about = await (await this.call("https://www.googleapis.com/drive/v3/about?fields=storageQuota")).json();
+    const q = about.storageQuota ?? {};
+    let folderBytes = 0;
+    let files = 0;
+    const walk = async (id: string) => {
+      for (const f of await this.search(`${quote(id)} in parents`, "id, size, mimeType")) {
+        if ((f as { mimeType?: string }).mimeType === FOLDER) await walk(f.id);
+        else {
+          folderBytes += Number(f.size ?? 0);
+          files++;
+        }
+      }
+    };
+    const root = await this.dir("", false);
+    if (root) await walk(root);
+    return { folderBytes, files, account: { limit: q.limit ? Number(q.limit) : null, usage: Number(q.usage ?? 0), drive: Number(q.usageInDrive ?? 0) } };
+  }
+
   async read(path: string) {
     const id = await this.file(path);
     if (!id) return null;
@@ -170,6 +189,24 @@ class MacFolder implements SyncFolder {
     const info = await (await this.fs()).stat(this.at(path));
     return `${info.size}-${info.mtime?.getTime()}`;
   }
+  /** The Mac only sees the folder; the account's storage comes from the phone (Drive API). */
+  async usage(): Promise<StorageUsage> {
+    const fs = await this.fs();
+    let folderBytes = 0;
+    let files = 0;
+    const walk = async (dir: string) => {
+      for (const e of await fs.readDir(this.at(dir))) {
+        const path = dir ? `${dir}/${e.name}` : e.name;
+        if (e.isDirectory) await walk(path);
+        else {
+          folderBytes += (await fs.stat(this.at(path))).size;
+          files++;
+        }
+      }
+    };
+    if (await fs.exists(this.base)) await walk("");
+    return { folderBytes, files };
+  }
 }
 
 export type FolderLookup =
@@ -206,4 +243,10 @@ export async function findSyncFolder(me: string): Promise<FolderLookup> {
 /** Android: Google sign-in (account chooser, then Drive consent); resolves true once signed in. */
 export async function pickSyncFolder(): Promise<boolean> {
   return !!(await driveToken(true));
+}
+
+/** The sync folder's size and, on the phone, the Google account's storage. */
+export async function syncStorage(): Promise<StorageUsage | null> {
+  const found = await findSyncFolder("");
+  return found.kind === "ready" && found.folder.usage ? found.folder.usage() : null;
 }

@@ -1,3 +1,4 @@
+import { ambienceSettings, setAmbienceSettings, type AmbienceSettings } from "../lib/ambience";
 import { useEffect, useState } from "react";
 import { localModels, testKey } from "../ai/client";
 import { DEFAULT_MODELS, PROVIDERS, type Provider } from "../ai/providers";
@@ -280,6 +281,26 @@ function GestureSettings() {
   );
 }
 
+/** Optional light, weather and sound on the glass. */
+function AmbienceSection() {
+  const [a, setA] = useState(ambienceSettings);
+  const row = (key: keyof AmbienceSettings, label: string) => (
+    <label className="settings-toggle">
+      <input type="checkbox" checked={a[key]} onChange={(e) => setA(setAmbienceSettings({ [key]: e.target.checked }))} />
+      {label}
+    </label>
+  );
+  return (
+    <section className="settings-section">
+      <h2>Look and feel</h2>
+      {row("daylight", "Brightness follows the time of day")}
+      {row("weather", "Weather on the glass (sun rays, clouds, rain drops)")}
+      {row("sounds", "Glass sounds when touching and swiping")}
+      <p className="hint">Weather uses Open-Meteo for the rough location of your internet connection, checked every 30 minutes.</p>
+    </section>
+  );
+}
+
 /** Mac: the floating bubble window. */
 function MacBubbleSettings() {
   const [on, setOn] = useState(macBubbleEnabled);
@@ -406,6 +427,7 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
           </p>
         </section>
 
+        <AmbienceSection />
         <GestureSettings />
         <BubbleSettings />
         <McpSettings store={store} />

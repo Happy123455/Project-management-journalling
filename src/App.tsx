@@ -211,6 +211,25 @@ function App() {
     }
   };
 
+  // Mac: the format toolbar sticks right under the calendar, whatever height the calendar has now.
+  useEffect(() => {
+    const root = document.documentElement;
+    let observed: Element | null = null;
+    const ro = new ResizeObserver(() => root.style.setProperty("--cal-h", `${observed?.getBoundingClientRect().height ?? 0}px`));
+    const find = () => {
+      const el = document.querySelector(".page .month-calendar");
+      if (el === observed) return;
+      if (observed) ro.unobserve(observed);
+      observed = el;
+      if (el) ro.observe(el);
+      else root.style.setProperty("--cal-h", "0px");
+    };
+    find();
+    const mo = new MutationObserver(find);
+    mo.observe(document.querySelector(".page") ?? document.body, { childList: true, subtree: false });
+    return () => (ro.disconnect(), mo.disconnect());
+  }, []);
+
   // Scrolling down into the writing area shrinks the month to its week. Not right after the month was
   // opened from the pinned strip: it grows, the browser shifts the page to keep the text in place, and
   // that shift would look like a scroll down and fold it again at once.
@@ -407,7 +426,10 @@ function App() {
     onOpenDay: (d, line) => {
       if (!line) return void goTo(d);
       // From a backlink: scroll to the mention and light it up for a moment.
-      setFind({ where: d, terms: [line.slice(0, 80)], index: 0, count: 0 });
+      // The link itself, lower-cased like the find matcher: the whole line never matched when it had
+      // capitals, a chip or a nested point in it ("No matches here").
+      const term = (line.match(/\[\[[^\]]+\]\]|#[\p{L}\p{N}_/-]+/u)?.[0] ?? line.split("\n")[0].slice(0, 80)).toLowerCase();
+      setFind({ where: d, terms: [term], index: 0, count: 0 });
       void goTo(d, true);
       window.setTimeout(() => setFind((f) => (f?.where === d ? null : f)), 3000);
     },

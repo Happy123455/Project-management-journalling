@@ -58,7 +58,7 @@ fn installed(app: &AppHandle, id: &str) -> bool {
 #[tauri::command]
 pub fn voice_info(app: AppHandle) -> Value {
     let current = model(&app);
-    let speakers = match &*ENGINE.lock().unwrap() {
+    let speakers = match &*ENGINE.lock().unwrap_or_else(|e| e.into_inner()) {
         Some((id, tts)) if *id == current => tts.num_speakers(),
         _ => 0,
     };
@@ -66,7 +66,7 @@ pub fn voice_info(app: AppHandle) -> Value {
         "models": MODELS.iter().map(|(id, mb)| json!({ "id": id, "sizeMb": mb, "installed": installed(&app, id) })).collect::<Vec<_>>(),
         "model": current,
         "voice": voice(&app),
-        "downloading": *DOWNLOADING.lock().unwrap(),
+        "downloading": *DOWNLOADING.lock().unwrap_or_else(|e| e.into_inner()),
         "speakers": speakers,
     })
 }
@@ -83,7 +83,7 @@ pub fn set_voice(app: AppHandle, voice: i32) {
 
 #[tauri::command]
 pub fn remove_voice(app: AppHandle, model: String) {
-    let mut engine = ENGINE.lock().unwrap();
+    let mut engine = ENGINE.lock().unwrap_or_else(|e| e.into_inner());
     if engine.as_ref().is_some_and(|(id, _)| *id == model) {
         *engine = None;
     }
@@ -144,7 +144,7 @@ pub fn download_voice(app: AppHandle, model: String) {
         return;
     }
     {
-        let mut downloading = DOWNLOADING.lock().unwrap();
+        let mut downloading = DOWNLOADING.lock().unwrap_or_else(|e| e.into_inner());
         if downloading.is_some() {
             return;
         }
@@ -152,7 +152,7 @@ pub fn download_voice(app: AppHandle, model: String) {
     }
     std::thread::spawn(move || {
         let result = fetch(&app, &model);
-        *DOWNLOADING.lock().unwrap() = None;
+        *DOWNLOADING.lock().unwrap_or_else(|e| e.into_inner()) = None;
         match result {
             Ok(received) => progress(&app, &model, "done", received, received, ""),
             Err(e) => {
@@ -166,7 +166,7 @@ pub fn download_voice(app: AppHandle, model: String) {
 /// The engine for the chosen model, loaded once (None if it isn't downloaded or won't load).
 fn engine(app: &AppHandle) -> Option<Arc<OfflineTts>> {
     let id = model(app);
-    let mut slot = ENGINE.lock().unwrap();
+    let mut slot = ENGINE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((loaded, tts)) = &*slot {
         if *loaded == id {
             return Some(tts.clone());
@@ -238,6 +238,14 @@ fn sentences(text: &str) -> Vec<(usize, String)> {
     out
 }
 
+/// Kokoro swallows the end of a piece with no closing punctuation ("Understanding" became "Understand").
+fn closed(piece: &str) -> String {
+    match piece.chars().last() {
+        Some(c) if c.is_alphanumeric() => format!("{piece}."),
+        _ => piece.to_string(),
+    }
+}
+
 fn speech_event(app: &AppHandle, event: &str, id: &str, index: usize) {
     let _ = app.emit("speech", json!({ "event": event, "id": id, "index": index }));
 }
@@ -246,7 +254,7 @@ fn speech_event(app: &AppHandle, event: &str, id: &str, index: usize) {
 #[tauri::command]
 pub fn speak(app: AppHandle, text: String, rate: f32, id: String) -> bool {
     let current = model(&app);
-    if !installed(&app, &current) || DOWNLOADING.lock().unwrap().as_deref() == Some(current.as_str()) {
+    if !installed(&app, &current) || DOWNLOADING.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some(current.as_str()) {
         return false;
     }
     let mine = RUN.fetch_add(1, Ordering::SeqCst) + 1;
@@ -266,10 +274,13 @@ pub fn speak(app: AppHandle, text: String, rate: f32, id: String) -> bool {
                     break;
                 }
                 let config = GenerationConfig { speed: rate, sid, ..Default::default() };
-                let Some(audio) = generator.generate_with_config(&sentence, &config, None::<fn(&[f32], f32) -> bool>) else {
+                let Some(audio) = generator.generate_with_config(&closed(&sentence), &config, None::<fn(&[f32], f32) -> bool>) else {
                     continue;
                 };
-                if tx.send((offset, audio.samples().to_vec())).is_err() {
+                // A quarter second of silence after each piece: the output never drops the last sound.
+                let mut samples = audio.samples().to_vec();
+                samples.resize(samples.len() + sample_rate as usize / 4, 0.0);
+                if tx.send((offset, samples)).is_err() {
                     break;
                 }
             }
@@ -308,6 +319,8 @@ pub fn speak(app: AppHandle, text: String, rate: f32, id: String) -> bool {
                 speech_event(&app, "range", &id, offsets[playing]);
             }
             if finished && sink.empty() {
+                // The device still holds the last few milliseconds; dropping the stream now cut them off.
+                std::thread::sleep(Duration::from_millis(300));
                 return speech_event(&app, "done", &id, 0);
             }
             std::thread::sleep(Duration::from_millis(40));

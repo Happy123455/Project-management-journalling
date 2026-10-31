@@ -262,7 +262,7 @@ export const mediaNodeViewOptions = {
   stopEvent: ({ event }: { event: Event }) =>
     // Taps on a video or audio player go to the player: they play it without moving the cursor or
     // opening the keyboard.
-    !!(event.target as HTMLElement | null)?.closest?.(".attach-resize, .attach-toolbar, .attach-draggable, video, audio, canvas, iframe, .audio-pill, .peek-host, .tap-video, .yt-embed"),
+    !!(event.target as HTMLElement | null)?.closest?.(".attach-resize, .attach-toolbar, .attach-draggable, video, audio, canvas, iframe, .audio-pill, .peek-host, .tap-video, .yt-embed, .looping-clip"),
 };
 
 /** Shared frame for photos, videos and PDFs: width, placement, the resize handle and the placement toolbar. */
@@ -529,26 +529,25 @@ function LoopingClip({ src, onTap }: { src: string; onTap?: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const [muted, setMuted] = useState(true);
   usePlayWhenVisible(video, [src]);
+  // Taps land on a plain layer over the video: Android's web view hands taps on a playing <video>
+  // to the player, so some clips (the face palm) could never be selected and resized on the phone.
   return (
-    <video
-      ref={video}
-      src={src}
-      autoPlay
-      loop
-      muted={muted}
-      playsInline
-      preload="metadata"
-      title={muted ? "Tap for sound" : "Tap to mute"}
-      // Never focus the text (that would open the keyboard and scroll).
-      onPointerDown={(e) => (e.preventDefault(), leaveText())}
-      onClick={() => {
-        const v = video.current;
-        if (v && muted) v.currentTime = 0;
-        setMuted((m) => !m);
-        void v?.play().catch(() => {});
-        onTap?.();
-      }}
-    />
+    <span className="looping-clip">
+      <video ref={video} src={src} autoPlay loop muted={muted} playsInline preload="metadata" aria-hidden />
+      <span
+        className="clip-tap"
+        title={muted ? "Tap for sound" : "Tap to mute"}
+        // Never focus the text (that would open the keyboard and scroll).
+        onPointerDown={(e) => (e.preventDefault(), leaveText())}
+        onClick={() => {
+          const v = video.current;
+          if (v && muted) v.currentTime = 0;
+          setMuted((m) => !m);
+          void v?.play().catch(() => {});
+          onTap?.();
+        }}
+      />
+    </span>
   );
 }
 

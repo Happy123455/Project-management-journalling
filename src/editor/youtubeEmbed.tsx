@@ -1,6 +1,7 @@
 import { mergeAttributes, Node, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { useEffect, useState } from "react";
 import { NodeSelection, Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
+import { invoke } from "@tauri-apps/api/core";
 import { youtubeId } from "../lib/linkPreview";
 import { mediaNodeViewOptions, PlacedMedia, placementAttributes, selectMedia } from "./attachments";
 
@@ -31,10 +32,24 @@ function startSeconds(url: string): number {
   }
 }
 
+/**
+ * Mac: YouTube's Error 153 (no Referer from tauri://localhost). The app serves a tiny wrapper page
+ * on 127.0.0.1 (src-tauri/src/youtube.rs) so the player is embedded by a normal web address.
+ */
+const MAC_APP = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window && !ANDROID && !/iPhone|iPad/i.test(navigator.userAgent);
+let wrapperPort: Promise<number | null> | null = null;
+const youtubeWrapperPort = () => (wrapperPort ??= invoke<number>("youtube_port").catch(() => null));
+
 function YoutubeView(props: NodeViewProps) {
   const { url } = props.node.attrs as { url: string };
   const id = youtubeId(url);
   const start = startSeconds(url);
+  const [port, setPort] = useState<number | null | undefined>(MAC_APP ? undefined : null);
+  useEffect(() => {
+    if (MAC_APP) void youtubeWrapperPort().then(setPort);
+  }, []);
+  const direct = `https://www.youtube-nocookie.com/embed/${id}?playsinline=1&rel=0${start ? `&start=${start}` : ""}${ANDROID ? "&fs=0" : ""}`;
+  const src = port ? `http://127.0.0.1:${port}/yt/${id}${start ? `?start=${start}` : ""}` : direct;
   // Full screen inside the app (the phone's web view has no native full screen for embeds).
   const [full, setFull] = useState(false);
   useEffect(() => {
@@ -86,17 +101,19 @@ function YoutubeView(props: NodeViewProps) {
         >
           {full ? "✕" : "⛶"}
         </button>
-        {id ? (
+        {id && port !== undefined ? (
           <iframe
-            src={`https://www.youtube-nocookie.com/embed/${id}?playsinline=1&rel=0${start ? `&start=${start}` : ""}${ANDROID ? "&fs=0" : ""}`}
+            src={src}
             title="YouTube video"
             allow={`accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture${ANDROID ? "" : "; fullscreen"}`}
             referrerPolicy="strict-origin-when-cross-origin"
             allowFullScreen={!ANDROID}
             loading="lazy"
           />
-        ) : (
+        ) : !id ? (
           <a href={url}>{url}</a>
+        ) : (
+          <span className="yt-loading" />
         )}
       </span>
     </PlacedMedia>

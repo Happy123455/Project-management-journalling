@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import CodeBlock from "@tiptap/extension-code-block";
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, type Editor, type NodeViewProps } from "@tiptap/react";
 
@@ -29,9 +29,32 @@ export async function copyText(text: string) {
   }
 }
 
+/** ▾ / ▸ in a block's header: folds the block to its header line (kept in the note as `collapsed`). */
+export function FoldButton({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className="block-fold"
+      aria-label={collapsed ? "Expand" : "Collapse"}
+      aria-expanded={!collapsed}
+      title={collapsed ? "Expand" : "Collapse"}
+      onPointerDown={(e) => e.preventDefault()}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onToggle}
+    >
+      {collapsed ? "▸" : "▾"}
+    </button>
+  );
+}
+
 function CodeBlockView({ node, updateAttributes, editor }: NodeViewProps) {
   const [copied, setCopied] = useState(false);
   const language = (node.attrs.language as string | null) ?? "";
+  const collapsed = !!node.attrs.collapsed;
+  const firstLine = useMemo(() => {
+    const lines = node.textContent.split("\n");
+    return `${lines[0].slice(0, 60)}${lines.length > 1 ? `  … ${lines.length} lines` : ""}`;
+  }, [node.textContent]);
 
   const copy = async () => {
     try {
@@ -44,8 +67,10 @@ function CodeBlockView({ node, updateAttributes, editor }: NodeViewProps) {
   };
 
   return (
-    <NodeViewWrapper className="code-block">
+    <NodeViewWrapper className={collapsed ? "code-block collapsed" : "code-block"}>
       <div className="code-block-bar" contentEditable={false}>
+        <FoldButton collapsed={collapsed} onToggle={() => updateAttributes({ collapsed: !collapsed })} />
+        {collapsed && <span className="code-fold-preview">{firstLine}</span>}
         <input
           className="code-language"
           value={language}
@@ -74,6 +99,12 @@ function CodeBlockView({ node, updateAttributes, editor }: NodeViewProps) {
 
 /** Obsidian-style code block: mono font, language label and a Copy button. */
 export const JournalCodeBlock = CodeBlock.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      collapsed: { default: false, parseHTML: (el) => el.getAttribute("data-collapsed") === "true", renderHTML: (a) => (a.collapsed ? { "data-collapsed": "true" } : {}) },
+    };
+  },
   addNodeView() {
     return ReactNodeViewRenderer(CodeBlockView);
   },

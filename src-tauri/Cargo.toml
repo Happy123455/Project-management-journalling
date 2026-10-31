@@ -48,5 +48,8 @@ tauri-plugin-global-shortcut = "2"
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
-strip = true
+# Unwind, not abort: a panic inside one background task (an async command, a plugin, a media
+# request) used to take the whole Mac app down ("quit unexpectedly", about once an hour).
+panic = "unwind"
+# Keep function names so a crash report says where it happened.
+strip = "debuginfo"

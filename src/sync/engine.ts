@@ -11,6 +11,15 @@ export interface SyncFolder {
   exists(path: string): Promise<boolean>;
   /** Something that changes whenever the file does (size and time), when cheap to know. */
   stamp?(path: string): Promise<string | null>;
+  /** Bytes used by the sync folder, and the Google account's storage (limit/usage) when known. */
+  usage?(): Promise<StorageUsage>;
+}
+
+export interface StorageUsage {
+  folderBytes: number;
+  files: number;
+  /** The whole Google account (Drive + Gmail + Photos). limit is null for unlimited plans. */
+  account?: { limit: number | null; usage: number; drive: number };
 }
 
 /** What this device remembers between rounds, so it doesn't download what it already has. */

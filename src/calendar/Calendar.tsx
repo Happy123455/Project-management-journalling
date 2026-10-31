@@ -115,6 +115,9 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
   // (fully below the status bar), and the note underneath doesn't move.
   const [floating, setFloating] = useState(false);
   const stripHeight = useRef(0);
+  // Where the strip was: the sheet opens at exactly its left edge and width (it used to snap to the
+  // window's width and look like it narrowed on the Mac, where the side menus take room).
+  const stripBox = useRef<{ left: number; width: number } | null>(null);
   const lastToggle = useRef(0);
   const toggle = (open: boolean) => {
     // Quick repeated taps count once (each one re-lays out the month).
@@ -123,7 +126,10 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
     if (open) {
       const el = section.current;
       stripHeight.current = el?.offsetHeight ?? 0;
-      setFloating(!!el && window.scrollY > 0 && el.getBoundingClientRect().top < 40);
+      const box = el?.getBoundingClientRect();
+      stripBox.current = box ? { left: box.left, width: box.width } : null;
+      // Pinned under the status bar (phone) or under the Mac's fixed header.
+      setFloating(!!el && window.scrollY > 0 && el.getBoundingClientRect().top < 72);
     }
     onToggle(open);
   };
@@ -131,6 +137,14 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
     if (collapsed) setFloating(false);
   }, [collapsed]);
   const sheet = floating && !collapsed;
+  // The month scrolled to its end: Coming up is folded and there is nothing more to show.
+  const endedAt = useRef(0);
+  const atEnd = () => {
+    const el = section.current;
+    return !!el && el.scrollHeight > el.clientHeight + 4 && el.scrollTop + el.clientHeight >= el.scrollHeight - 2 && Date.now() - endedAt.current > 250;
+  };
+  // Mac: wheeling on past the end folds the month to its week, the same as the swipe.
+  const wheelPast = useRef(0);
   return (
     <>
       {sheet && <div className="cal-spacer" style={{ height: stripHeight.current }} />}
@@ -138,11 +152,26 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
       <section
         ref={section}
         className={`month-calendar${collapsed ? " collapsed" : ""}${compact ? " compact" : ""}${sheet ? " floating" : ""}${shading.search ? " search-mode" : ""}`}
+        style={sheet && stripBox.current ? { left: stripBox.current.left, width: stripBox.current.width, right: "auto", maxWidth: "none", margin: 0, boxSizing: "border-box" } : undefined}
         // A day opens that day; anywhere else (not a button) opens the week into the month, or folds the month back.
         onClick={(e) => {
           const t = e.target as HTMLElement;
           if (t.closest("button, a, input, .reminders")) return;
           toggle(collapsed);
+        }}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          // Only counts as "at the end" a moment after arriving there, so the scroll itself doesn't fold it.
+          if (el.scrollTop + el.clientHeight < el.scrollHeight - 2) endedAt.current = Date.now();
+          wheelPast.current = 0;
+        }}
+        onWheel={(e) => {
+          if (collapsed || e.deltaY <= 0 || !atEnd()) return void (wheelPast.current = 0);
+          wheelPast.current += e.deltaY;
+          if (wheelPast.current > 160) {
+            wheelPast.current = 0;
+            toggle(false);
+          }
         }}
         onTouchStart={(e) => (drag.current = { y: e.touches[0].clientY, x: e.touches[0].clientX })}
         onTouchEnd={(e) => {
@@ -152,8 +181,9 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
           const dy = e.changedTouches[0].clientY - start.y;
           if (Math.abs(dy) < 30 || Math.abs(dy) < Math.abs(e.changedTouches[0].clientX - start.x) * 1.5) return;
           if (dy > 0 && collapsed) toggle(true);
-          // Not while the month's own list is being scrolled.
-          else if (dy < 0 && !collapsed && !(e.target as HTMLElement).closest?.(".reminders") && !(section.current && section.current.scrollTop > 0)) toggle(false);
+          // Not while the month's own list is being scrolled; but a swipe up at the end of it (Coming up
+          // already folded) carries on into the week view.
+          else if (dy < 0 && !collapsed && (atEnd() || (!(e.target as HTMLElement).closest?.(".reminders") && !(section.current && section.current.scrollTop > 0)))) toggle(false);
         }}
       >
         <div className="cal-bar">

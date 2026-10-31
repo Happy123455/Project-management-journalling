@@ -1735,3 +1735,108 @@ html.yt-full-open, html.yt-full-open body { overflow: hidden; overscroll-behavio
 @keyframes pulse { 50% { opacity: 0.3; } }
 .chat-ai { margin-left: auto; font-size: 12px; padding: 4px 10px; border-radius: 999px; }
 .chat-ai.active { border-color: rgb(var(--heat-rgb)); color: rgb(var(--heat-rgb)); }
+
+/* Mac: the side menus, the day header, the calendar and the format toolbar stay put while the note
+   scrolls, like other Mac apps. --cal-h is the calendar's height (set from App.tsx). */
+@media (min-width: 761px) and (pointer: fine) {
+  .sidebar, .links-panel { position: sticky; top: 0; height: 100vh; overflow-y: auto; align-self: start; box-sizing: border-box; overscroll-behavior: contain; }
+  .page { padding-top: 0; }
+  .page-header {
+    position: sticky; top: 0; z-index: 6; height: 52px; margin: 0 -12px 8px; padding: 0 12px; box-sizing: border-box;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4);
+  }
+  .month-calendar { top: 52px; }
+  .editor > .toolbar {
+    position: sticky; top: calc(52px + var(--cal-h, 0px) + 4px); z-index: 3; padding: 6px 0;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  }
+}
+
+/* The year view always opens above the month (on the Mac it slid in behind the floating month). */
+.year-backdrop { z-index: 39; }
+.year-panel { z-index: 40; }
+@media (min-width: 761px) and (pointer: fine) {
+  .month-calendar.floating { top: 56px; max-height: calc(100vh - 68px); }
+  .month-calendar:not(.collapsed) { max-height: calc(100vh - 64px); }
+}
+/* Slim glass scroll bars instead of the system's grey ones. */
+.month-calendar, .year-panel, .sidebar, .links-panel, .upcoming-scroll { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent; }
+.month-calendar::-webkit-scrollbar, .year-panel::-webkit-scrollbar, .sidebar::-webkit-scrollbar, .links-panel::-webkit-scrollbar, .upcoming-scroll::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
+.month-calendar::-webkit-scrollbar-thumb, .year-panel::-webkit-scrollbar-thumb, .sidebar::-webkit-scrollbar-thumb, .links-panel::-webkit-scrollbar-thumb, .upcoming-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px; background: color-mix(in srgb, var(--muted) 45%, transparent);
+}
+.month-calendar::-webkit-scrollbar-track, .year-panel::-webkit-scrollbar-track, .sidebar::-webkit-scrollbar-track, .links-panel::-webkit-scrollbar-track, .upcoming-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* Coming up, folded: each day is a dot (the dashes turn into dots as it folds), the clip/meme stays
+   as a tiny thumbnail in the line, and nothing runs past the right edge on the phone. */
+.reminders ul { grid-template-columns: minmax(0, 1fr); }
+.countdown-bar .cd-day { transition: width 0.28s ease, height 0.28s ease, border-radius 0.28s ease; }
+.upcoming.folded li { flex-wrap: nowrap; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; }
+.upcoming.folded li > .reminder-open { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+.upcoming.folded .countdown { flex: 0 1 auto; min-width: 0; max-width: 46%; overflow: hidden; gap: 4px; }
+.upcoming.folded .countdown-bar { max-width: 100%; opacity: 1; overflow: hidden; flex-wrap: nowrap; gap: 2px; min-width: 0; }
+.upcoming.folded .countdown-bar .cd-day { width: 4px; height: 4px; border-radius: 50%; flex: none; }
+.upcoming.folded .cd-weekend { padding: 0; border: 0; background: none; gap: 2px; flex: none; }
+.upcoming.folded .cd-weekend i { width: 4px; height: 4px; }
+.upcoming.folded .countdown-more { font-size: 0.62rem; flex: none; }
+.upcoming.folded li > .media-peek { display: flex; flex: none; flex-basis: auto; margin: 0; gap: 3px; flex-wrap: nowrap; }
+.upcoming.folded .media-peek > :nth-child(n + 3) { display: none; }
+.upcoming.folded .peek-item, .upcoming.folded .peek-youtube { width: 30px; height: 20px; border-radius: 5px; }
+.upcoming.folded .peek-item.peek-audio { width: 56px; height: 20px; }
+.upcoming.folded .peek-item.peek-audio audio { height: 20px; }
+.upcoming.folded .peek-play { font-size: 9px; }
+@media (max-width: 420px) {
+  .upcoming.folded .reminder-short { width: 3.6em; font-size: 11px; }
+  .upcoming.folded .countdown { max-width: 38%; }
+}
+
+/* Meme clips: a tap layer over the video, and the resize/placement tools always above any video
+   (Android draws playing videos on their own layer, over the handle). */
+.looping-clip { position: relative; display: block; line-height: 0; }
+.looping-clip video { display: block; width: 100%; height: auto; pointer-events: none; }
+.looping-clip .clip-tap { position: absolute; inset: 0; z-index: 1; cursor: pointer; }
+.attach-resize { z-index: 6; transform: translateZ(0); }
+.attach-toolbar { z-index: 7; }
+
+/* Collapsible code and prompt blocks. */
+.block-fold { flex: none; width: 26px; height: 24px; padding: 0; border-radius: 8px; font-size: 12px; line-height: 1; }
+.code-block.collapsed pre { display: none; }
+.code-fold-preview { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: ui-monospace, Menlo, monospace; font-size: 12px; opacity: 0.75; }
+.code-block.collapsed .code-language { display: none; }
+.prompt-block.collapsed > :not(.prompt-head) { display: none !important; }
+
+/* Ambience (src/lib/ambience.ts): the light follows the time of day; the weather shows on the glass. */
+.ambience-layer { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; transition: background 2s ease; }
+html.ambience-daylight .ambience-layer {
+  background:
+    linear-gradient(rgba(255, 244, 214, calc(var(--daylight, 0.6) * 0.16)), rgba(255, 244, 214, calc(var(--daylight, 0.6) * 0.16))),
+    linear-gradient(rgba(8, 16, 48, calc((1 - var(--daylight, 0.6)) * 0.30)), rgba(8, 16, 48, calc((1 - var(--daylight, 0.6)) * 0.30)));
+}
+.ambience-layer::before, .ambience-layer::after { content: ""; position: absolute; opacity: 0; transition: opacity 1.5s ease; }
+/* Sunny: soft rays fanning from the top corner, slowly turning, like light through glass. */
+html.weather-clear .ambience-layer::before {
+  opacity: 1; width: 160vmax; height: 160vmax; top: -80vmax; right: -80vmax;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 236, 170, 0.16) 0deg 4deg, transparent 4deg 13deg);
+  -webkit-mask: radial-gradient(closest-side, #000 10%, transparent 75%); mask: radial-gradient(closest-side, #000 10%, transparent 75%);
+  animation: sun-turn 90s linear infinite;
+}
+html.weather-clear .ambience-layer::after {
+  opacity: 1; width: 60vmax; height: 60vmax; top: -24vmax; right: -24vmax; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 228, 150, 0.45), rgba(255, 228, 150, 0.12) 55%, transparent);
+}
+/* Cloudy: big frosted shapes drifting behind the glass. */
+html.weather-cloudy .ambience-layer::before, html.weather-cloudy .ambience-layer::after {
+  opacity: 1; width: 70vmax; height: 30vmax; border-radius: 50%; filter: blur(40px);
+  background: rgba(235, 240, 248, 0.35); animation: cloud-drift 70s ease-in-out infinite alternate;
+}
+html.weather-cloudy .ambience-layer::before { top: 4vh; left: -20vmax; }
+html.weather-cloudy .ambience-layer::after { top: 45vh; left: 30vw; animation-duration: 95s; animation-direction: alternate-reverse; background: rgba(210, 218, 232, 0.3); }
+html.weather-rain .ambience-layer { background-color: rgba(70, 90, 120, 0.10); }
+.ambience-rain { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 2; opacity: 0.85; }
+@keyframes sun-turn { to { transform: rotate(360deg); } }
+@keyframes cloud-drift { from { transform: translateX(-8vw); } to { transform: translateX(12vw); } }
+@media (prefers-reduced-motion: reduce) {
+  html.weather-clear .ambience-layer::before, html.weather-cloudy .ambience-layer::before, html.weather-cloudy .ambience-layer::after { animation: none; }
+}

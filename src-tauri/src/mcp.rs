@@ -39,11 +39,11 @@ fn tools() -> Value {
 fn call_page(app: &AppHandle, tool: &str, args: Value) -> Value {
     let id = NEXT.fetch_add(1, Ordering::SeqCst);
     let (tx, rx) = mpsc::channel();
-    PENDING.lock().unwrap().get_or_insert_with(HashMap::new).insert(id, tx);
-    let actor = CLIENT.lock().unwrap().clone().unwrap_or_else(|| "MCP client".into());
+    PENDING.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(id, tx);
+    let actor = CLIENT.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_else(|| "MCP client".into());
     let _ = app.emit("mcp-call", json!({ "id": id, "tool": tool, "args": args, "actor": actor }));
     let answer = rx.recv_timeout(Duration::from_secs(20));
-    PENDING.lock().unwrap().get_or_insert_with(HashMap::new).remove(&id);
+    PENDING.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).remove(&id);
     match answer {
         Ok(v) => v,
         Err(_) => json!({ "isError": true, "content": [{ "type": "text", "text": "The journal didn't answer (is the app window open?)." }] }),
@@ -53,7 +53,7 @@ fn call_page(app: &AppHandle, tool: &str, args: Value) -> Value {
 /// The page's answer to a tool call.
 #[tauri::command]
 pub fn mcp_reply(id: u64, result: Value) {
-    if let Some(tx) = PENDING.lock().unwrap().get_or_insert_with(HashMap::new).remove(&id) {
+    if let Some(tx) = PENDING.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).remove(&id) {
         let _ = tx.send(result);
     }
 }
@@ -67,7 +67,7 @@ fn handle(call: &Caller, msg: &Value) -> Option<Value> {
     let result = match method {
         "initialize" => {
             let name = msg["params"]["clientInfo"]["name"].as_str().unwrap_or("MCP client");
-            *CLIENT.lock().unwrap() = Some(name.to_string());
+            *CLIENT.lock().unwrap_or_else(|e| e.into_inner()) = Some(name.to_string());
             json!({
                 "protocolVersion": PROTOCOL,
                 "capabilities": { "tools": {} },
@@ -123,7 +123,7 @@ fn serve(call: Caller, server: Arc<Server>) {
 
 #[tauri::command]
 pub fn mcp_start(app: AppHandle) -> Result<u16, String> {
-    let mut slot = SERVER.lock().unwrap();
+    let mut slot = SERVER.lock().unwrap_or_else(|e| e.into_inner());
     if slot.is_some() {
         return Ok(PORT);
     }
@@ -136,7 +136,7 @@ pub fn mcp_start(app: AppHandle) -> Result<u16, String> {
 
 #[tauri::command]
 pub fn mcp_stop() {
-    if let Some(server) = SERVER.lock().unwrap().take() {
+    if let Some(server) = SERVER.lock().unwrap_or_else(|e| e.into_inner()).take() {
         server.unblock();
     }
 }

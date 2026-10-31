@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { JournalEvent } from "../store/types";
-import { fromLines, planMerge, toLines, type LocalState, type SyncRecord } from "./merge";
+import { fromLines, planMerge, toLines, type LocalState, type SyncRecord, mergeDocs } from "./merge";
 
 const day = { kind: "block", type: "day", day: "2026-10-28" } as const;
 
@@ -83,5 +83,33 @@ describe("sync files", () => {
     const records = [rec("e1", "phone", "2026-10-28T10:00:00Z", "create", "A")];
     const text = toLines(records) + '{"event":{"id":"e2"';
     expect(fromLines(text)).toEqual(records);
+  });
+});
+
+describe("mergeDocs", () => {
+  const p = (text: string) => ({ type: "paragraph", content: [{ type: "text", text }] });
+  const clip = (width: number) => ({ type: "paragraph", content: [{ type: "attachmentMedia", attrs: { fileId: "facepalm", width } }] });
+  const doc = (...content: object[]) => ({ type: "doc", content });
+
+  it("never adds a clip back as a copy because it was resized on the other device", () => {
+    const merged = mergeDocs(doc(p("a"), clip(165)), doc(p("a"), clip(210)));
+    expect(merged.content).toEqual([p("a"), clip(165)]);
+  });
+
+  it("keeps a deletion from the older side when both had the block before", () => {
+    const base = doc(p("a"), clip(210), p("b"));
+    const merged = mergeDocs(doc(p("a"), clip(210), p("b"), p("new")), doc(p("a"), p("b")), base);
+    expect(merged.content).toEqual([p("a"), p("b"), p("new")]);
+  });
+
+  it("takes an edit from the older side instead of keeping both versions", () => {
+    const base = doc(p("a"), p("b"));
+    const merged = mergeDocs(doc(p("a"), p("b"), p("c")), doc(p("a"), p("b edited")), base);
+    expect(merged.content).toEqual([p("a"), p("b edited"), p("c")]);
+  });
+
+  it("still keeps text both sides wrote without a common version", () => {
+    const merged = mergeDocs(doc(p("a"), p("mine")), doc(p("a"), p("theirs")));
+    expect(merged.content).toEqual([p("a"), p("theirs"), p("mine")]);
   });
 });

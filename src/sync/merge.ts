@@ -129,28 +129,93 @@ function keepBothSides(
   if (!remoteWinner && theyContinued) return null;
   const newer = remoteWinner ? eventDocument(theirs.event.after!) : mineDoc;
   const older = remoteWinner ? mineDoc : eventDocument(theirs.event.after!);
-  const both = mergeDocs(newer, older);
+  const both = mergeDocs(newer, older, commonBase(mine, remote));
   const key = JSON.stringify(both);
   if (key === mine.current) return remoteWinner ? { content: undefined, merged: false, updatedAt: theirs.event.createdAt } : null;
   if (key === theirsKey) return remoteWinner ? null : { content: theirs.event.after!, merged: false, updatedAt: theirs.event.createdAt };
   return { content: key, merged: true, updatedAt: [theirs.event.createdAt, new Date().toISOString()].sort().pop()! };
 }
 
-/** `newer`'s blocks, plus each block only `older` has, placed after its neighbour from `older`. */
-export function mergeDocs(newer: JSONContent, older: JSONContent): JSONContent {
-  const out = [...(newer.content ?? [])];
-  const keys = out.map((n) => JSON.stringify(n));
-  let after = -1; // index in `out` of the last `older` block we placed or found
-  for (const node of older.content ?? []) {
+/**
+ * The last document both devices had: the newest one the other device started an edit from (or
+ * reached) that this device also had. A three-way merge from it keeps deletions and edits from
+ * both sides instead of adding every changed block back as a copy.
+ */
+function commonBase(mine: { current: string; befores: Set<string> }, remote: SyncRecord[]): JSONContent | undefined {
+  const known = (doc: string | null | undefined) => {
+    if (!doc) return false;
+    const k = docKey(doc);
+    return k === mine.current || mine.befores.has(k);
+  };
+  for (let i = remote.length - 1; i >= 0; i--) {
+    const e = remote[i].event;
+    if (known(e.after)) return eventDocument(e.after!);
+    if (known(e.before)) return eventDocument(e.before!);
+  }
+  return undefined;
+}
+
+/** A block without its attributes: the same text or media, whatever its size or placement. */
+function looseKey(node: JSONContent): string {
+  const strip = (n: JSONContent): unknown => ({ t: n.type, x: n.text, m: n.marks?.map((m) => m.type), c: n.content?.map(strip) });
+  return JSON.stringify(strip(node));
+}
+
+/**
+ * `newer`'s blocks, plus each block only `older` added, placed after its neighbour from `older`.
+ * With `base` (the last version both had), blocks `older` deleted or changed are dropped from
+ * `newer` too, unless `newer` changed them as well. A block that only differs in attributes
+ * (a resized clip, a moved photo) is never added twice: the 30 Oct face palm clip came back as
+ * four copies, one per size it had been given on the two devices.
+ */
+export function mergeDocs(newer: JSONContent, older: JSONContent, base?: JSONContent): JSONContent {
+  const count = (nodes: JSONContent[]) => {
+    const m = new Map<string, number>();
+    for (const n of nodes) {
+      const k = JSON.stringify(n);
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return m;
+  };
+  const olderNodes = older.content ?? [];
+  const baseCount = base ? count(base.content ?? []) : new Map<string, number>();
+  const olderCount = count(olderNodes);
+  // Blocks `older` deleted or changed since the base, and `newer` left as they were.
+  const drop = new Map<string, number>();
+  if (base) for (const [k, n] of baseCount) if (n > (olderCount.get(k) ?? 0)) drop.set(k, n - (olderCount.get(k) ?? 0));
+  const out: JSONContent[] = [];
+  for (const node of newer.content ?? []) {
     const k = JSON.stringify(node);
-    const at = keys.indexOf(k);
+    const d = drop.get(k) ?? 0;
+    if (d > 0) {
+      drop.set(k, d - 1);
+      continue;
+    }
+    out.push(node);
+  }
+  const keys = out.map((n) => JSON.stringify(n));
+  const loose = new Set(out.map(looseKey));
+  const seen = new Map<string, number>();
+  let after = -1; // index in `out` of the last `older` block we placed or found
+  for (const node of olderNodes) {
+    const k = JSON.stringify(node);
+    const nth = (seen.get(k) ?? 0) + 1;
+    seen.set(k, nth);
+    // The nth copy of this block in `out`, if there is one.
+    let at = -1;
+    for (let i = 0, found = 0; i < keys.length; i++) if (keys[i] === k && ++found === nth) { at = i; break; }
     if (at >= 0) {
       after = at;
       continue;
     }
+    // In the base: `newer` deleted or changed it on purpose.
+    if (base && nth <= (baseCount.get(k) ?? 0)) continue;
     if (node.type === "paragraph" && !node.content?.length) continue;
+    // Same text or media as a block `newer` has, only resized or moved: `newer`'s version stays.
+    if (loose.has(looseKey(node))) continue;
     out.splice(after + 1, 0, node);
     keys.splice(after + 1, 0, k);
+    loose.add(looseKey(node));
     after += 1;
   }
   return { ...newer, content: out };

@@ -194,9 +194,9 @@ class KokoroSpeech(private val context: Context, private val emit: (String) -> U
       }
       for (s in sentences) {
         if (run.get() != mine) break
-        val audio = engine.generate(s.second.trim(), voice.coerceIn(0, engine.numSpeakers() - 1), rate)
+        val audio = engine.generate(closed(s.second.trim()), voice.coerceIn(0, engine.numSpeakers() - 1), rate)
         if (run.get() != mine) break
-        put(Pair(s.first, smooth(audio.samples, audio.sampleRate)))
+        put(Pair(s.first, padded(smooth(audio.samples, audio.sampleRate), audio.sampleRate)))
       }
       put(end)
     }.start()
@@ -217,14 +217,20 @@ class KokoroSpeech(private val context: Context, private val emit: (String) -> U
       track = out
       out.play()
       var item = first
+      var frames = 0L
       while (item !== end && run.get() == mine) {
         event("range", id, item.first)
         out.write(item.second, 0, item.second.size, AudioTrack.WRITE_BLOCKING)
+        frames += item.second.size
         item = next()
       }
       if (run.get() == mine) {
-        // Let the last of the buffer play out.
+        // Let the last of the buffer play out: release() right after stop() cut the last syllable.
         out.stop()
+        val until = System.currentTimeMillis() + 3000
+        while (run.get() == mine && (out.playbackHeadPosition.toLong() and 0xffffffffL) < frames && System.currentTimeMillis() < until) {
+          Thread.sleep(20)
+        }
         event("done", id, 0)
       }
       out.release()
@@ -248,6 +254,13 @@ class KokoroSpeech(private val context: Context, private val emit: (String) -> U
     }
     return out
   }
+
+  /** Kokoro swallows the end of a piece with no closing punctuation ("Understanding" became "Understand"). */
+  private fun closed(piece: String): String =
+    if (piece.isNotEmpty() && piece.last().isLetterOrDigit()) "$piece." else piece
+
+  /** A quarter second of silence after each piece, so the device never drops the final sound. */
+  private fun padded(samples: FloatArray, rate: Int): FloatArray = samples.copyOf(samples.size + rate / 4)
 
   /** A few milliseconds' fade at both ends of each piece: no click where two pieces meet. */
   private fun smooth(samples: FloatArray, rate: Int): FloatArray {
