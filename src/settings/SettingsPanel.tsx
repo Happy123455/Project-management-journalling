@@ -90,12 +90,15 @@ function KeyField({ provider }: { provider: Provider }) {
 }
 
 /** Mac: the local model (Ollama): which one, and a test. */
-function LocalModelField({ model, onModel }: { model: string; onModel: (m: string) => void }) {
+function LocalModelField({ model, onModel, heavy, onHeavy }: { model: string; onModel: (m: string) => void; heavy: string; onHeavy: (m: string) => void }) {
   const [models, setModels] = useState<string[] | null>(null);
   const [test, setTest] = useState<{ state: "idle" | "testing" | "ok" | "error"; message?: string }>({ state: "idle" });
   useEffect(() => {
     void localModels().then(setModels);
   }, []);
+  // Ollama lists "llama3.2:latest" for "llama3.2": show them as one.
+  const shown = (m: string) => (models?.includes(`${m}:latest`) ? `${m}:latest` : m);
+  const options = (m: string) => [...new Set([shown(m), ...(models ?? [])])];
   const run = async () => {
     setTest({ state: "testing" });
     const started = performance.now();
@@ -108,12 +111,18 @@ function LocalModelField({ model, onModel }: { model: string; onModel: (m: strin
   };
   return (
     <div className="settings-key">
-      <label className="settings-label" htmlFor="local-model">Model</label>
+      <label className="settings-label" htmlFor="local-model">Quick tasks (grammar fixes)</label>
       <div className="settings-row">
-        <select id="local-model" value={model} onChange={(e) => onModel(e.target.value)}>
-          {[...new Set([model, ...(models ?? [])])].map((m) => <option key={m} value={m}>{m}</option>)}
+        <select id="local-model" value={shown(model)} onChange={(e) => onModel(e.target.value)}>
+          {options(model).map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
         <button type="button" onClick={() => void run()} disabled={test.state === "testing"}>{test.state === "testing" ? "Testing…" : "Test"}</button>
+      </div>
+      <label className="settings-label" htmlFor="local-heavy">Heavy reasoning (Organise, prompt refine, chat, photos)</label>
+      <div className="settings-row">
+        <select id="local-heavy" value={shown(heavy)} onChange={(e) => onHeavy(e.target.value)}>
+          {options(heavy).map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
       </div>
       {test.state === "ok" && <span className="settings-ok">✓ {test.message}</span>}
       {test.state === "error" && <span className="settings-error">{test.message}</span>}
@@ -398,7 +407,9 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
           {s.provider === "local" ? (
             <LocalModelField
               model={modelFor(s, "grammar")}
-              onModel={(m) => update({ models: { ...s.models, local: { grammar: m, organise: m, describe: m, chat: m } } })}
+              onModel={(m) => update({ models: { ...s.models, local: { ...s.models.local, grammar: m } } })}
+              heavy={modelFor(s, "organise")}
+              onHeavy={(m) => update({ models: { ...s.models, local: { ...s.models.local, organise: m, describe: m, chat: m } } })}
             />
           ) : (
             <KeyField provider={s.provider} />
