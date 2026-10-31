@@ -1,5 +1,6 @@
 import { Extension } from "@tiptap/react";
 import { formatTimestamp, TIMESTAMP_RE } from "../lib/timestamp";
+import { EDIT_MARK } from "./timestampChip";
 
 /**
  * Cmd/Ctrl+Shift+T inserts the one-click timestamp at the cursor.
@@ -16,7 +17,9 @@ export const Timestamp = Extension.create({
         const before = $from.parent.textBetween(0, $from.parentOffset, undefined, "￼");
         const match = [...before.matchAll(TIMESTAMP_RE)].pop();
         if (!match || match.index + match[0].length !== before.length) return false;
-        return this.editor.commands.deleteRange({ from: $from.pos - match[0].length, to: $from.pos });
+        // An edit stamp goes with its "✎ " too.
+        const mark = before.slice(0, match.index).endsWith(EDIT_MARK) ? EDIT_MARK.length : 0;
+        return this.editor.commands.deleteRange({ from: $from.pos - match[0].length - mark, to: $from.pos });
       },
     };
   },

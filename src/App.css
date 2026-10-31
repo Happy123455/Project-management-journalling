@@ -167,6 +167,9 @@ button:hover { background: var(--panel); }
 .arrange-tools li.hidden-tool label { opacity: 0.5; }
 .arrange-icon { width: 28px; text-align: center; font-size: 18px; }
 .editor-body.with-keyboard-bar .tiptap { padding-bottom: 50vh; }
+/* Room under the last line on the Mac too, so it can be scrolled up off the window's bottom edge. */
+.editor-body .tiptap { padding-bottom: max(40vh, 160px); }
+.editor-body.with-keyboard-bar .tiptap { padding-bottom: 50vh; }
 
 /* "/" menu: a grid of big tiles under the current line. */
 .slash-popup { z-index: 20; width: min(calc(100vw - 16px), 380px); }
@@ -1874,3 +1877,216 @@ html.ambience-daylight.sun-low .ambience-layer { background-color: rgba(255, 150
 /* The menu (☰) always opens above the open month. */
 .drawer-backdrop { z-index: 44; }
 .drawer { z-index: 45; }
+
+/* ───────── Batch 9: menu and settings like Obsidian, but glassy ───────── */
+/* Menu: no scroll line; tools on top, lists in the middle, sync + settings pinned at the bottom. */
+.drawer, .sidebar, .links-panel, .drawer-scroll, .settings-nav, .settings-body { scrollbar-width: none; }
+.drawer::-webkit-scrollbar, .sidebar::-webkit-scrollbar, .links-panel::-webkit-scrollbar, .drawer-scroll::-webkit-scrollbar,
+.settings-nav::-webkit-scrollbar, .settings-body::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.drawer { display: flex; flex-direction: column; overflow: hidden; padding: 0; padding-top: max(10px, calc(env(safe-area-inset-top) + 6px)); }
+.drawer-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 12px 12px;
+  -webkit-mask-image: linear-gradient(transparent, #000 10px, #000 calc(100% - 14px), transparent); mask-image: linear-gradient(transparent, #000 10px, #000 calc(100% - 14px), transparent); }
+.drawer .day-list { max-height: none; overflow: visible; }
+.menu-ribbon { display: flex; gap: 4px; padding: 0 10px 8px; }
+.menu-ribbon button {
+  flex: 1; height: 40px; min-height: 40px; padding: 0; font-size: 18px; border-radius: 12px; border: 1px solid transparent;
+  background: transparent; box-shadow: none; display: grid; place-items: center;
+}
+.menu-ribbon button:hover, .menu-ribbon button:active { background: var(--lg-press, rgba(127, 127, 127, 0.12)); }
+.drawer .menu-ribbon { border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); margin-bottom: 4px; }
+.menu-footer { display: grid; gap: 6px; padding: 8px 12px max(10px, calc(env(safe-area-inset-bottom) + 6px)); border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
+.menu-footer .sync-status { margin: 0; padding: 8px 10px; border-radius: 14px; font-size: 13px; }
+.menu-footer-row { display: flex; gap: 6px; align-items: center; }
+.menu-footer-row > button, .menu-footer-row .restore-button { flex: 1; min-height: 38px; font-size: 13px; padding: 6px 8px; border-radius: 12px; text-align: center; white-space: nowrap; }
+.menu-footer-row .menu-settings { flex: 0 0 44px; font-size: 18px; }
+.drawer h2, .sidebar h2 { font-size: 11px; letter-spacing: 0.08em; font-weight: 650; margin: 14px 4px 6px; }
+.drawer .day-list button, .sidebar .day-list button { border-radius: 10px; padding: 7px 10px; font-size: 14.5px; }
+@media (min-width: 761px) and (pointer: fine) {
+  .sidebar { display: flex; flex-direction: column; padding: 10px 10px 0; }
+  .sidebar .menu-ribbon { padding: 0 0 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
+  .sidebar .menu-ribbon button { height: 32px; min-height: 32px; font-size: 15px; }
+  .sidebar .menu-footer { margin: auto -10px 0; position: sticky; bottom: 0; background: inherit; padding-bottom: 10px; }
+  .sidebar .menu-footer-row > button, .sidebar .menu-footer-row .restore-button { font-size: 12px; min-height: 32px; padding: 4px 6px; }
+}
+
+/* Settings: categories (Mac: left column; phone: a list that opens each one), rows with switches. */
+.settings-view { background: var(--bg); }
+.settings-bar {
+  display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 12px; padding-top: env(safe-area-inset-top, 0px); box-sizing: content-box;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--bg) 82%, transparent); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+}
+.settings-bar .settings-title { flex: 1; font-size: 17px; font-weight: 650; text-align: center; margin-right: 44px; }
+.settings-in-page .settings-bar .settings-title { margin-right: 0; }
+.settings-back, .settings-done { min-width: 36px; height: 36px; border-radius: 12px; font-size: 18px; padding: 0 10px; }
+.settings-done { font-size: 15px; font-weight: 600; color: rgb(var(--heat-rgb)); }
+.settings-split { flex: 1; min-height: 0; display: flex; }
+.settings-nav { flex: 0 0 250px; overflow-y: auto; padding: 14px 10px; border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent); background: color-mix(in srgb, var(--panel) 60%, transparent); }
+.settings-nav-group { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 650; margin: 2px 10px 8px; }
+.settings-nav-item {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 8px 10px; margin-bottom: 2px;
+  border: none; border-radius: 10px; background: transparent; box-shadow: none; min-height: 40px;
+}
+.settings-nav-item.active { background: rgba(var(--heat-rgb), 0.14); color: rgb(var(--heat-rgb)); }
+.settings-nav-icon { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-size: 15px; flex: none;
+  background: linear-gradient(160deg, rgba(var(--heat-rgb), 0.85), rgba(var(--heat-rgb), 0.55)); color: #fff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.settings-nav-text { flex: 1; min-width: 0; display: grid; }
+.settings-nav-text small { color: var(--muted); font-size: 12px; display: none; }
+.settings-nav-chevron { display: none; color: var(--muted); font-size: 20px; }
+.settings-body { flex: 1; min-width: 0; max-width: 720px; margin: 0; padding: 18px 28px max(28px, env(safe-area-inset-bottom)); }
+.settings-section { background: none !important; box-shadow: none !important; border: none !important; padding: 0; margin: 0 0 26px; border-radius: 0; }
+.settings-section > h2 { font-size: 20px; text-transform: none; letter-spacing: 0; color: var(--text); font-weight: 700; margin: 4px 0 6px;
+  padding-bottom: 10px; border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent); }
+.settings-section > .hint { margin: 8px 0; }
+.settings-toggle, .settings-section > label.settings-row {
+  display: flex; flex-direction: row-reverse; justify-content: space-between; align-items: center; gap: 16px;
+  margin: 0; padding: 12px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); min-height: 52px;
+}
+.settings-section > label.settings-row { flex-direction: row; }
+.settings-toggle-text { display: grid; gap: 2px; }
+.settings-toggle-text small { color: var(--muted); font-size: 12.5px; line-height: 1.35; }
+/* Switches instead of tick boxes. */
+.settings-toggle input[type="checkbox"] {
+  -webkit-appearance: none; appearance: none; flex: none; position: relative; width: 44px; height: 26px; margin: 0; border-radius: 999px; cursor: pointer;
+  background: color-mix(in srgb, var(--muted) 35%, transparent); transition: background 0.2s ease; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+.settings-toggle input[type="checkbox"]::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); transition: transform 0.25s cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+.settings-toggle input[type="checkbox"]:checked { background: rgb(var(--heat-rgb)); }
+.settings-toggle input[type="checkbox"]:checked::after { transform: translateX(18px); }
+.settings-section select, .settings-section input[type="text"], .settings-section input[type="password"], .settings-section input:not([type]) { border-radius: 10px; }
+@media (max-width: 760px) {
+  .settings-split { display: block; overflow-y: auto; }
+  .settings-nav { border: none; background: none; padding: 16px; }
+  .settings-in-page .settings-nav { display: none; }
+  .settings-view:not(.settings-in-page) .settings-body { display: none; }
+  .settings-nav-group { margin-left: 4px; }
+  .settings-nav-item {
+    border-radius: 0; margin: 0; padding: 10px 12px; min-height: 58px; background: var(--lg-sheen), var(--lg-fill);
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  }
+  .settings-nav-item:first-of-type { border-radius: 16px 16px 0 0; }
+  .settings-nav-item:last-of-type { border-radius: 0 0 16px 16px; border-bottom: none; }
+  .settings-nav-item.active { color: inherit; background: var(--lg-sheen), var(--lg-fill); }
+  .settings-nav-text small { display: block; }
+  .settings-nav-chevron { display: block; }
+  .settings-body { padding: 16px 18px max(28px, env(safe-area-inset-bottom)); max-width: none; }
+  .settings-section > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 650; border: none; padding: 0; margin: 0 0 6px; }
+}
+
+/* Code blocks: a visible sideways scroll bar, or wrapped lines (Settings → Editor). */
+.code-block pre { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 55%, transparent) transparent; padding-bottom: 10px; }
+.code-block pre::-webkit-scrollbar { height: 6px; display: block; }
+.code-block pre::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted) 55%, transparent); border-radius: 3px; }
+.code-block pre::-webkit-scrollbar-track { background: color-mix(in srgb, var(--muted) 12%, transparent); border-radius: 3px; margin: 0 12px; }
+html.code-wrap .code-block pre, html.code-wrap .tiptap pre { overflow-x: hidden; }
+html.code-wrap .code-block code, html.code-wrap .tiptap pre code { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.settings-section > label.settings-row { flex-wrap: nowrap; }
+.settings-section > label.settings-row select { flex: none; max-width: 48%; min-height: 34px; padding: 4px 8px; border: 1px solid var(--border); background: var(--panel); color: inherit; }
+
+/* Coming up, folded: GIFs and photos sit inside the line where they are in the note; long lines run
+   past like a conveyor belt. */
+.upcoming.folded .reminder-line { overflow: hidden; text-overflow: clip; display: block; }
+.marquee { display: block; overflow: hidden; white-space: nowrap; }
+.marquee-track { display: inline-flex; white-space: nowrap; }
+.marquee-copy { display: inline-flex; align-items: center; gap: 0; flex: none; }
+.marquee.ticking .marquee-copy { padding-right: 2.5em; }
+.marquee.ticking { -webkit-mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 14px), transparent); mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 14px), transparent); }
+.marquee.ticking .marquee-track { animation: marquee var(--marquee-s, 10s) linear infinite; animation-delay: 1.2s; }
+@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) { .marquee.ticking .marquee-track { animation: none; } }
+.marquee-copy > span { white-space: pre; }
+.inline-peek { display: inline-flex; vertical-align: middle; margin: 0 4px; line-height: 0; }
+.inline-peek .media-peek { display: inline-flex !important; margin: 0; flex-wrap: nowrap; }
+.inline-peek .peek-item, .inline-peek .peek-youtube { width: 30px; height: 20px; border-radius: 5px; }
+.inline-peek .peek-item.peek-audio { width: 56px; height: 20px; }
+.inline-peek .peek-item.peek-audio audio { height: 20px; }
+
+/* The open month stays put: it never scrolls as a whole. Coming up inside it scrolls by itself, ends
+   right under its last row, and folds on its own when swiped. */
+.month-calendar:not(.collapsed), .month-calendar.floating {
+  overflow: hidden; display: flex; flex-direction: column;
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 16px);
+}
+.month-calendar:not(.collapsed) > .cal-bar, .month-calendar:not(.collapsed) > .month-grid { flex: none; }
+.month-calendar .reminders.in-month { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
+.reminders.in-month h2 { flex: none; margin-bottom: 4px; }
+.upcoming-fold { all: unset; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; font: inherit; color: inherit; text-transform: inherit; }
+.upcoming-box { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; border-radius: 12px;
+  scrollbar-width: none; }
+.upcoming-box::-webkit-scrollbar { display: none; }
+@media (min-width: 761px) and (pointer: fine) {
+  .month-calendar:not(.collapsed), .month-calendar.floating { max-height: calc(100vh - 64px); }
+}
+@media (min-width: 761px) and (pointer: fine) {
+  .sidebar .menu-footer { margin: auto 0 0; padding: 8px 0 10px; }
+  .sidebar .menu-footer .sync-status { white-space: normal; overflow-wrap: anywhere; }
+}
+.upcoming .reminder-day { max-width: 24em; white-space: nowrap; }
+
+/* Clear night: a moon with a cool halo and a few faint stars, never the sun. */
+html.weather-clear.weather-night .ambience-layer::before {
+  width: 100vw; height: 60vh; top: 0; right: 0; border-radius: 0; animation: star-twinkle 6s ease-in-out infinite alternate;
+  background:
+    radial-gradient(1.5px 1.5px at 12% 18%, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1px 1px at 28% 8%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1.5px 1.5px at 46% 22%, rgba(255, 255, 255, 0.55), transparent),
+    radial-gradient(1px 1px at 63% 12%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1px 1px at 38% 34%, rgba(255, 255, 255, 0.45), transparent),
+    radial-gradient(1.5px 1.5px at 8% 40%, rgba(255, 255, 255, 0.4), transparent),
+    radial-gradient(1px 1px at 55% 44%, rgba(255, 255, 255, 0.35), transparent);
+  -webkit-mask: none; mask: none;
+}
+html.weather-clear.weather-night .ambience-layer::after {
+  width: 22vmax; height: 22vmax; top: -4vmax; right: -4vmax; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(236, 242, 255, 0.55) 0 34%, rgba(170, 190, 255, 0.18) 38%, rgba(140, 160, 255, 0.06) 60%, transparent);
+}
+/* Clouds at night are dim, not bright white. */
+html.weather-cloudy.weather-night .ambience-layer::before, html.weather-cloudy.weather-night .ambience-layer::after { background: rgba(120, 132, 160, 0.22); }
+@keyframes star-twinkle { from { opacity: 0.55; } to { opacity: 1; } }
+
+/* Night: blocks keep a visible lower edge. The glass rim reflects light along the bottom too (it was
+   a dark line on a dark page), and box/code/prompt borders are a touch lighter. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --lg-rim: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.12), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    --block-edge: color-mix(in srgb, var(--text) 20%, transparent);
+  }
+  .editor-body .tiptap > .block-box-head, .editor-body .tiptap > .block-box-body,
+  .editor-body .tiptap > .block-box-body.block-box-end, .editor-body .tiptap > .block-box-head.block-box-end,
+  .prompt-block, .code-block, .link-card-main { border-color: var(--block-edge); }
+  .editor-body .tiptap > .block-box-body.block-box-end, .editor-body .tiptap > .block-box-head.block-box-end {
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06), 0 6px 14px -8px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* How long ago / ahead the open day is, under the date. */
+.page-header h1 { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
+.relative-time {
+  font-size: 12px; font-weight: 500; line-height: 1.3; color: var(--muted); padding: 2px 8px; min-height: 0; height: auto;
+  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--border) 80%, transparent); background: color-mix(in srgb, var(--panel) 70%, transparent);
+  box-shadow: none; white-space: normal; text-align: left;
+}
+.relative-time.future { color: var(--reminder); }
+.relative-more { opacity: 0.85; }
+/* Edit stamps on older days: a quieter chip with a pencil and the day it was written. */
+.ts-chip.ts-edit { font-size: 11.5px; opacity: 0.92; border: 1px dashed color-mix(in srgb, var(--sky-fg, currentColor) 45%, transparent); }
+.menu-footer .sync-line { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+.menu-footer .sync-status { max-width: 100%; box-sizing: border-box; }
+
+/* Quick log setup: projects with a toggle and an icon button; the emoji grid opens under one. */
+.quick-log-setup { max-height: min(80vh, 640px); overflow-y: auto; }
+.quick-log-list { list-style: none; margin: 8px 0; padding: 0; }
+.quick-log-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.quick-log-icon { width: 44px; height: 44px; border-radius: 14px; font-size: 22px; padding: 0; flex: none; }
+.quick-log-title { flex: 1; min-width: 0; display: grid; font-weight: 600; }
+.quick-log-title small { font-weight: 400; color: var(--muted); font-size: 12px; }
+.quick-log-toggle { border: none !important; min-height: 0 !important; padding: 0 !important; margin: 0; }
+.quick-log-emoji { flex-basis: 100%; display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 4px; padding: 6px 0 2px; }
+.quick-log-emoji button { height: 40px; font-size: 20px; padding: 0; border-radius: 10px; }
+.quick-log-emoji .quick-log-ai { grid-column: 1 / -1; font-size: 14px; }
+.search-results { flex: 1 1 auto; min-height: 0; overscroll-behavior: contain; }
+.relative-time { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 760px) { .page-header h1 { align-items: center; text-align: center; } .relative-time { font-size: 11px; } }

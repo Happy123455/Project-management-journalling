@@ -227,9 +227,12 @@ export function blockDecorations(doc: PMNode): DecorationSet {
         attrs["data-hidden-count"] = String(range.end - i - 1);
         hiddenUntil = range.end;
       }
-      if (i >= boxUntil && node.isTextblock && /\[\[[^\]]+\]\]/.test(node.textContent)) {
-        classes.push(node.attrs.collapsed ? "block-box-head block-box-end" : "block-box-head");
-        boxUntil = range.end;
+      if (node.isTextblock && /\[\[[^\]]+\]\]/.test(node.textContent)) {
+        // A box nested inside another box keeps the outer box's look but gets its own Day chip.
+        if (i >= boxUntil) {
+          classes.push(node.attrs.collapsed ? "block-box-head block-box-end" : "block-box-head");
+          boxUntil = range.end;
+        } else classes.push("block-box-subhead");
         // The fold button on the title row.
         const index = i;
         decos.push(

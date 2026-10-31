@@ -28,6 +28,8 @@ import { SlashMenu } from "./slashMenu";
 import { SmartPaste } from "./SmartPaste";
 import { Timestamp } from "./timestamp";
 import { TimestampChip } from "./timestampChip";
+import { EditStamp } from "./editStamp";
+import { insertQuickLog, openQuickLogSetup, useQuickLogs } from "../projects/quickLog";
 
 interface Props {
   initialContent: JSONContent | null;
@@ -45,6 +47,8 @@ interface Props {
   find?: { terms: string[]; index: number } | null;
   /** How many matches the note has for `find`. */
   onFindCount?: (count: number) => void;
+  /** A day before today: lines written in it get an edit stamp. */
+  pastDay?: boolean;
 }
 
 interface Tool {
@@ -95,6 +99,7 @@ export function arrangeTools<T extends { key: string }>(tools: T[], layout: { or
 function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () => void; phone?: boolean }) {
   const [layout, setLayout] = useState(loadToolLayout);
   const [arranging, setArranging] = useState(false);
+  const quick = useQuickLogs();
   const active = useEditorState({
     editor,
     selector: ({ editor: e }) => ({
@@ -145,7 +150,14 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
       },
     },
   ];
-  const shown = phone ? [...arrangeTools(tools, layout), { key: "arrange", label: "⚙︎", title: "Arrange tools", run: () => setArranging(true) }] : tools;
+  // Quick log: one tap adds a project's box (its icon picked by hand or by the Mac's AI). They come first.
+  const quickTools: Tool[] = quick.map((q) => ({ key: `ql:${q.id}`, label: q.icon ?? "⚡", title: `Quick log: ${q.title}`, run: () => insertQuickLog(editor, q.title) }));
+  const setupTool: Tool = { key: "quicklog", label: "⚡", title: "Quick log buttons", run: openQuickLogSetup };
+  const allTools = [...tools, setupTool];
+  const arranged = arrangeTools(allTools, layout).filter((t) => quick.length || t.key !== "quicklog");
+  const shown = phone
+    ? [...quickTools, ...(quick.length ? [] : [setupTool]), ...arranged, { key: "arrange", label: "⚙︎", title: "Arrange tools", run: () => setArranging(true) }]
+    : [...quickTools, ...allTools];
   const update = (next: { order: string[]; hidden: string[] }) => {
     setLayout(next);
     saveToolLayout(next);
@@ -178,7 +190,7 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
             <button type="button" onClick={() => setArranging(false)}>Done</button>
           </div>
           <ul>
-            {arrangeTools(tools, layout, true).map((t, i, all) => {
+            {arrangeTools(allTools, layout, true).map((t, i, all) => {
               const keys = all.map((x) => x.key);
               const swap = (j: number) => {
                 const next = [...keys];
@@ -211,8 +223,10 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
 }
 
 export function JournalEditor({
-  initialContent, onChange, onReady, onReminder, onOpenLink, onOpenTag, pageNames, autofocus = true, find, onFindCount,
+  initialContent, onChange, onReady, onReminder, onOpenLink, onOpenTag, pageNames, autofocus = true, find, onFindCount, pastDay,
 }: Props) {
+  const pastDayRef = useRef(pastDay);
+  pastDayRef.current = pastDay;
   const touch = useTouchDevice();
   const [infoOpen, setInfoOpen] = useState(false);
   const editorRef = useRef<Editor | null>(null);
@@ -243,6 +257,7 @@ export function JournalEditor({
       LinkSuggest.configure({ pageNames: () => pageNames?.() ?? Promise.resolve([]) }),
       Timestamp,
       TimestampChip,
+      EditStamp.configure({ isPastDay: () => !!pastDayRef.current }),
       FindHighlight,
       LogBlock,
       BlockInfoExtension,
@@ -319,6 +334,37 @@ export function JournalEditor({
   }, []);
 
   editorRef.current = editor;
+
+  // The line being typed never sits under the bottom edge, the phone keyboard or its tool bar
+  // (the window doesn't shrink for the keyboard on Android, so ProseMirror's own scrolling can't tell).
+  useEffect(() => {
+    if (!editor) return;
+    let frame = 0;
+    const keep = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!editor.isFocused || !editor.state.selection.empty) return;
+        let r: { bottom: number };
+        try {
+          r = editor.view.coordsAtPos(editor.state.selection.head);
+        } catch {
+          return;
+        }
+        const vv = window.visualViewport;
+        const visibleBottom = (vv ? vv.offsetTop + vv.height : window.innerHeight) - (touch ? 44 + 28 : 48);
+        if (r.bottom > visibleBottom) window.scrollBy({ top: r.bottom - visibleBottom });
+      });
+    };
+    editor.on("selectionUpdate", keep);
+    editor.on("update", keep);
+    window.visualViewport?.addEventListener("resize", keep);
+    return () => {
+      cancelAnimationFrame(frame);
+      editor.off("selectionUpdate", keep);
+      editor.off("update", keep);
+      window.visualViewport?.removeEventListener("resize", keep);
+    };
+  }, [editor, touch]);
 
   // Search hits: highlight them all, mark the current one and scroll it into the middle.
   const findTerms = find?.terms.join("\u0000") ?? "";

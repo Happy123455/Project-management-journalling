@@ -58,11 +58,32 @@ export function SearchPanel({ query, onQuery, results, onPick, onClose }: {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Phone: the panel ends above the keyboard (the window itself doesn't shrink for it), so the
+  // results are never hidden behind it.
+  const [visible, setVisible] = useState<number | null>(null);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setVisible(vv.offsetTop + vv.height);
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
+
   const total = results?.reduce((n, r) => n + Math.max(r.count, 1), 0) ?? 0;
   return (
     <>
       <div className="search-backdrop" onClick={onClose} />
-      <div className="search-panel" role="dialog" aria-label="Search">
+      <div
+        className="search-panel"
+        role="dialog"
+        aria-label="Search"
+        style={visible ? { maxHeight: `max(160px, calc(${visible}px - max(10px, env(safe-area-inset-top)) - 12px))` } : undefined}
+      >
         <div className="search-bar">
           <span aria-hidden>🔍</span>
           <input

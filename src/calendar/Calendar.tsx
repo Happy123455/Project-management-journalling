@@ -174,7 +174,8 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
           wheelPast.current = 0;
         }}
         onWheel={(e) => {
-          if (collapsed || e.deltaY <= 0 || !atEnd()) return void (wheelPast.current = 0);
+          // The month itself doesn't scroll (only Coming up does, inside it): wheeling down on the month folds it.
+          if (collapsed || e.deltaY <= 0 || (e.target as HTMLElement).closest?.(".reminders")) return void (wheelPast.current = 0);
           wheelPast.current += e.deltaY;
           if (wheelPast.current > 160) {
             wheelPast.current = 0;
@@ -205,12 +206,15 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
             }}
             aria-expanded={!collapsed}
             // A quick swipe left/right on the month name changes the month.
+            // Only in the month: on the week strip a sideways swipe is the strip's own (menu / year).
             onTouchStart={(e) => {
+              if (collapsed) return;
               e.stopPropagation();
               titleTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
             }}
-            onTouchMove={(e) => e.stopPropagation()}
+            onTouchMove={(e) => !collapsed && e.stopPropagation()}
             onTouchEnd={(e) => {
+              if (collapsed) return;
               e.stopPropagation();
               const start = titleTouch.current;
               titleTouch.current = null;

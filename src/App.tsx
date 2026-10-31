@@ -11,6 +11,7 @@ import { countsByDay, SearchPanel, toResults, type SearchResult } from "./search
 import { FindBar } from "./search/FindBar";
 import { GraphView } from "./graph/GraphView";
 import { NewProject } from "./projects/NewProject";
+import { assignQuickLogIcons, QuickLogSetup } from "./projects/quickLog";
 import { SettingsPanel } from "./settings/SettingsPanel";
 import { ReadAloudPlayer } from "./ReadAloudPlayer";
 import { repairLostLinks } from "./lib/repairLinks";
@@ -22,6 +23,7 @@ import { loadAiSettings } from "./ai/settings";
 import { entryFor, numberEntries, type ProjectEntry } from "./lib/projectDays";
 import { loadGestures, NO_SWIPE, type CanvasAction } from "./lib/gestures";
 import { ChatView } from "./ChatView";
+import { RelativeTime } from "./calendar/RelativeTime";
 import { NexusView, type NexusTarget } from "./NexusView";
 import { openVoiceRecorder, VoiceRecorder } from "./editor/VoiceRecorder";
 import { MemeKit } from "./editor/MemeKit";
@@ -101,6 +103,7 @@ function App() {
         (window as unknown as { __journalRepairLinks?: (dryRun?: boolean) => unknown }).__journalRepairLinks = (dryRun = true) =>
           repairLostLinks(s, undefined, dryRun);
         setStore(s);
+        window.setTimeout(() => void assignQuickLogIcons(s).catch(() => {}), 8000);
       })
       .catch((e) => showError("Could not open the journal", e));
   }, []);
@@ -109,8 +112,9 @@ function App() {
   useEffect(() => {
     window.__journalDayNumber = async (title) => {
       if (!store || route.kind !== "day") return null;
+      // Projects and every other [[linked]] box count their days the same way.
       const project = await store.getPage(title);
-      if (!project?.props.project) return null;
+      if (!project) return null;
       const refs = await store.references("wikilink", project.title);
       const entries = numberEntries(refs.flatMap((r) => (r.day ? [entryFor(r.day, r.content as never, project.title)] : [])).filter((e): e is ProjectEntry => !!e));
       return entries.find((e) => e.day === day)?.n ?? null;
@@ -140,6 +144,9 @@ function App() {
 
   const sync = useSync(store, () => {
     setSyncTick((n) => n + 1);
+    window.dispatchEvent(new Event("journal:synced"));
+    // Mac: quick logs waiting for an icon get one from the local model.
+    if (store) void assignQuickLogIcons(store).catch(() => {});
     // Show what arrived on the open page, unless it's being typed in right now.
     const typing = !!pending.current || !!document.activeElement?.closest?.(".tiptap");
     if (!typing) setPageVersion((n) => n + 1);
@@ -654,21 +661,35 @@ function App() {
     />
   );
 
+  // The menu, like Obsidian's: a row of tools on top, lists in the middle, sync and settings pinned at the bottom.
+  const menuRibbon = (
+    <div className="menu-ribbon" role="toolbar" aria-label="Tools">
+      <button type="button" onClick={() => (setDrawerOpen(false), setSearchOpen(true))} title="Search" aria-label="Search">🔍</button>
+      <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))} title="Graph view" aria-label="Graph view">🕸</button>
+      <button type="button" onClick={() => (setDrawerOpen(false), setMindOpen(true))} title="Mind map" aria-label="Mind map">🧠</button>
+      <button type="button" onClick={() => void openNexus()} title="Nexus: this note's history" aria-label="Nexus">⑂</button>
+      <button type="button" onClick={async () => (setDrawerOpen(false), await flush(), setChatOpen(true))} title="Chat view" aria-label="Chat view">💬</button>
+    </div>
+  );
+  const menuFooter = (
+    <div className="menu-footer">
+      <SyncStatus status={sync.status} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
+      <div className="menu-footer-row">
+        <button type="button" onClick={() => (setDrawerOpen(false), void backUpNow())} title="Back up now">💾 Back up</button>
+        <RestoreButton store={store} onBeforeRestore={flush} />
+        <button type="button" className="menu-settings" onClick={() => (setDrawerOpen(false), setSettingsOpen(true))} title="Settings" aria-label="Settings">⚙︎</button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="app" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
       <aside className="sidebar">
+        {menuRibbon}
         {store && <ProjectList store={store} refreshKey={`${syncTick}:${days.length}:${route.kind}`} onOpen={(t) => void handlers.onOpenLink(t)} />}
         <h2>Days</h2>
         <DaysList days={days} day={day} today={today} onPick={goTo} />
-        <div className="sidebar-actions">
-          <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))}>🕸 Graph view</button>
-          <button type="button" onClick={() => (setDrawerOpen(false), setMindOpen(true))}>🧠 Mind map</button>
-          <button type="button" onClick={() => void openNexus()}>⑂ Nexus (this note's history)</button>
-          <button type="button" onClick={() => (setDrawerOpen(false), setSettingsOpen(true))}>⚙︎ Settings</button>
-          <button type="button" onClick={() => (setDrawerOpen(false), void backUpNow())}>💾 Back up now</button>
-          <SyncStatus status={sync.status} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
-          <RestoreButton store={store} onBeforeRestore={flush} />
-        </div>
+{menuFooter}
       </aside>
 
       <main className="page" inert={overlayOpen || undefined}>
@@ -691,7 +712,10 @@ function App() {
             <header className="page-header">
               <button type="button" className="menu-button" onClick={() => setDrawerOpen(true)} aria-label="Open menu">☰</button>
               <button type="button" onClick={() => goTo(addDays(day, -1))} aria-label="Previous day">‹</button>
-              <h1>{dayTitle(day)}</h1>
+              <h1>
+                {dayTitle(day)}
+                <RelativeTime day={day} today={today} />
+              </h1>
               <button type="button" onClick={() => goTo(addDays(day, 1))} aria-label="Next day">›</button>
               {day !== today && (
                 <button type="button" className="today" onClick={() => goTo(today)}>Today</button>
@@ -727,7 +751,7 @@ function App() {
               }}
               onPick={goTo}
               onOpenYear={openYear}
-              below={<Upcoming pages={reminders.filter((r) => r.day > today && r.day !== day)} onPick={goTo} />}
+              below={<Upcoming inMonth pages={reminders.filter((r) => r.day > today && r.day !== day)} onPick={goTo} />}
               actions={
                 <>
                   <button type="button" onClick={() => setDrawerOpen(true)} aria-label="Open menu">☰</button>
@@ -754,6 +778,7 @@ function App() {
                   onChange={onChange}
                   onReminder={pickReminderDay}
                   autofocus={!previewNext.current}
+                  pastDay={day < today}
                   onReady={(t) => {
                     setText(t);
                     if (previewNext.current) {
@@ -789,7 +814,7 @@ function App() {
 
       <aside className="links-panel">{infoTabs}</aside>
 
-      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
+      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} top={menuRibbon} bottom={menuFooter}>
         {drawerShown && store && (
           <ProjectList
             store={store}
@@ -811,15 +836,7 @@ function App() {
           }}
         />
         {infoTabs}</>}
-        <div className="sidebar-actions">
-          <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))}>🕸 Graph view</button>
-          <button type="button" onClick={() => (setDrawerOpen(false), setMindOpen(true))}>🧠 Mind map</button>
-          <button type="button" onClick={() => void openNexus()}>⑂ Nexus (this note's history)</button>
-          <button type="button" onClick={() => (setDrawerOpen(false), setSettingsOpen(true))}>⚙︎ Settings</button>
-          <button type="button" onClick={() => (setDrawerOpen(false), void backUpNow())}>💾 Back up now</button>
-          <SyncStatus status={sync.status} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
-          <RestoreButton store={store} onBeforeRestore={flush} />
-        </div>
+
       </Drawer>
 
       {searchOpen && <SearchPanel query={query} onQuery={setQuery} results={results} onPick={openHit} onClose={() => setSearchOpen(false)} />}
@@ -859,6 +876,7 @@ function App() {
       )}
 
       <NewProject store={store} />
+      <QuickLogSetup />
       {chatOpen && store && (
         <ChatView
           store={store}

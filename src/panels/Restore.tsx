@@ -37,7 +37,7 @@ export function RestoreButton({ store, onBeforeRestore }: { store: JournalStore 
   return (
     <>
       <button type="button" className="restore-button" onClick={() => input.current?.click()} disabled={!store}>
-        ⤺ Restore from backup…
+        ⤺ Restore…
       </button>
       <input
         ref={input}

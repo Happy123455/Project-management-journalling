@@ -284,7 +284,7 @@ export function InfoTabs({ links, mediaIds, store, onOpenLink, onOpenTag, backli
 }
 
 /** Phone: slides in from the left with Days, then Links / Tags / Media. */
-export function Drawer({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
+export function Drawer({ open, onClose, top, bottom, children }: { open: boolean; onClose: () => void; top?: ReactNode; bottom?: ReactNode; children: ReactNode }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -295,7 +295,9 @@ export function Drawer({ open, onClose, children }: { open: boolean; onClose: ()
     <>
       <div className={open ? "drawer-backdrop open" : "drawer-backdrop"} onClick={onClose} />
       <aside className={open ? "drawer open" : "drawer"} aria-hidden={!open}>
-        {children}
+        {top}
+        <div className="drawer-scroll">{children}</div>
+        {bottom}
       </aside>
     </>
   );

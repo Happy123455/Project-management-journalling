@@ -108,15 +108,36 @@ async function deviceCoords(): Promise<{ lat: number; lon: number } | null> {
   return coords;
 }
 
+/** Today's sunrise and sunset where the device is (ms), so the sky knows night from day. */
+let sun: { rise: number; set: number } | null = null;
+
+/** Is the sun up now? Real sunrise/sunset when known; otherwise 6:00–19:00. */
+export function sunIsUp(now: Date, times: { rise: number; set: number } | null = sun): boolean {
+  if (times && now.getTime() - times.rise < 36 * 3600_000 && times.rise - now.getTime() < 36 * 3600_000) {
+    // Times are for one day; shift them to today's date (sunrise moves only minutes a day).
+    const day = (t: number) => {
+      const d = new Date(t);
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate(), d.getHours(), d.getMinutes()).getTime();
+    };
+    return now.getTime() >= day(times.rise) && now.getTime() < day(times.set);
+  }
+  const h = now.getHours();
+  return h >= 6 && h < 19;
+}
+
 async function fetchWeather(): Promise<Weather> {
   if (Date.now() - weatherAt < 30 * 60_000) return weather;
   weatherAt = Date.now();
   try {
     const at = await deviceCoords();
     if (!at) return (weather = null);
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${at.lat.toFixed(3)}&longitude=${at.lon.toFixed(3)}&current=weather_code,is_day`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${at.lat.toFixed(3)}&longitude=${at.lon.toFixed(3)}&current=weather_code,is_day&daily=sunrise,sunset&timezone=auto&forecast_days=1`;
     const now = await (await fetch(url)).json();
     weather = weatherFromCode(Number(now.current?.weather_code ?? 0));
+    // "2026-10-31T06:42" in the place's own time, which is the device's time too.
+    const rise = Date.parse(now.daily?.sunrise?.[0] ?? "");
+    const set = Date.parse(now.daily?.sunset?.[0] ?? "");
+    sun = Number.isFinite(rise) && Number.isFinite(set) ? { rise, set } : null;
   } catch {
     weather = null;
   }
@@ -205,8 +226,10 @@ export function applyAmbience() {
   const hour = new Date().getHours();
   root.classList.toggle("sun-low", s.daylight && ((hour >= 6 && hour < 8) || (hour >= 17 && hour < 20)));
   const show = (w: Weather) => {
-    root.classList.remove("weather-clear", "weather-cloudy", "weather-rain");
+    root.classList.remove("weather-clear", "weather-cloudy", "weather-rain", "weather-night");
     if (w) root.classList.add(`weather-${w}`);
+    // No sun at night: a clear night sky shows the moon and a few stars instead.
+    if (w && !sunIsUp(new Date())) root.classList.add("weather-night");
     const wantRain = w === "rain" && !reducedMotion();
     if (wantRain && !rain) rain = startRain();
     if (!wantRain && rain) (rain.stop(), (rain = null));

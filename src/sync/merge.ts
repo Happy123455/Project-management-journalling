@@ -169,9 +169,28 @@ function similar(a: JSONContent, b: JSONContent): boolean {
   return overlap(a, b) * 2 >= Math.min(a.content.length, b.content.length);
 }
 
-/** A block without its attributes: the same text or media, whatever its size or placement. */
-function looseKey(node: JSONContent): string {
-  const strip = (n: JSONContent): unknown => ({ t: n.type, x: n.text, m: n.marks?.map((m) => m.type), c: n.content?.map(strip) });
+/** Attributes that only say how a block looks (size, placement, folded, preview details), not what it is. */
+const LOOK = new Set(["width", "height", "align", "x", "y", "collapsed", "status", "title", "site", "image"]);
+const identity = (n: JSONContent) => {
+  const a = n.attrs ?? {};
+  // A link card's title/site/image come from its url; a prompt's title is part of what it is.
+  const keys = Object.keys(a).filter((k) => !LOOK.has(k) || (n.type === "promptBlock" && k === "title")).sort();
+  return keys.length ? keys.map((k) => [k, a[k]]) : undefined;
+};
+
+/**
+ * A block without its look: the same text or media, whatever its size or placement. What it is
+ * stays in the key (a photo's file, a link card's url): before 31 Oct every link card (and every
+ * photo) looked the same here, so a merge kept only one and dropped the rest.
+ */
+export function looseKey(node: JSONContent): string {
+  const strip = (n: JSONContent): unknown => ({
+    t: n.type,
+    a: identity(n),
+    x: n.text,
+    m: n.marks?.map((m) => (m.attrs?.href ? `${m.type}:${m.attrs.href}` : m.type)),
+    c: n.content?.map(strip),
+  });
   return JSON.stringify(strip(node));
 }
 
@@ -226,7 +245,12 @@ export function mergeDocs(newer: JSONContent, older: JSONContent, base?: JSONCon
     if (base && nth <= (baseCount.get(k) ?? 0)) continue;
     if (node.type === "paragraph" && !node.content?.length) continue;
     // Same text or media as a block `newer` has, only resized or moved: `newer`'s version stays.
-    if (loose.has(looseKey(node))) continue;
+    const lk = looseKey(node);
+    if (loose.has(lk)) {
+      const i = out.findIndex((n) => looseKey(n) === lk);
+      if (i > after) after = i;
+      continue;
+    }
     // A list (or quote) both sides changed, e.g. a point moved on one device and another added on
     // the other: merge its items instead of keeping two copies of the whole list.
     const twin = out.findIndex((n, i) => i > after - 1 && similar(n, node));

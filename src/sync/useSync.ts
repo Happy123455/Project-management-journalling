@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { coalesce } from "../lib/coalesce";
 import type { JournalStore } from "../store";
 import { syncOnce, type SyncMemory } from "./engine";
+import { repairMergeLosses } from "../lib/repairMerge";
+import { showToast } from "../lib/toast";
 import { findSyncFolder, pickSyncFolder } from "./folders";
 
 /** What sync remembers between rounds (what it sent and read), so it only moves what's new. */
@@ -40,6 +42,7 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
   const [status, setStatus] = useState<SyncStatus>({ state: "off", reason: "Starting…" });
   const last = useRef<Date | null>(null);
   const afterSave = useRef<number | undefined>(undefined);
+  const repaired = useRef(false);
   const imported = useRef(onImported);
   imported.current = onImported;
 
@@ -56,6 +59,18 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
           last.current = new Date();
           setStatus({ state: "ok", label: found.label, last: last.current });
           if (result.imported || result.files) imported.current();
+          // Once per launch, after the first round (so this device has both sides' history): put
+          // back link cards and media the old merge dropped. Never while typing.
+          const typing = !!document.activeElement?.closest?.(".tiptap");
+          if (!repaired.current && !typing) {
+            repaired.current = true;
+            await window.__journalFlush?.();
+            const back = await repairMergeLosses(store).catch(() => 0);
+            if (back) {
+              showToast(`Brought back ${back} ${back === 1 ? "link or photo" : "links and photos"} an earlier sync had dropped`);
+              imported.current();
+            }
+          }
         } catch (e) {
           setStatus({ state: "error", label: found.label, last: last.current, message: e instanceof Error ? e.message : String(e) });
         }

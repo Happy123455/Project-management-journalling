@@ -127,3 +127,28 @@ describe("mergeDocs lists", () => {
     expect(texts.sort()).toEqual(["a", "b", "c", "d"]);
   });
 });
+
+describe("mergeDocs keeps every link card and photo (31 Oct)", () => {
+  const card = (url: string, status = "ready") => ({ type: "linkCard", attrs: { url, title: url, site: null, image: null, status } });
+  const p = (text: string) => ({ type: "paragraph", content: [{ type: "text", text }] });
+  const img = (fileId: string, width: number | null = null) => ({ type: "paragraph", content: [{ type: "attachmentImage", attrs: { fileId, name: "x", width, align: "inline", x: 0, y: 0 } }] });
+
+  it("links added on one device survive a merge with a doc that has another link", () => {
+    const base = { type: "doc", content: [p("Claude")] };
+    const mac = { type: "doc", content: [p("Claude"), card("https://a.dev"), card("https://b.dev"), card("https://c.dev")] };
+    const phone = { type: "doc", content: [p("Claude"), card("https://phone.dev"), p("later")] };
+    const both = mergeDocs(phone, mac, base);
+    const urls = both.content!.filter((n) => n.type === "linkCard").map((n) => n.attrs!.url);
+    expect(urls.sort()).toEqual(["https://a.dev", "https://b.dev", "https://c.dev", "https://phone.dev"]);
+  });
+
+  it("a card whose preview loaded on one side is still one card", () => {
+    const both = mergeDocs({ type: "doc", content: [card("https://a.dev", "ready")] }, { type: "doc", content: [card("https://a.dev", "loading")] });
+    expect(both.content).toHaveLength(1);
+  });
+
+  it("different photos are kept, a resized photo is not doubled", () => {
+    const both = mergeDocs({ type: "doc", content: [img("f1", 200)] }, { type: "doc", content: [img("f1", 300), img("f2")] });
+    expect(both.content!.map((n) => n.content![0].attrs!.fileId)).toEqual(["f1", "f2"]);
+  });
+});

@@ -10,6 +10,7 @@ import { showError, showToast } from "../lib/toast";
 import type { AiChange, JournalStore } from "../store";
 import { mcpAvailable, mcpEnabled, setMcpServer } from "../mcp";
 import { isDesktopApp, macBubbleEnabled, setMacBubble } from "../bubble/macBubble";
+import { editorPrefs, setEditorPrefs, type EditorPrefs } from "../lib/editorPrefs";
 import { CANVAS_ACTIONS, loadGestures, saveGestures, type CanvasAction, type Gestures } from "../lib/gestures";
 
 const money = (usd: number) => (usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`);
@@ -290,6 +291,28 @@ function GestureSettings() {
   );
 }
 
+/** Code blocks, stamps on older days, the time-ago line. */
+function EditorSettings() {
+  const [e, setE] = useState(editorPrefs);
+  const row = (key: keyof EditorPrefs, label: string, hint: string) => (
+    <label className="settings-toggle">
+      <input type="checkbox" checked={e[key]} onChange={(ev) => setE(setEditorPrefs({ [key]: ev.target.checked }))} />
+      <span className="settings-toggle-text">
+        {label}
+        <small>{hint}</small>
+      </span>
+    </label>
+  );
+  return (
+    <section className="settings-section">
+      <h2>Editor</h2>
+      {row("codeScroll", "Scroll code blocks sideways", "Off: long code lines wrap onto the next line instead")}
+      {row("editStamps", "Stamp edits on older days", "Writing in a past day adds a small “edited” chip with when")}
+      {row("relativeTime", "Show how long ago a day is", "Under the date: years, months and days from today")}
+    </section>
+  );
+}
+
 /** Optional light, weather and sound on the glass. */
 function AmbienceSection() {
   const [a, setA] = useState(ambienceSettings);
@@ -368,6 +391,20 @@ function BubbleSettings() {
   );
 }
 
+type SettingsPage = "general" | "editor" | "ai" | "voice" | "usage" | "mcp";
+
+function useNarrow() {
+  const [narrow, setNarrow] = useState(() => !!window.matchMedia?.("(max-width: 760px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia?.("(max-width: 760px)");
+    if (!mq) return;
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return narrow;
+}
+
 /** ⚙︎ Settings: AI provider, keys, toggles, this month's use, and AI changes. */
 export function SettingsPanel({ store, onClose }: { store: JournalStore | null; onClose: () => void }) {
   const [s, setS] = useState<AiSettings>(loadAiSettings);
@@ -377,89 +414,143 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
     window.addEventListener("journal:ai-usage", onUsage);
     return () => window.removeEventListener("journal:ai-usage", onUsage);
   }, []);
+  const narrow = useNarrow();
+  const [page, setPage] = useState<SettingsPage | null>(() => (window.matchMedia?.("(max-width: 760px)").matches ? null : "general"));
+  // Going wide (Mac window resized) always shows a category.
+  useEffect(() => {
+    if (!narrow && !page) setPage("general");
+  }, [narrow, page]);
   const update = (patch: Partial<AiSettings>) => {
     const next = { ...s, ...patch };
     setS(next);
     saveAiSettings(next);
   };
 
-  return (
-    <div className="settings-view" role="dialog" aria-label="Settings">
-      <header className="graph-bar">
-        <button type="button" onClick={onClose} aria-label="Close settings">✕</button>
-        <h1 className="settings-title">⚙︎ Settings</h1>
-      </header>
-      <div className="settings-body">
-        <section className="settings-section">
-          <h2>AI</h2>
-          <label className="settings-toggle">
-            <input type="checkbox" checked={s.enabled} onChange={(e) => update({ enabled: e.target.checked })} />
-            AI features on
-          </label>
-          <div className="settings-label">Provider</div>
-          <div className="project-status" role="radiogroup" aria-label="AI provider">
-            {PROVIDERS.filter((p) => p.id !== "local" || isDesktopApp()).map((p) => (
-              <button key={p.id} type="button" role="radio" aria-checked={s.provider === p.id} className={s.provider === p.id ? "active status-active" : ""} onClick={() => update({ provider: p.id })}>
-                {p.name}
-              </button>
-            ))}
-          </div>
-          {s.provider === "local" ? (
-            <LocalModelField
-              model={modelFor(s, "grammar")}
-              onModel={(m) => update({ models: { ...s.models, local: { ...s.models.local, grammar: m } } })}
-              heavy={modelFor(s, "organise")}
-              onHeavy={(m) => update({ models: { ...s.models, local: { ...s.models.local, organise: m, describe: m, chat: m } } })}
-            />
-          ) : (
-            <KeyField provider={s.provider} />
-          )}
-          {!isDesktopApp() && (
+  const pages: { id: SettingsPage; icon: string; name: string; hint: string }[] = [
+    { id: "general", icon: "✦", name: "Appearance", hint: "Light, weather, sounds, gestures" },
+    { id: "editor", icon: "✎", name: "Editor", hint: "Code blocks, quick log, bubble" },
+    { id: "ai", icon: "✨", name: "AI", hint: "Provider, models, grammar" },
+    { id: "voice", icon: "🔊", name: "Read aloud", hint: "Voice and speed" },
+    { id: "usage", icon: "📊", name: "Usage and AI changes", hint: "This month, undo AI edits" },
+    ...(mcpAvailable() ? [{ id: "mcp" as const, icon: "⌁", name: "Claude Desktop", hint: "MCP server" }] : []),
+  ];
+  const current = pages.find((p) => p.id === page);
+  const content = (
+    <>
+      {page === "general" && (
+        <>
+          <AmbienceSection />
+          <GestureSettings />
+        </>
+      )}
+      {page === "editor" && (
+        <>
+          <EditorSettings />
+          <BubbleSettings />
+        </>
+      )}
+      {page === "ai" && (
+          <section className="settings-section">
+            <h2>AI</h2>
             <label className="settings-toggle">
-              <input type="checkbox" checked={s.macGrowsMap !== false} onChange={(e) => update({ macGrowsMap: e.target.checked })} />
-              Mac grows the map (its local model does it; the result arrives here by sync)
+              <input type="checkbox" checked={s.enabled} onChange={(e) => update({ enabled: e.target.checked })} />
+              AI features on
             </label>
-          )}
-          <label className="settings-toggle">
-            <input type="checkbox" checked={s.grammarSuggestions} onChange={(e) => update({ grammarSuggestions: e.target.checked })} />
-            Grammar suggestions after each finished paragraph
-          </label>
-          <label className="settings-toggle">
-            <input type="checkbox" checked={s.mindmapAuto !== false} onChange={(e) => update({ mindmapAuto: e.target.checked })} />
-            Grow mind map automatically (from today's note, after 10 quiet minutes)
-          </label>
-          <label className="settings-toggle">
-            <input type="checkbox" checked={s.autoCorrect} onChange={(e) => update({ autoCorrect: e.target.checked })} />
-            Auto-correct (apply grammar fixes without asking)
-          </label>
-          <p className="hint">
-            Models: grammar {modelFor(s, "grammar")}, Organise {modelFor(s, "organise")}, photos {modelFor(s, "describe")}
-            {modelFor(s, "organise") !== DEFAULT_MODELS[s.provider].organise ? " (custom)" : ""}. AI only runs when you tap or finish a paragraph.
-          </p>
-        </section>
+            <div className="settings-label">Provider</div>
+            <div className="project-status" role="radiogroup" aria-label="AI provider">
+              {PROVIDERS.filter((p) => p.id !== "local" || isDesktopApp()).map((p) => (
+                <button key={p.id} type="button" role="radio" aria-checked={s.provider === p.id} className={s.provider === p.id ? "active status-active" : ""} onClick={() => update({ provider: p.id })}>
+                  {p.name}
+                </button>
+              ))}
+            </div>
+            {s.provider === "local" ? (
+              <LocalModelField
+                model={modelFor(s, "grammar")}
+                onModel={(m) => update({ models: { ...s.models, local: { ...s.models.local, grammar: m } } })}
+                heavy={modelFor(s, "organise")}
+                onHeavy={(m) => update({ models: { ...s.models, local: { ...s.models.local, organise: m, describe: m, chat: m } } })}
+              />
+            ) : (
+              <KeyField provider={s.provider} />
+            )}
+            {!isDesktopApp() && (
+              <label className="settings-toggle">
+                <input type="checkbox" checked={s.macGrowsMap !== false} onChange={(e) => update({ macGrowsMap: e.target.checked })} />
+                Mac grows the map (its local model does it; the result arrives here by sync)
+              </label>
+            )}
+            <label className="settings-toggle">
+              <input type="checkbox" checked={s.grammarSuggestions} onChange={(e) => update({ grammarSuggestions: e.target.checked })} />
+              Grammar suggestions after each finished paragraph
+            </label>
+            <label className="settings-toggle">
+              <input type="checkbox" checked={s.mindmapAuto !== false} onChange={(e) => update({ mindmapAuto: e.target.checked })} />
+              Grow mind map automatically (from today's note, after 10 quiet minutes)
+            </label>
+            <label className="settings-toggle">
+              <input type="checkbox" checked={s.autoCorrect} onChange={(e) => update({ autoCorrect: e.target.checked })} />
+              Auto-correct (apply grammar fixes without asking)
+            </label>
+            <p className="hint">
+              Models: grammar {modelFor(s, "grammar")}, Organise {modelFor(s, "organise")}, photos {modelFor(s, "describe")}
+              {modelFor(s, "organise") !== DEFAULT_MODELS[s.provider].organise ? " (custom)" : ""}. AI only runs when you tap or finish a paragraph.
+            </p>
+          </section>
 
-        <AmbienceSection />
-        <GestureSettings />
-        <BubbleSettings />
-        <McpSettings store={store} />
-
+      )}
+      {page === "voice" && (
         <section className="settings-section">
           <h2>Read aloud</h2>
           <ReadAloudSettings />
         </section>
+      )}
+      {page === "usage" && (
+        <>
+          <section className="settings-section">
+            <h2>This month on this device</h2>
+            <p>
+              {usage.requests} request{usage.requests === 1 ? "" : "s"} · {usage.inputTokens.toLocaleString()} in / {usage.outputTokens.toLocaleString()} out tokens · about {money(usage.cost)}
+            </p>
+            <p className="hint">Estimated at paid prices; requests on Google AI Studio's free tier cost nothing.</p>
+          </section>
+          <section className="settings-section">
+            <h2>AI changes</h2>
+            {store && <AiChanges store={store} />}
+          </section>
+        </>
+      )}
+      {page === "mcp" && <McpSettings store={store} />}
+    </>
+  );
 
-        <section className="settings-section">
-          <h2>This month on this device</h2>
-          <p>
-            {usage.requests} request{usage.requests === 1 ? "" : "s"} · {usage.inputTokens.toLocaleString()} in / {usage.outputTokens.toLocaleString()} out tokens · about {money(usage.cost)}
-          </p>
-          <p className="hint">Estimated at paid prices; requests on Google AI Studio's free tier cost nothing.</p>
-        </section>
-
-        <section className="settings-section">
-          <h2>AI changes</h2>
-          {store && <AiChanges store={store} />}
-        </section>
+  // Like Obsidian: categories on the left (Mac) or as a list that opens each one (phone).
+  return (
+    <div className={page ? "settings-view settings-in-page" : "settings-view"} role="dialog" aria-label="Settings">
+      <header className="settings-bar">
+        {page && narrow ? (
+          <button type="button" className="settings-back" onClick={() => setPage(null)} aria-label="All settings">‹</button>
+        ) : (
+          <button type="button" className="settings-back" onClick={onClose} aria-label="Close settings">✕</button>
+        )}
+        <h1 className="settings-title">{page && narrow ? current?.name : "Settings"}</h1>
+        {page && narrow && <button type="button" className="settings-done" onClick={onClose}>Done</button>}
+      </header>
+      <div className="settings-split">
+        <nav className="settings-nav" aria-label="Settings categories">
+          <div className="settings-nav-group">Options</div>
+          {pages.map((p) => (
+            <button key={p.id} type="button" className={page === p.id ? "settings-nav-item active" : "settings-nav-item"} onClick={() => setPage(p.id)}>
+              <span className="settings-nav-icon" aria-hidden>{p.icon}</span>
+              <span className="settings-nav-text">
+                <span>{p.name}</span>
+                <small>{p.hint}</small>
+              </span>
+              <span className="settings-nav-chevron" aria-hidden>›</span>
+            </button>
+          ))}
+        </nav>
+        <div className="settings-body">{content}</div>
       </div>
     </div>
   );

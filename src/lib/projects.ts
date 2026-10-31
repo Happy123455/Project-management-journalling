@@ -16,6 +16,12 @@ export interface ProjectInfo {
   status: ProjectStatus;
   /** A logging project: like a project, but not counted in the active limit. */
   kind?: "logging";
+  /** A one-tap button for it on the tool bar ("quick log"). */
+  quickLog?: boolean;
+  /** The button's icon (an emoji). */
+  icon?: string;
+  /** No icon picked: the Mac's local model picks one (it arrives on the phone by sync). */
+  iconAuto?: boolean;
 }
 
 /** The tag that files a task under a project: "Project X" → "project-x". */

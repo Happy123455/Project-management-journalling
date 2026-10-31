@@ -162,7 +162,8 @@ export function PageView({ store, page, onBack, handlers, pageNames, find, onFin
       {page.props.project && (
         <ProjectPanel store={store} page={page} refreshKey={saves} onChanged={onPageChanged} onOpenDay={handlers.onOpenDay} />
       )}
-      {page.props.project && (
+      {(
+        // Every linked note records its days, like a project.
         <ProjectTimeline store={store} page={page} refreshKey={saves} onOpenDay={(d) => handlers.onOpenDay(d)} />
       )}
       <section className="history">
