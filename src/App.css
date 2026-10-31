@@ -1840,3 +1840,14 @@ html.weather-rain .ambience-layer { background-color: rgba(70, 90, 120, 0.10); }
 @media (prefers-reduced-motion: reduce) {
   html.weather-clear .ambience-layer::before, html.weather-cloudy .ambience-layer::before, html.weather-cloudy .ambience-layer::after { animation: none; }
 }
+
+/* Folded Coming up: every row's dots start at the same left edge (a left-aligned bar chart),
+   the days-left number sits at the far right. */
+.upcoming.folded .reminder-text { flex: 0 0 34%; }
+.upcoming.folded .countdown { flex: 1 1 0; max-width: none; margin: 0; justify-content: flex-start; }
+.upcoming.folded .countdown-bar { flex: 1 1 0; justify-content: flex-start; }
+.upcoming.folded .cd-left { margin-left: auto; flex: none; }
+@media (max-width: 420px) {
+  .upcoming.folded .countdown { max-width: none; }
+  .upcoming.folded .reminder-text { flex-basis: 30%; }
+}
