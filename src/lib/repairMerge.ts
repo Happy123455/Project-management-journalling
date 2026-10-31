@@ -27,6 +27,24 @@ function idsIn(n: JSONContent, out = new Set<string>()): Set<string> {
   return out;
 }
 
+const unescape = (s: string) => {
+  try {
+    return JSON.parse(`"${s}"`) as string;
+  } catch {
+    return s;
+  }
+};
+
+/** The same ids as `idsIn`, read from a stored document's JSON text without parsing it. */
+export function idsInText(raw: string | null | undefined): Set<string> {
+  const out = new Set<string>();
+  if (!raw) return out;
+  for (const m of raw.matchAll(/"type":"linkCard","attrs":\{(?:[^{}]|\{[^{}]*\})*?"url":"((?:[^"\\]|\\.)*)"/g)) out.add(`link:${unescape(m[1])}`);
+  for (const m of raw.matchAll(/"fileId":"((?:[^"\\]|\\.)*)"/g)) out.add(`file:${unescape(m[1])}`);
+  for (const m of raw.matchAll(/"type":"youtubeEmbed","attrs":\{(?:[^{}]|\{[^{}]*\})*?"url":"((?:[^"\\]|\\.)*)"/g)) out.add(`yt:${unescape(m[1])}`);
+  return out;
+}
+
 const parse = (s: string | null | undefined): JSONContent | null => {
   if (!s) return null;
   try {
@@ -71,20 +89,29 @@ function locate(doc: JSONContent, key: string): { parent: JSONContent; index: nu
 export function restoreMerged(events: JournalEvent[], current: JSONContent): { content: JSONContent; restored: string[] } | null {
   const versions = events.filter((e) => e.op === "create" || e.op === "update" || e.op === "restore");
   const now = idsIn(current);
+  // Notes hold many full-document versions; reading the ids straight from the stored text keeps this
+  // light on the phone. Only the versions things are restored from get parsed.
+  const ids = new Map<string | null, Set<string>>();
+  const rawIds = (raw: string | null) => {
+    let got = ids.get(raw);
+    if (!got) ids.set(raw, (got = idsInText(raw)));
+    return got;
+  };
   // Removed on purpose: an edit (on any device, not a merge) that had it before and not after.
   const deleted = new Set<string>();
   for (const e of versions) {
-    if (e.actor === "sync") continue;
-    const before = parse(e.before);
-    if (!before) continue;
-    const kept = idsIn(parse(e.after) ?? {});
-    for (const id of idsIn(before)) if (!kept.has(id)) deleted.add(id);
+    if (e.actor === "sync" || !e.before) continue;
+    const kept = rawIds(e.after);
+    for (const id of rawIds(e.before)) if (!kept.has(id)) deleted.add(id);
   }
-  const lost = new Map<string, JSONContent>(); // id -> the newest version that had it
-  for (const e of versions) {
-    const after = parse(e.after);
-    if (!after) continue;
-    for (const id of idsIn(after)) if (!now.has(id) && !deleted.has(id)) lost.set(id, after);
+  const lostRaw = new Map<string, string>(); // id -> the newest version that had it
+  for (const e of versions) for (const id of rawIds(e.after)) if (!now.has(id) && !deleted.has(id)) lostRaw.set(id, e.after);
+  const lost = new Map<string, JSONContent>();
+  const parsed = new Map<string, JSONContent | null>();
+  for (const [id, raw] of lostRaw) {
+    if (!parsed.has(raw)) parsed.set(raw, parse(raw));
+    const doc = parsed.get(raw);
+    if (doc && idsIn(doc).has(id)) lost.set(id, doc);
   }
   if (!lost.size) return null;
   const content = structuredClone(current) as JSONContent;
@@ -112,6 +139,8 @@ export function restoreMerged(events: JournalEvent[], current: JSONContent): { c
 export async function repairMergeLosses(store: JournalStore, since = "2026-10-20"): Promise<number> {
   let total = 0;
   for (const day of (await store.listDays()).filter((d) => d >= since)) {
+    // Let the app breathe between days.
+    await new Promise((r) => setTimeout(r, 30));
     const page = await store.getDay(day);
     if (!page) continue;
     const fixed = restoreMerged(await store.eventsFor(page.id), page.content);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { JournalEvent } from "../store/types";
-import { restoreMerged } from "./repairMerge";
+import { idsInText, restoreMerged } from "./repairMerge";
 
 const p = (text: string) => ({ type: "paragraph", content: [{ type: "text", text }] });
 const card = (url: string) => ({ type: "linkCard", attrs: { url, title: url, site: null, image: null, status: "ready" } });
@@ -24,5 +24,16 @@ describe("restoreMerged", () => {
     const a = doc(p("x"), card("a"));
     const events = [ev("me", null, a), ev("me", a, doc(p("x")))];
     expect(restoreMerged(events, doc(p("x")))).toBeNull();
+  });
+});
+
+describe("idsInText", () => {
+  it("reads the same ids as the parsed document", () => {
+    const doc = { type: "doc", content: [
+      { type: "linkCard", attrs: { indent: 0, info: { Day: "2" }, url: "https://a.dev/x?q=\"1\"", title: null, site: null, image: null, status: "ready" } },
+      { type: "paragraph", content: [{ type: "attachmentImage", attrs: { fileId: "f1", name: "x", width: null, align: "inline", x: 0, y: 0 } }] },
+      { type: "paragraph", content: [{ type: "youtubeEmbed", attrs: { fileId: null, name: "image", width: null, align: "inline", x: 0, y: 0, url: "https://youtu.be/abc" } }] },
+    ] };
+    expect([...idsInText(JSON.stringify(doc))].sort()).toEqual(["file:f1", "link:https://a.dev/x?q=\"1\"", "yt:https://youtu.be/abc"]);
   });
 });
