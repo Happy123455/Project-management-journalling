@@ -305,7 +305,7 @@ function AmbienceSection() {
       {row("daylight", "Brightness follows the time of day")}
       {row("weather", "Weather on the glass (sun rays, clouds, rain drops)")}
       {row("sounds", "Glass sounds and haptics when touching and swiping")}
-      <p className="hint">Weather uses Open-Meteo for the rough location of your internet connection, checked every 30 minutes.</p>
+      <p className="hint">Weather uses Open-Meteo for this device’s rough location (asked once, then remembered for 6 hours), checked every 30 minutes.</p>
     </section>
   );
 }

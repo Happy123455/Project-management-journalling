@@ -54,12 +54,67 @@ export function daylightAt(date: Date): number {
 let weather: Weather = null;
 let weatherAt = 0;
 
+declare global {
+  interface Window {
+    JournalLocation?: { request(id: string): void };
+    __journalLocation?: (id: string, loc: { lat: number; lon: number } | null) => void;
+  }
+}
+
+const COORDS_KEY = "dynamic-journal.weather-place";
+
+/**
+ * Where this device is, roughly: the phone asks for its location once (coarse, a few seconds, then
+ * it's off again); the Mac asks the system; the internet connection's address only as a last resort.
+ * Remembered for 6 hours, so the location is rarely asked for.
+ */
+async function deviceCoords(): Promise<{ lat: number; lon: number } | null> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COORDS_KEY) ?? "null");
+    if (saved && Date.now() - saved.at < 6 * 3600_000) return saved;
+  } catch {
+    // Ask again.
+  }
+  const fromDevice = await new Promise<{ lat: number; lon: number } | null>((resolve) => {
+    const timer = window.setTimeout(() => resolve(null), 20_000);
+    const done = (v: { lat: number; lon: number } | null) => (window.clearTimeout(timer), resolve(v));
+    if (window.JournalLocation) {
+      const id = String(Date.now());
+      window.__journalLocation = (got, loc) => got === id && done(loc);
+      window.JournalLocation.request(id);
+    } else if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (p) => done({ lat: p.coords.latitude, lon: p.coords.longitude }),
+        () => done(null),
+        { enableHighAccuracy: false, maximumAge: 30 * 60_000, timeout: 15_000 },
+      );
+    } else done(null);
+  });
+  let coords = fromDevice;
+  if (!coords) {
+    try {
+      const geo = await (await fetch("https://get.geojs.io/v1/ip/geo.json")).json();
+      coords = { lat: Number(geo.latitude), lon: Number(geo.longitude) };
+    } catch {
+      return null;
+    }
+  }
+  try {
+    // Only device fixes are kept for long; a guess from the connection is tried again next time.
+    if (fromDevice) localStorage.setItem(COORDS_KEY, JSON.stringify({ ...coords, at: Date.now() }));
+  } catch {
+    // Only a convenience.
+  }
+  return coords;
+}
+
 async function fetchWeather(): Promise<Weather> {
   if (Date.now() - weatherAt < 30 * 60_000) return weather;
   weatherAt = Date.now();
   try {
-    const geo = await (await fetch("https://get.geojs.io/v1/ip/geo.json")).json();
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${geo.latitude}&longitude=${geo.longitude}&current=weather_code,is_day`;
+    const at = await deviceCoords();
+    if (!at) return (weather = null);
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${at.lat.toFixed(3)}&longitude=${at.lon.toFixed(3)}&current=weather_code,is_day`;
     const now = await (await fetch(url)).json();
     weather = weatherFromCode(Number(now.current?.weather_code ?? 0));
   } catch {

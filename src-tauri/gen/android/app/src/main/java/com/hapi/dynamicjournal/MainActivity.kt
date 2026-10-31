@@ -37,6 +37,49 @@ class MainActivity : TauriActivity() {
   /** Google Drive sign-in for sync. Drive's Android app doesn't offer its folders to other apps, so we use the Drive API. */
   private val driveScope = Scope("https://www.googleapis.com/auth/drive")
   private var driveRequest = ""
+  /** Weather: one quick, coarse location fix (asked once), answered through window.__journalLocation(id, json). */
+  private var locationWaiting: String? = null
+  private val askLocation = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    val id = locationWaiting ?: return@registerForActivityResult
+    locationWaiting = null
+    if (granted) fixLocation(id) else answerLocation(id, null)
+  }
+
+  private fun answerLocation(id: String, loc: android.location.Location?) {
+    val json = if (loc == null) "null" else JSONObject().put("lat", loc.latitude).put("lon", loc.longitude).toString()
+    val js = "window.__journalLocation && window.__journalLocation(${JSONObject.quote(id)}, $json)"
+    webView?.post { webView?.evaluateJavascript(js, null) }
+  }
+
+  private fun fixLocation(id: String) {
+    val lm = getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+    try {
+      val provider = listOf(android.location.LocationManager.NETWORK_PROVIDER, android.location.LocationManager.GPS_PROVIDER)
+        .firstOrNull { lm.isProviderEnabled(it) }
+      val last = listOf(android.location.LocationManager.NETWORK_PROVIDER, android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.PASSIVE_PROVIDER)
+        .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
+        .maxByOrNull { it.time }
+      // A recent fix is enough for the weather; otherwise ask for one now (the location turns off right after).
+      if (last != null && System.currentTimeMillis() - last.time < 30 * 60_000L || provider == null || android.os.Build.VERSION.SDK_INT < 30) {
+        return answerLocation(id, last)
+      }
+      lm.getCurrentLocation(provider, null, mainExecutor) { loc -> answerLocation(id, loc ?: last) }
+    } catch (e: SecurityException) {
+      answerLocation(id, null)
+    }
+  }
+
+  inner class LocationBridge {
+    @JavascriptInterface
+    fun request(id: String) = runOnUiThread {
+      if (checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) fixLocation(id)
+      else {
+        locationWaiting = id
+        askLocation.launch(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+      }
+    }
+  }
+
   private val authorizeDrive = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
     val token = try {
       Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(result.data).accessToken
@@ -140,6 +183,7 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(speech, "JournalSpeech")
     webView.addJavascriptInterface(BubbleBridge(), "JournalBubble")
     webView.addJavascriptInterface(HapticsBridge(), "JournalHaptics")
+    webView.addJavascriptInterface(LocationBridge(), "JournalLocation")
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->
       val split = payload.partition { it.uri != null }
