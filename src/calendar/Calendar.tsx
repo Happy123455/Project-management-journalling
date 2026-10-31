@@ -137,6 +137,14 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
     if (collapsed) setFloating(false);
   }, [collapsed]);
   const sheet = floating && !collapsed;
+  const titleTouch = useRef<{ x: number; y: number } | null>(null);
+  const titleSwiped = useRef(0);
+  /** Same day of the month before/after (the last day when that month is shorter). */
+  const shiftMonth = (by: number) => {
+    const d = Number(day.slice(8, 10));
+    const last = new Date(year, month - 1 + by + 1, 0).getDate();
+    onPick(dayKey(new Date(year, month - 1 + by, Math.min(d, last))));
+  };
   // The month scrolled to its end: Coming up is folded and there is nothing more to show.
   const endedAt = useRef(0);
   const atEnd = () => {
@@ -187,14 +195,42 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
         }}
       >
         <div className="cal-bar">
+          {!collapsed && <button type="button" className="cal-month-step" onClick={() => shiftMonth(-1)} aria-label="Previous month">‹</button>}
           <button
             type="button"
             className="cal-title"
-            onClick={() => toggle(collapsed)}
+            onClick={() => {
+              if (Date.now() - titleSwiped.current < 400) return;
+              toggle(collapsed);
+            }}
             aria-expanded={!collapsed}
+            // A quick swipe left/right on the month name changes the month.
+            onTouchStart={(e) => {
+              e.stopPropagation();
+              titleTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            }}
+            onTouchMove={(e) => e.stopPropagation()}
+            onTouchEnd={(e) => {
+              e.stopPropagation();
+              const start = titleTouch.current;
+              titleTouch.current = null;
+              if (!start) return;
+              const dx = e.changedTouches[0].clientX - start.x;
+              const dy = e.changedTouches[0].clientY - start.y;
+              if (Math.abs(dx) > 36 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                titleSwiped.current = Date.now();
+                shiftMonth(dx < 0 ? 1 : -1);
+              } else if (Math.abs(dy) >= 30) {
+                // Vertical: the usual open / fold.
+                if (dy > 0 && collapsed) toggle(true);
+                else if (dy < 0 && !collapsed) toggle(false);
+                titleSwiped.current = Date.now();
+              }
+            }}
           >
             {MONTH_NAMES[month - 1]} {year} {collapsed ? "▾" : "▴"}
           </button>
+          {!collapsed && <button type="button" className="cal-month-step" onClick={() => shiftMonth(1)} aria-label="Next month">›</button>}
           {/* Menu, search and chat stay within reach, on the week strip and in the month. */}
           {actions && <span className="cal-actions">{actions}</span>}
           <button type="button" className="cal-year" onClick={onOpenYear}>

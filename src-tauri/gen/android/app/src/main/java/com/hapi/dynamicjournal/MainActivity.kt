@@ -139,6 +139,7 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(SecretsBridge(), "JournalSecrets")
     webView.addJavascriptInterface(speech, "JournalSpeech")
     webView.addJavascriptInterface(BubbleBridge(), "JournalBubble")
+    webView.addJavascriptInterface(HapticsBridge(), "JournalHaptics")
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->
       val split = payload.partition { it.uri != null }
@@ -174,6 +175,44 @@ class MainActivity : TauriActivity() {
       null
     } ?: return null
     return Pair(mime, Base64.encodeToString(bytes, Base64.NO_WRAP))
+  }
+
+  /**
+   * Glass haptics: the phone's crisp predefined ticks (S23 supports composition primitives), so a
+   * touch feels like a light tap on glass and a swipe like a fine ripple, not a buzz.
+   */
+  inner class HapticsBridge {
+    private val vibrator by lazy {
+      if (android.os.Build.VERSION.SDK_INT >= 31)
+        (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+      else getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+    }
+
+    /** kind: "tap" (touching an element), "tick" (each step of a swipe), "press" (a button down), "edge" (end of a swipe). */
+    @JavascriptInterface
+    fun play(kind: String, strength: Float) {
+      val v = vibrator
+      if (!v.hasVibrator()) return
+      val s = strength.coerceIn(0.05f, 1f)
+      if (android.os.Build.VERSION.SDK_INT >= 30) {
+        val primitive = when (kind) {
+          "tick" -> android.os.VibrationEffect.Composition.PRIMITIVE_LOW_TICK
+          "press" -> android.os.VibrationEffect.Composition.PRIMITIVE_CLICK
+          "edge" -> android.os.VibrationEffect.Composition.PRIMITIVE_TICK
+          else -> android.os.VibrationEffect.Composition.PRIMITIVE_TICK
+        }
+        if (v.areAllPrimitivesSupported(primitive)) {
+          v.vibrate(android.os.VibrationEffect.startComposition().addPrimitive(primitive, s).compose())
+          return
+        }
+      }
+      if (android.os.Build.VERSION.SDK_INT >= 29) {
+        val effect = if (kind == "press") android.os.VibrationEffect.EFFECT_CLICK else android.os.VibrationEffect.EFFECT_TICK
+        v.vibrate(android.os.VibrationEffect.createPredefined(effect))
+      } else {
+        v.vibrate(if (kind == "press") 12L else 6L)
+      }
+    }
   }
 
   inner class ClipboardBridge {
@@ -367,8 +406,9 @@ class MainActivity : TauriActivity() {
           // Utterance ids are "<run>:<offset of this chunk>:<last?>".
           override fun onStart(utteranceId: String) {}
           override fun onRangeStart(utteranceId: String, start: Int, end: Int, frame: Int) {
-            val (run, offset) = utteranceId.split(":")
-            emit("range", run, offset.toInt() + start)
+            val parts = utteranceId.split(":")
+            val offset = parts.getOrNull(1)?.toIntOrNull() ?: return
+            emit("range", parts[0], offset + start)
           }
           override fun onDone(utteranceId: String) {
             val parts = utteranceId.split(":")
@@ -433,10 +473,14 @@ class MainActivity : TauriActivity() {
           val cut = maxOf(text.lastIndexOf(". ", end), text.lastIndexOf("\n", end), text.lastIndexOf(' ', end))
           if (cut > start) end = cut + 1
         }
-        val last = if (end >= text.length) "1" else "0"
-        engine.speak(text.substring(start, end), TextToSpeech.QUEUE_ADD, null, "$id:$start:$last")
+        var piece = text.substring(start, end)
+        // The system voice drops the end of a last word with no closing punctuation ("Understand").
+        if (end >= text.length && piece.trimEnd().lastOrNull()?.isLetterOrDigit() == true) piece = piece.trimEnd() + "."
+        engine.speak(piece, TextToSpeech.QUEUE_ADD, null, "$id:$start:0")
         start = end
       }
+      // A moment of silence after the text, so the device plays the last sound out before "done".
+      engine.playSilentUtterance(350, TextToSpeech.QUEUE_ADD, "$id:end:1")
     }
 
     @JavascriptInterface

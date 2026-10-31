@@ -113,3 +113,17 @@ describe("mergeDocs", () => {
     expect(merged.content).toEqual([p("a"), p("theirs"), p("mine")]);
   });
 });
+
+describe("mergeDocs lists", () => {
+  const item = (t: string) => ({ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: t }] }] });
+  const list = (...items: string[]) => ({ type: "bulletList", content: items.map(item) });
+  const doc = (...content: object[]) => ({ type: "doc", content });
+
+  it("a point moved on one device and one added on the other: one list, no copies", () => {
+    const base = doc(list("a", "b", "c"));
+    const merged = mergeDocs(doc(list("a", "b", "c", "d")), doc(list("c", "a", "b")), base);
+    expect(merged.content).toHaveLength(1);
+    const texts = (merged.content![0].content ?? []).map((i) => i.content![0].content![0].text);
+    expect(texts.sort()).toEqual(["a", "b", "c", "d"]);
+  });
+});

@@ -1851,3 +1851,23 @@ html.weather-rain .ambience-layer { background-color: rgba(70, 90, 120, 0.10); }
   .upcoming.folded .countdown { max-width: none; }
   .upcoming.folded .reminder-text { flex-basis: 30%; }
 }
+
+/* Menu text shows in full (Drive storage and sync details wrapped onto more lines, never "…"). */
+.sync-line { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.35; }
+.sidebar-actions button, .drawer button { white-space: normal; text-overflow: clip; height: auto; min-height: 32px; overflow-wrap: anywhere; }
+
+/* Stacking: Coming up opens above the year view, the meme/slash panel above the open month. */
+.upcoming-panel { z-index: 42; }
+.slash-popup { z-index: 30; }
+
+/* Daylight, clearly visible: the light sits over the whole app (it can't be clicked) and blends
+   softly, so midday is bright and warm, evening amber, night a deep dim blue. */
+.ambience-layer { z-index: 3; mix-blend-mode: soft-light; }
+html.ambience-daylight .ambience-layer {
+  background:
+    radial-gradient(120vmax 90vmax at 85% -10%, rgba(255, 236, 190, calc(var(--daylight, 0.6) * 0.75)), transparent 70%),
+    linear-gradient(rgba(255, 250, 235, calc(var(--daylight, 0.6) * 0.35)), rgba(255, 250, 235, calc(var(--daylight, 0.6) * 0.35))),
+    linear-gradient(rgba(6, 14, 52, calc((1 - var(--daylight, 0.6)) * 0.85)), rgba(6, 14, 52, calc((1 - var(--daylight, 0.6)) * 0.85)));
+}
+/* Evening and morning: a warm amber band while the sun is low. */
+html.ambience-daylight.sun-low .ambience-layer { background-color: rgba(255, 150, 60, 0.35); }

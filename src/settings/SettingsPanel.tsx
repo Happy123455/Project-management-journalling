@@ -295,7 +295,7 @@ function AmbienceSection() {
       <h2>Look and feel</h2>
       {row("daylight", "Brightness follows the time of day")}
       {row("weather", "Weather on the glass (sun rays, clouds, rain drops)")}
-      {row("sounds", "Glass sounds when touching and swiping")}
+      {row("sounds", "Glass sounds and haptics when touching and swiping")}
       <p className="hint">Weather uses Open-Meteo for the rough location of your internet connection, checked every 30 minutes.</p>
     </section>
   );

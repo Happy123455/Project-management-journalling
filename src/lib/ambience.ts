@@ -147,6 +147,8 @@ export function applyAmbience() {
   }
   root.style.setProperty("--daylight", s.daylight ? daylightAt(new Date()).toFixed(2) : "0.6");
   root.classList.toggle("ambience-daylight", s.daylight);
+  const hour = new Date().getHours();
+  root.classList.toggle("sun-low", s.daylight && ((hour >= 6 && hour < 8) || (hour >= 17 && hour < 20)));
   const show = (w: Weather) => {
     root.classList.remove("weather-clear", "weather-cloudy", "weather-rain");
     if (w) root.classList.add(`weather-${w}`);
@@ -169,7 +171,13 @@ export function startAmbience() {
   document.addEventListener("visibilitychange", () => !document.hidden && applyAmbience());
 }
 
-// ───────────── Glass sounds (made with Web Audio, no files) ─────────────
+// ───────────── Glass sounds and haptics (Web Audio, no files; phone haptics through MainActivity) ─────────────
+
+declare global {
+  interface Window {
+    JournalHaptics?: { play(kind: string, strength: number): void };
+  }
+}
 
 let audio: AudioContext | null = null;
 let noise: AudioBuffer | null = null;
@@ -178,10 +186,18 @@ let soundsOn = false;
 function ctx(): AudioContext | null {
   if (!audio) {
     try {
-      audio = new AudioContext();
-      noise = audio.createBuffer(1, audio.sampleRate, audio.sampleRate);
+      audio = new AudioContext({ latencyHint: "interactive" });
+      // Pink-ish noise: softer than white, closer to skin on glass.
+      noise = audio.createBuffer(1, audio.sampleRate * 2, audio.sampleRate);
       const d = noise.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      let b0 = 0, b1 = 0, b2 = 0;
+      for (let i = 0; i < d.length; i++) {
+        const w = Math.random() * 2 - 1;
+        b0 = 0.99765 * b0 + w * 0.099046;
+        b1 = 0.963 * b1 + w * 0.2965164;
+        b2 = 0.57 * b2 + w * 1.0526913;
+        d[i] = (b0 + b1 + b2 + w * 0.1848) * 0.2;
+      }
     } catch {
       return null;
     }
@@ -190,36 +206,48 @@ function ctx(): AudioContext | null {
   return audio;
 }
 
-/** A light fingertip on glass: a short bright click with a faint ring. */
-function tink() {
+const haptic = (kind: "tap" | "tick" | "press" | "edge", strength: number) => {
+  try {
+    window.JournalHaptics?.play(kind, strength);
+  } catch {
+    // No haptics here.
+  }
+};
+
+/** A fingertip landing on glass: a soft, short knock with a faint glassy ring. */
+function tink(onButton: boolean) {
   const a = ctx();
   if (!a || !noise) return;
-  const t = a.currentTime;
-  const click = a.createBufferSource();
-  click.buffer = noise;
-  const bp = a.createBiquadFilter();
-  bp.type = "bandpass";
-  bp.frequency.value = 3800 + Math.random() * 800;
-  bp.Q.value = 6;
-  const g = a.createGain();
-  g.gain.setValueAtTime(0.18, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-  click.connect(bp).connect(g).connect(a.destination);
-  click.start(t, Math.random() * 0.5, 0.06);
-  const ring = a.createOscillator();
-  ring.type = "sine";
-  ring.frequency.value = 2200 + Math.random() * 600;
-  const rg = a.createGain();
-  rg.gain.setValueAtTime(0.025, t);
-  rg.gain.exponentialRampToValueAtTime(0.0005, t + 0.35);
-  ring.connect(rg).connect(a.destination);
-  ring.start(t);
-  ring.stop(t + 0.4);
+  const t = a.currentTime + 0.005;
+  const knock = a.createBufferSource();
+  knock.buffer = noise;
+  const lp = a.createBiquadFilter();
+  lp.type = "bandpass";
+  lp.frequency.value = 1800 + Math.random() * 600;
+  lp.Q.value = 1.2;
+  const kg = a.createGain();
+  kg.gain.setValueAtTime(0, t);
+  kg.gain.linearRampToValueAtTime(onButton ? 0.22 : 0.12, t + 0.002);
+  kg.gain.exponentialRampToValueAtTime(0.0005, t + 0.035);
+  knock.connect(lp).connect(kg).connect(a.destination);
+  knock.start(t, Math.random(), 0.05);
+  // Two slightly detuned partials: the "glass" in the tap, very quiet.
+  for (const f of [2600 + Math.random() * 300, 4100 + Math.random() * 300]) {
+    const o = a.createOscillator();
+    o.frequency.value = f;
+    const g = a.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(onButton ? 0.018 : 0.01, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0002, t + (onButton ? 0.28 : 0.18));
+    o.connect(g).connect(a.destination);
+    o.start(t);
+    o.stop(t + 0.32);
+  }
 }
 
-/** A finger sliding on glass: filtered noise that follows the finger's speed. */
-let swish: { gain: GainNode; filter: BiquadFilterNode; src: AudioBufferSourceNode } | null = null;
-let swishStop = 0;
+/** A finger sliding on glass: soft friction noise that follows the finger's speed, fading out when it stops. */
+let swish: { gain: GainNode; band: BiquadFilterNode; src: AudioBufferSourceNode } | null = null;
+let swishIdle = 0;
 function slide(speed: number) {
   const a = ctx();
   if (!a || !noise) return;
@@ -227,45 +255,108 @@ function slide(speed: number) {
     const src = a.createBufferSource();
     src.buffer = noise;
     src.loop = true;
-    const filter = a.createBiquadFilter();
-    filter.type = "bandpass";
-    filter.Q.value = 1.4;
+    const band = a.createBiquadFilter();
+    band.type = "bandpass";
+    band.Q.value = 0.9;
+    const hp = a.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 600;
     const gain = a.createGain();
     gain.gain.value = 0;
-    src.connect(filter).connect(gain).connect(a.destination);
+    src.connect(hp).connect(band).connect(gain).connect(a.destination);
     src.start();
-    swish = { gain, filter, src };
+    swish = { gain, band, src };
   }
   const t = a.currentTime;
-  const level = Math.min(0.05, speed * 0.012);
-  swish.gain.gain.setTargetAtTime(level, t, 0.03);
-  swish.filter.frequency.setTargetAtTime(1200 + Math.min(4000, speed * 900), t, 0.05);
-  window.clearTimeout(swishStop);
-  swishStop = window.setTimeout(() => swish?.gain.gain.setTargetAtTime(0, a.currentTime, 0.06), 70);
+  // px/ms: ~0.2 slow drag, ~2 fast flick.
+  const level = Math.min(0.09, 0.015 + speed * 0.03);
+  swish.gain.gain.setTargetAtTime(level, t, 0.025);
+  swish.band.frequency.setTargetAtTime(900 + Math.min(3200, speed * 1500), t, 0.04);
+  window.clearTimeout(swishIdle);
+  swishIdle = window.setTimeout(endSlide, 60);
+}
+function endSlide() {
+  window.clearTimeout(swishIdle);
+  if (swish && audio) swish.gain.gain.setTargetAtTime(0, audio.currentTime, 0.05);
 }
 
-const TOUCHABLE = "button, a, [role=button], input[type=checkbox], select, .cal-day, .peek-item, .reminder-open, .attach-image-box, .media-grip";
-let lastMove: { x: number; y: number; t: number } | null = null;
-const onDown = (e: PointerEvent) => {
-  lastMove = { x: e.clientX, y: e.clientY, t: performance.now() };
-  if ((e.target as HTMLElement | null)?.closest?.(TOUCHABLE)) tink();
-};
-const onMove = (e: PointerEvent) => {
-  if (!lastMove || (e.pointerType === "mouse" && e.buttons === 0)) return;
+const TOUCHABLE = "button, a, [role=button], input, select, label, .cal-day, .peek-item, .reminder-open, .attach-image-box, .media-grip, .meme-tile";
+const TAP_MOVE = 8; // px: more than this and it's a swipe, not a touch
+const TAP_WAIT = 90; // ms: a still finger after this long is a touch
+
+/** One finger (or mouse button) at a time: touch → tap sound once it's clearly not a swipe; swipe → only the slide sound. */
+let gesture: { x: number; y: number; lx: number; ly: number; lt: number; target: Element | null; swiping: boolean; tapped: boolean; timer: number; travelled: number } | null = null;
+
+function begin(x: number, y: number, target: EventTarget | null) {
+  ctx(); // Unlocks audio on the first touch.
+  if (gesture) window.clearTimeout(gesture.timer);
+  const el = (target as Element | null)?.closest?.(TOUCHABLE) ?? null;
+  gesture = { x, y, lx: x, ly: y, lt: performance.now(), target: el, swiping: false, tapped: false, travelled: 0, timer: 0 };
+  const g = gesture;
+  g.timer = window.setTimeout(() => {
+    if (gesture === g && !g.swiping) tap(g);
+  }, TAP_WAIT);
+}
+function tap(g: NonNullable<typeof gesture>) {
+  if (g.tapped) return;
+  g.tapped = true;
+  tink(!!g.target);
+  haptic(g.target ? "press" : "tap", g.target ? 0.7 : 0.35);
+}
+function move(x: number, y: number) {
+  const g = gesture;
+  if (!g) return;
   const now = performance.now();
-  const dt = Math.max(1, now - lastMove.t);
-  const speed = Math.hypot(e.clientX - lastMove.x, e.clientY - lastMove.y) / dt;
-  lastMove = { x: e.clientX, y: e.clientY, t: now };
-  if (speed > 0.15) slide(speed);
-};
-const onUp = () => (lastMove = null);
+  const step = Math.hypot(x - g.lx, y - g.ly);
+  const speed = step / Math.max(1, now - g.lt);
+  g.lx = x;
+  g.ly = y;
+  g.lt = now;
+  if (!g.swiping && Math.hypot(x - g.x, y - g.y) > TAP_MOVE) {
+    g.swiping = true;
+    window.clearTimeout(g.timer);
+  }
+  if (!g.swiping) return;
+  if (speed > 0.05) slide(speed);
+  // A fine ripple: a light tick every ~48 px travelled, stronger when faster.
+  g.travelled += step;
+  if (g.travelled > 48) {
+    g.travelled = 0;
+    haptic("tick", Math.min(0.5, 0.12 + speed * 0.15));
+  }
+}
+function end() {
+  const g = gesture;
+  gesture = null;
+  if (!g) return;
+  window.clearTimeout(g.timer);
+  if (!g.swiping) tap(g);
+  else {
+    endSlide();
+    haptic("edge", 0.2);
+  }
+}
+
+// Touch: touchmove keeps coming while the page scrolls (pointer events stop with pointercancel,
+// which is why swipes were often silent). Mouse/pen: pointer events.
+const onTouchStart = (e: TouchEvent) => e.touches.length === 1 && begin(e.touches[0].clientX, e.touches[0].clientY, e.target);
+const onTouchMove = (e: TouchEvent) => e.touches[0] && move(e.touches[0].clientX, e.touches[0].clientY);
+const onTouchEnd = (e: TouchEvent) => e.touches.length === 0 && end();
+const onPointerDown = (e: PointerEvent) => e.pointerType !== "touch" && begin(e.clientX, e.clientY, e.target);
+const onPointerMove = (e: PointerEvent) => e.pointerType !== "touch" && e.buttons !== 0 && move(e.clientX, e.clientY);
+const onPointerUp = (e: PointerEvent) => e.pointerType !== "touch" && end();
 
 function glassSounds(on: boolean) {
   if (on === soundsOn) return;
   soundsOn = on;
+  const opts = { passive: true, capture: true };
   const method = on ? "addEventListener" : "removeEventListener";
-  window[method]("pointerdown", onDown as EventListener, { passive: true, capture: true } as AddEventListenerOptions);
-  window[method]("pointermove", onMove as EventListener, { passive: true, capture: true } as AddEventListenerOptions);
-  window[method]("pointerup", onUp, { capture: true });
-  window[method]("pointercancel", onUp, { capture: true });
+  window[method]("touchstart", onTouchStart as EventListener, opts);
+  window[method]("touchmove", onTouchMove as EventListener, opts);
+  window[method]("touchend", onTouchEnd as EventListener, opts);
+  window[method]("touchcancel", onTouchEnd as EventListener, opts);
+  window[method]("pointerdown", onPointerDown as EventListener, opts);
+  window[method]("pointermove", onPointerMove as EventListener, opts);
+  window[method]("pointerup", onPointerUp as EventListener, opts);
+  if (!on) endSlide();
 }

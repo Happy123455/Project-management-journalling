@@ -327,7 +327,22 @@ export function JournalEditor({
     if (!editor) return;
     editor.view.dispatch(editor.state.tr.setMeta(findKey, { terms: findTerms ? findTerms.split("\u0000") : [], index: findIndex }));
     onFindCount?.(findKey.getState(editor.state)?.matches.length ?? 0);
-    if (findTerms) requestAnimationFrame(() => editor.view.dom.querySelector(".find-current")?.scrollIntoView({ block: "center", behavior: "smooth" }));
+    if (!findTerms) return;
+    // The day was just opened: photos and clips above the match still load and push it down, and
+    // focusing the note can scroll back to the top. Bring it to the middle again as that settles.
+    const go = (behavior: ScrollBehavior) => {
+      const hit = editor.view.dom.querySelector<HTMLElement>(".find-current");
+      if (!hit) return;
+      const r = hit.getBoundingClientRect();
+      if (r.top > window.innerHeight * 0.25 && r.bottom < window.innerHeight * 0.75) return;
+      window.scrollTo({ top: window.scrollY + r.top - window.innerHeight / 2 + r.height / 2, behavior });
+    };
+    const frame = requestAnimationFrame(() => go("smooth"));
+    const timers = [400, 900, 1600, 2600].map((ms) => window.setTimeout(() => go("auto"), ms));
+    return () => {
+      cancelAnimationFrame(frame);
+      timers.forEach((t) => window.clearTimeout(t));
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, findTerms, findIndex]);
 

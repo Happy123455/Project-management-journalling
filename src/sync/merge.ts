@@ -155,6 +155,20 @@ function commonBase(mine: { current: string; befores: Set<string> }, remote: Syn
   return undefined;
 }
 
+const CONTAINERS = new Set(["bulletList", "orderedList", "taskList", "blockquote", "listItem", "taskItem"]);
+
+/** How many children two container blocks share. */
+function overlap(a: JSONContent, b: JSONContent): number {
+  const keys = new Set((a.content ?? []).map((n) => JSON.stringify(n)));
+  return (b.content ?? []).filter((n) => keys.has(JSON.stringify(n))).length;
+}
+
+/** Two versions of the same list or quote: same kind, and at least half their items in common. */
+function similar(a: JSONContent, b: JSONContent): boolean {
+  if (a.type !== b.type || !CONTAINERS.has(a.type ?? "") || !a.content?.length || !b.content?.length) return false;
+  return overlap(a, b) * 2 >= Math.min(a.content.length, b.content.length);
+}
+
 /** A block without its attributes: the same text or media, whatever its size or placement. */
 function looseKey(node: JSONContent): string {
   const strip = (n: JSONContent): unknown => ({ t: n.type, x: n.text, m: n.marks?.map((m) => m.type), c: n.content?.map(strip) });
@@ -213,6 +227,18 @@ export function mergeDocs(newer: JSONContent, older: JSONContent, base?: JSONCon
     if (node.type === "paragraph" && !node.content?.length) continue;
     // Same text or media as a block `newer` has, only resized or moved: `newer`'s version stays.
     if (loose.has(looseKey(node))) continue;
+    // A list (or quote) both sides changed, e.g. a point moved on one device and another added on
+    // the other: merge its items instead of keeping two copies of the whole list.
+    const twin = out.findIndex((n, i) => i > after - 1 && similar(n, node));
+    const same = twin >= 0 ? twin : out.findIndex((n) => similar(n, node));
+    if (same >= 0) {
+      const baseTwin = base?.content?.filter((b) => similar(b, node)).sort((a, b) => overlap(b, node) - overlap(a, node))[0];
+      out[same] = mergeDocs(out[same], node, baseTwin);
+      keys[same] = JSON.stringify(out[same]);
+      loose.add(looseKey(out[same]));
+      after = same;
+      continue;
+    }
     out.splice(after + 1, 0, node);
     keys.splice(after + 1, 0, k);
     loose.add(looseKey(node));
