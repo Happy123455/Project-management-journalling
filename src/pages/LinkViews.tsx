@@ -6,7 +6,8 @@ import { dayTitle } from "../lib/timestamp";
 import { showError } from "../lib/toast";
 import { ProjectPanel } from "../projects/ProjectPanel";
 import { ProjectTimeline } from "../projects/ProjectTimeline";
-import { MediaPeek, mediaItemsIn } from "../editor/MediaPeek";
+import { mentionBlocks } from "../lib/mentionBlocks";
+import { DocView } from "./DocView";
 import type { JournalStore, LinkKind, NamedPage, Reference } from "../store";
 
 const SAVE_DELAY_MS = 800;
@@ -18,22 +19,18 @@ export interface LinkHandlers {
   onOpenTag: (tag: string) => void;
 }
 
-/** One block that mentions the page or tag: where it is, and the lines that mention it. */
+/** One block that mentions the page or tag: where it is, and the mentioning parts drawn as in the note. */
 function ReferenceCard({ reference, kind, target, handlers }: { reference: Reference; kind: LinkKind; target: string; handlers: LinkHandlers }) {
-  // The mentioning lines with what's nested under them (a project's sub-points, a person's notes…).
-  const taken: never[] = [];
-  const lines = mentionsWithChildren(reference.content as never, kind, target, taken);
-  const media = mediaItemsIn(taken);
+  // The mentioning parts with what's nested under them (a project's sub-points, a person's notes…).
+  const lines = mentionsWithChildren(reference.content as never, kind, target);
+  const blocks = mentionBlocks(reference.content as JSONContent, kind, target);
   const open = () => (reference.day ? handlers.onOpenDay(reference.day, lines[0]?.trim()) : handlers.onOpenLink(reference.title ?? ""));
   return (
     <li>
-      <button type="button" className="reference" onClick={open}>
+      <div className="reference" role="button" tabIndex={0} onClick={open} onKeyDown={(e) => e.key === "Enter" && open()}>
         <span className="reference-where">{reference.day ? dayTitle(reference.day) : `📄 ${reference.title}`}</span>
-        {lines.slice(0, 12).map((line, i) => (
-          <span key={i} className="reference-line" style={{ paddingLeft: `${(line.match(/^ */)![0].length / 2) * 14}px` }}>{line.trim()}</span>
-        ))}
-      </button>
-      <MediaPeek items={media} />
+        <DocView content={blocks.slice(0, 12)} compact onOpenLink={handlers.onOpenLink} onOpenTag={handlers.onOpenTag} />
+      </div>
     </li>
   );
 }
@@ -157,7 +154,7 @@ export function PageView({ store, page, onBack, handlers, pageNames, find, onFin
       )}
       {(
         // Every linked note records its days, like a project.
-        <ProjectTimeline store={store} page={page} refreshKey={saves} onOpenDay={(d) => handlers.onOpenDay(d)} />
+        <ProjectTimeline store={store} page={page} refreshKey={saves} onOpenDay={(d) => handlers.onOpenDay(d)} onOpenLink={handlers.onOpenLink} onOpenTag={handlers.onOpenTag} />
       )}
       <section className="history">
         <h2>Mentioned in</h2>
