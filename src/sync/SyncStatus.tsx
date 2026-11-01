@@ -36,7 +36,7 @@ function ago(date: Date, now: number): string {
 }
 
 /** "☁︎ Synced 2 min ago" with a Sync now button, or what's needed to start syncing. */
-export function SyncStatus({ status, onSync, onChooseFolder }: { status: Status; onSync: () => void; onChooseFolder: () => void }) {
+export function SyncStatus({ status, live, onSync, onChooseFolder }: { status: Status; live?: boolean; onSync: () => void; onChooseFolder: () => void }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -63,6 +63,7 @@ export function SyncStatus({ status, onSync, onChooseFolder }: { status: Status;
   return (
     <div className={`sync-status ${status.state}`}>
       <span className="sync-line" title={status.label}>☁︎ {line}</span>
+      {live && <span className="sync-live" title="The app is open on your other device too: changes go across within seconds">⚡ Live with your other device</span>}
       <button type="button" onClick={onSync} disabled={status.state === "syncing"}>Sync now</button>
       <StorageLine />
       {status.state === "error" && window.JournalSync && (

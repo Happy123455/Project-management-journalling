@@ -4,7 +4,8 @@ import type { JournalStore } from "../store";
 import { syncOnce, type SyncMemory } from "./engine";
 import { repairMergeLosses } from "../lib/repairMerge";
 import { showToast } from "../lib/toast";
-import { findSyncFolder, pickSyncFolder } from "./folders";
+import { findSyncFolder, pickSyncFolder, type FolderLookup } from "./folders";
+import { BEAT_MS, LIVE_POLL_MS, LIVE_SAVE_MS, othersRev, readPresence, someoneOpen, writePresence, type Presence } from "./live";
 
 /** What sync remembers between rounds (what it sent and read), so it only moves what's new. */
 const localMemory: SyncMemory = {
@@ -40,6 +41,11 @@ export type SyncStatus =
  */
 export function useSync(store: JournalStore | null, onImported: () => void) {
   const [status, setStatus] = useState<SyncStatus>({ state: "off", reason: "Starting…" });
+  /** Both apps open: changes go across within seconds (see live.ts). */
+  const [live, setLive] = useState(false);
+  const liveRef = useRef(false);
+  const myRev = useRef(String(Date.now()));
+  const folderCache = useRef<{ found: Extract<FolderLookup, { kind: "ready" }>; at: number } | null>(null);
   const last = useRef<Date | null>(null);
   const afterSave = useRef<number | undefined>(undefined);
   const repaired = useRef(false);
@@ -53,9 +59,15 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
         const found = await findSyncFolder(store.deviceId);
         if (found.kind === "pick") return setStatus({ state: "needs-folder" });
         if (found.kind === "unavailable") return setStatus({ state: "off", reason: found.reason });
+        folderCache.current = { found, at: Date.now() };
         setStatus({ state: "syncing", label: found.label, last: last.current });
         try {
           const result = await syncOnce(store, found.folder, localMemory);
+          // New edits went out: tell an open app on the other device to fetch them now.
+          if (result.exported) {
+            myRev.current = String(Date.now());
+            void writePresence(found.folder, store.deviceId, { at: Date.now(), rev: myRev.current }).catch(() => {});
+          }
           last.current = new Date();
           setStatus({ state: "ok", label: found.label, last: last.current });
           if (result.files) window.dispatchEvent(new Event("journal:files-arrived"));
@@ -102,15 +114,82 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
     };
   }, [store]);
 
-  /** Call after a save; syncs once things have been quiet for a moment. */
+  // Live mode: say this app is open, watch for the other device's app, and while both are open
+  // look for its changes every couple of seconds.
+  useEffect(() => {
+    if (!store) return;
+    const me = store.deviceId;
+    const known = new Map<string, { stamp: string; p: Presence | null }>();
+    let lastRev: string | null = null;
+    let stopped = false;
+    let timer: number | undefined;
+    let lastBeat = 0;
+    const folder = async () => {
+      const c = folderCache.current;
+      if (c && Date.now() - c.at < 5 * 60_000) return c.found.folder;
+      const found = await findSyncFolder(me);
+      if (found.kind !== "ready") return null;
+      folderCache.current = { found, at: Date.now() };
+      return found.folder;
+    };
+    const tick = async () => {
+      if (stopped) return;
+      const visible = document.visibilityState === "visible";
+      try {
+        const f = visible ? await folder() : null;
+        if (f) {
+          if (Date.now() - lastBeat > BEAT_MS) {
+            lastBeat = Date.now();
+            await writePresence(f, me, { at: Date.now(), rev: myRev.current });
+          }
+          await readPresence(f, me, known);
+          const open = someoneOpen(known);
+          if (open !== liveRef.current) {
+            liveRef.current = open;
+            setLive(open);
+          }
+          const rev = othersRev(known);
+          if (lastRev !== null && rev !== lastRev && open) void syncNow.current();
+          lastRev = rev;
+        }
+      } catch {
+        folderCache.current = null; // e.g. the Drive sign-in expired: look the folder up again
+      }
+      if (!stopped) timer = window.setTimeout(tick, liveRef.current ? LIVE_POLL_MS : 15_000);
+    };
+    timer = window.setTimeout(tick, 4000);
+    // Going to the background or closing: tell the other device right away.
+    const bye = () => {
+      const f = folderCache.current?.found.folder;
+      if (f) void writePresence(f, me, { at: Date.now(), rev: myRev.current, closed: true }).catch(() => {});
+      lastBeat = 0;
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "hidden") bye();
+      else {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(tick, 500);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pagehide", bye);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pagehide", bye);
+    };
+  }, [store]);
+
+  /** Call after a save; syncs once things have been quiet for a moment (right away in live mode). */
   const afterSaved = useCallback(() => {
     window.clearTimeout(afterSave.current);
-    afterSave.current = window.setTimeout(() => void syncNow.current(), AFTER_SAVE_MS);
+    afterSave.current = window.setTimeout(() => void syncNow.current(), liveRef.current ? LIVE_SAVE_MS : AFTER_SAVE_MS);
   }, []);
 
   const chooseFolder = useCallback(async () => {
     if (await pickSyncFolder()) await syncNow.current();
   }, []);
 
-  return { status, syncNow: () => syncNow.current(), afterSaved, chooseFolder };
+  return { status, live, syncNow: () => syncNow.current(), afterSaved, chooseFolder };
 }

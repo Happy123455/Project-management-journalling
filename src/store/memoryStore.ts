@@ -318,10 +318,10 @@ export class MemoryStore implements JournalStore {
     });
   }
 
-  async syncRecords() {
+  async syncRecords(skip?: Set<string>) {
     const records: SyncRecord[] = [];
     for (const event of this.data.events) {
-      if (event.deviceId !== this.device || event.op === "restore") continue;
+      if (event.deviceId !== this.device || event.op === "restore" || skip?.has(event.id)) continue;
       const meta = this.metaFor(event.blockId);
       if (meta) records.push({ event, meta });
     }

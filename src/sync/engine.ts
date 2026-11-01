@@ -69,7 +69,6 @@ export async function syncOnce(store: JournalStore, folder: SyncFolder, memory: 
   const remember = () => memory.set("journal.sync", JSON.stringify(mem));
 
   // 1. Export.
-  const own = await store.syncRecords();
   const ownFiles = (await folder.list(`events/${me}`)).filter((f) => f.endsWith(".jsonl"));
   if (!saved || ownFiles.length !== mem.files.length || ownFiles.some((f) => !mem.files.includes(f))) {
     // First round here, or a different folder (another Drive account): see what's already there.
@@ -79,21 +78,22 @@ export async function syncOnce(store: JournalStore, folder: SyncFolder, memory: 
   }
   // Attachments first, so another device never reads an event whose bytes aren't there yet.
   const uploaded = new Set(mem.hashes);
-  for (const r of own) {
-    if (r.meta.kind !== "file" || uploaded.has(r.meta.file.hash)) continue;
-    const path = `files/${r.meta.file.hash}`;
+  for (const f of await store.listFiles()) {
+    if (uploaded.has(f.hash)) continue;
+    const path = `files/${f.hash}`;
     if (!(await folder.exists(path))) {
-      const bytes = await store.fileBytes(r.meta.file.id);
+      const bytes = await store.fileBytes(f.id).catch(() => null);
       if (!bytes) continue;
       await folder.write(path, bytes);
     }
-    uploaded.add(r.meta.file.hash);
-    mem.hashes.push(r.meta.file.hash);
+    uploaded.add(f.hash);
+    mem.hashes.push(f.hash);
     remember();
   }
 
+  // Only the events not sent yet are read in full (each one can hold a whole page).
   const sent = new Set(mem.ids);
-  const missing = own.filter((r) => !sent.has(r.event.id));
+  const missing = await store.syncRecords(sent);
   if (missing.length) {
     const name = `${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 6)}.jsonl`;
     await folder.write(`events/${me}/${name}`, enc.encode(toLines(missing)));

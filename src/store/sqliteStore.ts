@@ -424,15 +424,25 @@ export class SqliteStore implements JournalStore {
     });
   }
 
-  async syncRecords() {
-    const rows = await this.db.select<(EventRow & { type: string | null; day: string | null; props: string | null; file_path: string | null })[]>(
-      `SELECT e.*, b.type, b.day, b.props, f.path AS file_path FROM events e
+  async syncRecords(skip?: Set<string>) {
+    type Row = EventRow & { type: string | null; day: string | null; props: string | null; file_path: string | null };
+    const select = `SELECT e.*, b.type, b.day, b.props, f.path AS file_path FROM events e
        LEFT JOIN blocks b ON b.id = e.block_id
        LEFT JOIN files f ON f.id = e.block_id
-       WHERE e.device_id = $1 AND e.op != 'restore'
-       ORDER BY e.created_at, e.rowid`,
-      [this.device],
-    );
+       WHERE e.device_id = $1 AND e.op != 'restore'`;
+    let rows: Row[];
+    if (!skip) rows = await this.db.select<Row[]>(`${select} ORDER BY e.created_at, e.rowid`, [this.device]);
+    else {
+      // Ids first (small), then only the unsent events in full: each one can hold a whole page.
+      const ids = await this.db.select<{ id: string }[]>("SELECT id FROM events WHERE device_id = $1 AND op != 'restore'", [this.device]);
+      const want = ids.map((r) => r.id).filter((id) => !skip.has(id));
+      rows = [];
+      for (let i = 0; i < want.length; i += 200) {
+        const part = want.slice(i, i + 200);
+        rows.push(...(await this.db.select<Row[]>(`${select} AND e.id IN (${part.map((_, j) => `$${j + 2}`).join(", ")})`, [this.device, ...part])));
+      }
+      rows.sort((a, b) => a.created_at.localeCompare(b.created_at) || 0);
+    }
     const files = new Map((await this.listFiles()).map((f) => [f.id, f]));
     const records: SyncRecord[] = [];
     for (const r of rows) {
