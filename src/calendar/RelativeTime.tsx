@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { editorPrefs } from "../lib/editorPrefs";
 import { relativeLabel, relativeTo } from "../lib/relative";
+import { Marquee } from "../ui/Marquee";
 
 /** Under the date: how long ago (or how far ahead) the open day is. Tap for days and weeks. */
 export function RelativeTime({ day, today }: { day: string; today: string }) {
@@ -17,13 +18,13 @@ export function RelativeTime({ day, today }: { day: string; today: string }) {
   const weeks = Math.floor(r.total / 7);
   return (
     <button type="button" className={`relative-time${r.future ? " future" : ""}`} onClick={() => setOpen(!open)} aria-expanded={open}>
-      <span aria-hidden>{r.future ? "⏳" : "⌛"}</span> {relativeLabel(day, today)}
-      {open && (
-        <span className="relative-more">
-          {" · "}
-          {r.total} day{r.total === 1 ? "" : "s"}{weeks >= 1 ? ` · ${weeks} week${weeks === 1 ? "" : "s"}${r.total % 7 ? ` ${r.total % 7} d` : ""}` : ""}
+      {/* Too long for the screen: it runs past like a conveyor belt so all of it can be read. */}
+      <Marquee>
+        <span>
+          {r.future ? "⏳" : "⌛"} {relativeLabel(day, today)}
+          {open && ` · ${r.total} day${r.total === 1 ? "" : "s"}${weeks >= 1 ? ` · ${weeks} week${weeks === 1 ? "" : "s"}${r.total % 7 ? ` ${r.total % 7} d` : ""}` : ""}`}
         </span>
-      )}
+      </Marquee>
     </button>
   );
 }

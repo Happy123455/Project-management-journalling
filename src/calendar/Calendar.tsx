@@ -188,7 +188,13 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
           drag.current = null;
           if (!start) return;
           const dy = e.changedTouches[0].clientY - start.y;
-          if (Math.abs(dy) < 30 || Math.abs(dy) < Math.abs(e.changedTouches[0].clientX - start.x) * 1.5) return;
+          const dx = e.changedTouches[0].clientX - start.x;
+          // A swipe left in the open month (pinned or floating) slides the year in.
+          if (!collapsed && dx < -60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+            e.stopPropagation();
+            return onOpenYear();
+          }
+          if (Math.abs(dy) < 30 || Math.abs(dy) < Math.abs(dx) * 1.5) return;
           if (dy > 0 && collapsed) toggle(true);
           // Not while the month's own list is being scrolled; but a swipe up at the end of it (Coming up
           // already folded) carries on into the week view.

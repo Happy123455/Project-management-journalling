@@ -2183,3 +2183,8 @@ html.weather-cloudy.weather-night .ambience-layer::before, html.weather-cloudy.w
 .entry-popup footer { padding: 8px 14px 12px; display: flex; justify-content: flex-end; }
 @keyframes popup-fade { from { opacity: 0; } }
 @keyframes popup-grow { from { transform: translate(var(--from-x), var(--from-y)) scale(var(--from-s, 0.3)); opacity: 0.2; } }
+.relative-time { text-overflow: clip; display: inline-block; max-width: 100%; } .relative-time .marquee { max-width: 100%; }
+/* Full-screen views (chat, settings, graph, mind map, viewers) open above the floating month
+   (the chat opened behind it). The menu drawer and Coming up stay above them. */
+.chat-view, .settings-view, .graph-view, .pdf-viewer { z-index: 41; }
+.photo-viewer, .capture { z-index: 43; }
