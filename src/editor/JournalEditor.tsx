@@ -11,7 +11,7 @@ import { AttachmentFile, AttachmentImage, AttachmentMedia, insertFiles, mediaLea
 import { codeBlockFromSelection, JournalCodeBlock } from "./codeBlock";
 import { BlockInfoExtension } from "./blockInfo";
 import { BlockHandle } from "./BlockHandle";
-import { blockIndexAt, Blocks, indentBlock } from "./blocks";
+import { blockIndexAt, blockPos, Blocks, foldRange, indentBlock } from "./blocks";
 import { AutoPairs } from "./autoPairs";
 import { BlockInfoPanel } from "./BlockInfoPanel";
 import { readAloud } from "../lib/readAloud";
@@ -91,6 +91,21 @@ export function arrangeTools<T extends { key: string }>(tools: T[], layout: { or
     return i < 0 ? layout.order.length + tools.findIndex((t) => t.key === k) : i;
   };
   return [...tools].sort((a, b) => rank(a.key) - rank(b.key)).filter((t) => withHidden || !layout.hidden.includes(t.key));
+}
+
+/** Unfolds every folded block that hides `pos` (its folded parents, and a folded code block or prompt it's in). */
+export function unfoldAround(editor: Editor, pos: number) {
+  const { doc } = editor.state;
+  const index = blockIndexAt(doc, pos);
+  const tr = editor.state.tr;
+  for (let i = 0; i <= index; i++) {
+    const node = doc.child(i);
+    if (!node.attrs.collapsed) continue;
+    if (i === index ? node.type.name === "codeBlock" || node.type.name === "promptBlock" : foldRange(doc, i).end > index) {
+      tr.setNodeMarkup(blockPos(doc, i), undefined, { ...node.attrs, collapsed: false });
+    }
+  }
+  if (tr.docChanged) editor.view.dispatch(tr.setMeta("addToHistory", false));
 }
 
 /** Formatting buttons, shared by the top toolbar (Mac) and the bar above the phone keyboard. */
@@ -366,6 +381,10 @@ export function JournalEditor({
     editor.view.dispatch(editor.state.tr.setMeta(findKey, { terms: findTerms ? findTerms.split("\u0000") : [], index: findIndex }));
     onFindCount?.(findKey.getState(editor.state)?.matches.length ?? 0);
     if (!findTerms) return;
+    // The match may be folded away (under a folded block or heading, or in a folded code block):
+    // unfold what hides it so it can be seen.
+    const match = findKey.getState(editor.state)?.matches[findIndex];
+    if (match) unfoldAround(editor, match.from);
     // The day was just opened: photos and clips above the match still load and push it down, and
     // focusing the note can scroll back to the top. Bring it to the middle again as that settles.
     const go = (behavior: ScrollBehavior) => {

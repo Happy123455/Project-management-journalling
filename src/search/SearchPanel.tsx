@@ -4,6 +4,25 @@ import { dayTitle } from "../lib/timestamp";
 import type { SearchHit } from "../store";
 
 const MAX_LINES = 5;
+const RECENT_KEY = "journal.recentSearches";
+type Filter = "all" | "day" | "page" | "file";
+const loadRecent = (): string[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    return Array.isArray(v) ? v.slice(0, 8) : [];
+  } catch {
+    return [];
+  }
+};
+const remember = (q: string) => {
+  const t = q.trim();
+  if (t.length < 2) return;
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify([t, ...loadRecent().filter((x) => x !== t)].slice(0, 8)));
+  } catch {
+    // Only a convenience.
+  }
+};
 
 export interface SearchResult {
   hit: SearchHit;
@@ -46,6 +65,12 @@ export function SearchPanel({ query, onQuery, results, onPick, onClose }: {
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState(query);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [recent, setRecent] = useState(loadRecent);
+  const pick = (hit: SearchHit, match: number) => {
+    remember(draft);
+    onPick(hit, match);
+  };
   useEffect(() => input.current?.focus(), []);
   // Search as you type, after a short pause.
   useEffect(() => {
@@ -74,7 +99,10 @@ export function SearchPanel({ query, onQuery, results, onPick, onClose }: {
     };
   }, []);
 
-  const total = results?.reduce((n, r) => n + Math.max(r.count, 1), 0) ?? 0;
+  const shown = results?.filter((r) => filter === "all" || r.hit.kind === filter) ?? null;
+  const kinds = { day: 0, page: 0, file: 0 };
+  for (const r of results ?? []) kinds[r.hit.kind]++;
+  const total = shown?.reduce((n, r) => n + Math.max(r.count, 1), 0) ?? 0;
   return (
     <>
       <div className="search-backdrop" onClick={onClose} />
@@ -99,18 +127,41 @@ export function SearchPanel({ query, onQuery, results, onPick, onClose }: {
           )}
           <button type="button" onClick={onClose}>Done</button>
         </div>
-        {query.trim() && results && (
+        {!draft.trim() && recent.length > 0 && (
+          <div className="search-recent">
+            <span>Recent</span>
+            {recent.map((q) => (
+              <button key={q} type="button" onClick={() => setDraft(q)}>{q}</button>
+            ))}
+            <button type="button" className="search-recent-clear" onClick={() => (localStorage.removeItem(RECENT_KEY), setRecent([]))} aria-label="Clear recent searches">✕</button>
+          </div>
+        )}
+        {!draft.trim() && <p className="hint search-tips">Tip: “quoted words” search a phrase, #tag finds a tag, [[Page finds mentions of a page. Folded blocks open by themselves at the match.</p>}
+        {query.trim() && results && results.length > 0 && (
+          <div className="search-filters" role="tablist">
+            {(["all", "day", "page", "file"] as Filter[]).map((f) => {
+              const n = f === "all" ? results.length : kinds[f];
+              if (f !== "all" && !n) return null;
+              return (
+                <button key={f} type="button" role="tab" aria-selected={filter === f} className={filter === f ? "active" : ""} onClick={() => setFilter(f)}>
+                  {f === "all" ? "All" : f === "day" ? "Days" : f === "page" ? "Pages" : "Files"} <small>{n}</small>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {query.trim() && shown && (
           <p className="search-summary">
-            {results.length ? `${total} match${total === 1 ? "" : "es"} in ${results.length} place${results.length === 1 ? "" : "s"}` : "No matches"}
+            {shown.length ? `${total} match${total === 1 ? "" : "es"} in ${shown.length} place${shown.length === 1 ? "" : "s"}` : "No matches"}
           </p>
         )}
         <ul className="search-results">
-          {results?.map((r) => {
+          {shown?.map((r) => {
             const key = r.hit.kind === "file" ? r.hit.file.id : r.hit.blockId;
             const where = r.hit.kind === "file" ? `📎 ${r.hit.file.name}` : r.hit.day ? dayTitle(r.hit.day) : `📄 ${r.hit.title}`;
             return (
               <li key={key}>
-                <div className="search-result" role="button" tabIndex={0} onClick={() => onPick(r.hit, 0)}>
+                <div className="search-result" role="button" tabIndex={0} onClick={() => pick(r.hit, 0)}>
                   <span className="search-where">
                     {where}
                     {r.count > 0 && <span className="search-count">{r.count}</span>}
@@ -121,7 +172,7 @@ export function SearchPanel({ query, onQuery, results, onPick, onClose }: {
                         key={i}
                         onClick={(e) => {
                           e.stopPropagation();
-                          onPick(r.hit, r.lines.slice(0, i).reduce((n, x) => n + x.ranges.length, 0));
+                          pick(r.hit, r.lines.slice(0, i).reduce((n, x) => n + x.ranges.length, 0));
                         }}
                       >
                         <Line line={l} />
