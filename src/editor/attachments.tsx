@@ -421,6 +421,18 @@ export function PlacedMedia({ node, updateAttributes, selected, editor, getPos, 
               Full
             </button>
           )}
+          <button
+            type="button"
+            className="attach-remove"
+            title="Remove from the note"
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => {
+              const pos = getPos();
+              if (typeof pos === "number") editor.chain().focus().deleteRange({ from: pos, to: pos + node.nodeSize }).run();
+            }}
+          >
+            🗑
+          </button>
           <span className="attach-sizes">
             {SIZES.map((z) => (
               <button

@@ -6,7 +6,7 @@ import type { JSONContent } from "@tiptap/react";
 import { MemoryStore } from "../store/memoryStore";
 import { docText } from "../lib/words";
 import { LinkCard } from "./linkCard";
-import { blockDecorations, Blocks, deleteBlock, duplicateBlock, indentBlock, insertLine, moveBlock, moveBlockTo, toggleCollapsed } from "./blocks";
+import { blockDecorations, Blocks, foldRange, deleteBlock, duplicateBlock, indentBlock, insertLine, moveBlock, moveBlockTo, toggleCollapsed } from "./blocks";
 
 const schema = getSchema([StarterKit, LinkCard, Blocks]);
 const p = (text: string, indent = 0) => ({ type: "paragraph", attrs: { indent }, content: text ? [{ type: "text", text }] : [] });
@@ -97,5 +97,15 @@ describe("blocks", () => {
     }
     const page = (await store.getDay("2026-10-29"))!;
     expect((await store.eventsFor(page.id)).filter((e) => e.op !== "props")).toHaveLength(5);
+  });
+
+  it("a heading folds the text under it, up to the next heading, a divider or a code block", () => {
+    const h = (level: number, text: string) => ({ type: "heading", attrs: { level }, content: [{ type: "text", text }] });
+    const s = make(h(2, "A"), p("a1"), p("a2"), h(3, "B"), p("b1"), h(2, "C"), p("c1"), { type: "horizontalRule" }, p("after"));
+    expect(foldRange(s.doc, 0).end).toBe(5); // A takes a1, a2 and the smaller heading B with b1
+    expect(foldRange(s.doc, 3).end).toBe(5);
+    expect(foldRange(s.doc, 5).end).toBe(7); // C stops at the divider
+    const folded = apply(s, toggleCollapsed(0)).state;
+    expect(folded.doc.child(0).attrs.collapsed).toBe(true);
   });
 });

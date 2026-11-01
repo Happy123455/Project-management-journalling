@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Editor } from "@tiptap/react";
 import type { Command } from "@tiptap/pm/state";
-import { blockIndexAt, blockPos, blockRange, deleteBlock, duplicateBlock, indentBlock, indentOf, insertLine, moveBlock, moveBlockTo, toggleCollapsed } from "./blocks";
+import { blockIndexAt, blockPos, foldRange, deleteBlock, duplicateBlock, indentBlock, indentOf, insertLine, moveBlock, moveBlockTo, toggleCollapsed } from "./blocks";
 
 const TEXT_TYPES = new Set(["paragraph", "heading", "bulletList", "orderedList", "taskList", "blockquote", "codeBlock"]);
 
@@ -123,7 +123,7 @@ export function BlockHandle({ editor, touch, onInfo }: { editor: Editor; touch: 
   const doc = editor.state.doc;
   if (index >= doc.childCount) return null;
   const node = doc.child(index);
-  const hasChildren = blockRange(doc, index).end > index + 1;
+  const hasChildren = foldRange(doc, index).end > index + 1;
   const isText = TEXT_TYPES.has(node.type.name);
 
   /** Puts the cursor in the block first, for commands that act on the selection. */

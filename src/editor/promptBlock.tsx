@@ -188,6 +188,7 @@ function PromptTemplateView({ node, updateAttributes, editor }: NodeViewProps) {
       )}
       {!editing && <pre className="prompt-preview">{finished || "Tap Edit template and write your prompt, with {{fields}} for the parts that change."}</pre>}
       <div className="prompt-actions" contentEditable={false}>
+        <button type="button" className="block-bottom-fold" title="Collapse" onClick={() => updateAttributes({ collapsed: true })}>▴</button>
         <span className="hint">{fields.length ? (missing.length ? `${missing.length} field${missing.length === 1 ? "" : "s"} empty` : "Ready") : "Add {{fields}} for the parts that change"}</span>
         <button
           type="button"

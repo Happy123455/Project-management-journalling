@@ -2100,3 +2100,11 @@ html.weather-cloudy.weather-night .ambience-layer::before, html.weather-cloudy.w
 /* Coming up (open): GIFs and photos sit in the line where they are in the note. */
 .reminder-inline { display: block; line-height: 1.6; }
 .reminder-inline .inline-peek .peek-item { width: 44px; height: 30px; }
+/* Folding: headings fold the text under them; long blocks fold from their bottom too. */
+.block-heading-fold { border: 0; background: none; padding: 0 6px 0 0; width: 20px; font-size: 0.6em; color: var(--muted); cursor: pointer; vertical-align: middle; opacity: 0.55; box-shadow: none; }
+.block-heading-fold:hover, .block-collapsed .block-heading-fold { opacity: 1; }
+.block-bottom-fold { border: 0; background: rgba(127, 127, 127, 0.12); color: var(--muted); border-radius: 999px; font-size: 11px; line-height: 1; padding: 3px 9px; margin-left: 8px; cursor: pointer; vertical-align: middle; box-shadow: none; opacity: 0.7; }
+.block-bottom-fold:hover { opacity: 1; }
+.code-block .code-bottom-fold { display: block; margin: 2px 0 4px auto; }
+.prompt-block.collapsed .block-bottom-fold { display: none; }
+.attach-toolbar .attach-remove { color: #dc2626; }

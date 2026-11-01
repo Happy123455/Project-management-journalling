@@ -93,6 +93,19 @@ function CodeBlockView({ node, updateAttributes, editor }: NodeViewProps) {
       <pre>
         <NodeViewContent<"code"> as="code" />
       </pre>
+      {!collapsed && node.textContent.split("\n").length > 4 && (
+        <button
+          type="button"
+          className="block-bottom-fold code-bottom-fold"
+          contentEditable={false}
+          onPointerDown={(e) => e.preventDefault()}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => updateAttributes({ collapsed: true })}
+          title="Collapse"
+        >
+          ▴ Collapse
+        </button>
+      )}
     </NodeViewWrapper>
   );
 }

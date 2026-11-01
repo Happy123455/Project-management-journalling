@@ -38,6 +38,38 @@ export function blockRange(doc: PMNode, index: number) {
   return { start: index, end, from: blockPos(doc, index), to: blockPos(doc, end) };
 }
 
+/** A [[Project]]-style line with lines nested under it: drawn as a box. */
+const isBoxHead = (doc: PMNode, i: number) => {
+  const n = doc.child(i);
+  return n.isTextblock && /\[\[[^\]]+\]\]/.test(n.textContent) && i + 1 < doc.childCount && indentOf(doc.child(i + 1)) > indentOf(n);
+};
+/** Blocks a heading's text stops at: a divider, a code or prompt block, a box. */
+const STOPS_HEADING = new Set(["horizontalRule", "codeBlock", "promptBlock"]);
+
+/**
+ * What folding the block at `index` hides: its nested blocks, and for a heading (like Obsidian)
+ * everything under it up to the next heading of the same or a higher level, a divider, or another
+ * block (a code block, prompt or box). Moving, copying and deleting still use blockRange.
+ */
+export function foldRange(doc: PMNode, index: number) {
+  const node = doc.child(index);
+  const own = blockRange(doc, index);
+  if (node.type.name !== "heading") return own;
+  const level = Number(node.attrs.level ?? 1);
+  const base = indentOf(node);
+  let end = own.end;
+  while (end < doc.childCount) {
+    const n = doc.child(end);
+    if (indentOf(n) < base) break;
+    if (indentOf(n) === base) {
+      if (n.type.name === "heading" && Number(n.attrs.level ?? 1) <= level) break;
+      if (STOPS_HEADING.has(n.type.name) || isBoxHead(doc, end)) break;
+    }
+    end = blockRange(doc, end).end;
+  }
+  return { start: index, end, from: own.from, to: blockPos(doc, end) };
+}
+
 const selectedIndex = (state: EditorState) => blockIndexAt(state.doc, state.selection.from);
 
 /** Changes the indent of the block at `index` (and its children) by `delta`. */
@@ -154,7 +186,7 @@ export function insertLine(index: number, where: "above" | "below"): Command {
 export function toggleCollapsed(index: number): Command {
   return (state, dispatch) => {
     const node = state.doc.child(index);
-    if (blockRange(state.doc, index).end === index + 1 || node.type.spec.attrs?.collapsed === undefined) return false;
+    if (foldRange(state.doc, index).end === index + 1 || node.type.spec.attrs?.collapsed === undefined) return false;
     if (dispatch) dispatch(state.tr.setNodeMarkup(blockPos(state.doc, index), undefined, { ...node.attrs, collapsed: !node.attrs.collapsed }));
     return true;
   };
@@ -208,15 +240,32 @@ function dayChip(view: EditorView, title: string, info: Record<string, string> |
   return chip;
 }
 
+function foldButton(collapsed: boolean, className: string, onClick: () => void): HTMLElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.contentEditable = "false";
+  button.textContent = collapsed ? "▸" : "▾";
+  button.setAttribute("aria-label", collapsed ? "Unfold" : "Fold");
+  button.addEventListener("mousedown", (e) => e.preventDefault());
+  button.addEventListener("click", (e) => {
+    e.preventDefault();
+    onClick();
+  });
+  return button;
+}
+
 export function blockDecorations(doc: PMNode): DecorationSet {
   const decos: Decoration[] = [];
+  // The view, handed over by the first widget drawn (decorations are built without one).
+  let view0: EditorView | null = null;
   let hiddenUntil = -1;
   // A [[Project]] / [[Person]] / [[Log]] line with lines nested under it is drawn as one box.
   let boxUntil = -1;
   let pos = 0;
   for (let i = 0; i < doc.childCount; i++) {
     const node = doc.child(i);
-    const range = blockRange(doc, i);
+    const range = foldRange(doc, i);
     const classes: string[] = [];
     const attrs: Record<string, string> = {};
     if (i < boxUntil) classes.push(i === boxUntil - 1 ? "block-box-body block-box-end" : "block-box-body");
@@ -227,6 +276,31 @@ export function blockDecorations(doc: PMNode): DecorationSet {
         attrs["data-hidden-count"] = String(range.end - i - 1);
         hiddenUntil = range.end;
       }
+      const index = i;
+      const fold = () => toggleCollapsed(index)(view0!.state, view0!.dispatch);
+      if (node.type.name === "heading") {
+        // Headings fold like Obsidian's: a ▾ before the heading folds the text under it.
+        decos.push(
+          Decoration.widget(pos + 1, (view) => {
+            view0 = view;
+            return foldButton(node.attrs.collapsed, "block-heading-fold", fold);
+          }, { side: -1, key: `hfold-${i}-${node.attrs.collapsed}`, ignoreSelection: true }),
+        );
+      }
+      if (!node.attrs.collapsed) {
+        // A fold button after the last hidden-able block too: fold a long block from its bottom.
+        const last = doc.child(range.end - 1);
+        const endPos = blockPos(doc, range.end) - 1;
+        decos.push(
+          Decoration.widget(last.isTextblock ? endPos : endPos + 1, (view) => {
+            view0 = view;
+            const b = foldButton(false, "block-bottom-fold", fold);
+            b.textContent = "▴";
+            b.title = "Fold this block";
+            return b;
+          }, { side: 1, key: `bfold-${i}-${range.end}`, ignoreSelection: true }),
+        );
+      }
       if (node.isTextblock && /\[\[[^\]]+\]\]/.test(node.textContent)) {
         // A box nested inside another box keeps the outer box's look but gets its own Day chip.
         if (i >= boxUntil) {
@@ -234,7 +308,6 @@ export function blockDecorations(doc: PMNode): DecorationSet {
           boxUntil = range.end;
         } else classes.push("block-box-subhead");
         // The fold button on the title row.
-        const index = i;
         decos.push(
           Decoration.widget(pos + node.nodeSize - 1, (view) => {
             const row = document.createElement("span");
