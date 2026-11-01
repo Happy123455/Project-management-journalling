@@ -434,6 +434,11 @@ export class SqliteStore implements JournalStore {
     });
   }
 
+  async ownEventIds() {
+    const ids = await this.db.select<{ id: string }[]>("SELECT id FROM events WHERE device_id = $1 AND op != 'restore'", [this.device]);
+    return ids.map((r) => r.id);
+  }
+
   async syncRecords(skip?: Set<string>) {
     type Row = EventRow & { type: string | null; day: string | null; props: string | null; file_path: string | null };
     const select = `SELECT e.*, b.type, b.day, b.props, f.path AS file_path FROM events e

@@ -1,4 +1,5 @@
 import type { SyncFolder } from "./engine";
+import type { DirectAddress } from "./direct";
 
 /**
  * Live mode: while the app is open on two devices, each one keeps a tiny presence file in the
@@ -13,6 +14,8 @@ export interface Presence {
   rev: string;
   /** Written as the app goes to the background or closes. */
   closed?: boolean;
+  /** Mac: where the phone can reach it on the Wi-Fi for instant sync (see direct.ts). */
+  lan?: DirectAddress;
 }
 
 /** How often an open app says it's still open. */
@@ -60,3 +63,9 @@ export function someoneOpen(known: Map<string, { p: Presence | null }>, now = Da
 /** A value that changes whenever any other device's rev does. */
 export const othersRev = (known: Map<string, { p: Presence | null }>) =>
   [...known.entries()].map(([k, v]) => `${k}:${v.p?.rev ?? ""}`).sort().join("|");
+
+/** The address of another device's open app that takes direct connections, if any. */
+export function openHost(known: Map<string, { p: Presence | null }>, now = Date.now()) {
+  for (const { p } of known.values()) if (p?.lan && !p.closed && now - p.at < FRESH_MS) return p.lan;
+  return null;
+}

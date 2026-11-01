@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../store/memoryStore";
-import { MemoryFolder, memoryOnly, syncOnce } from "./engine";
+import { importRecords, MemoryFolder, memoryOnly, syncOnce } from "./engine";
 
 const doc = (text: string) => ({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
 const at = (iso: string) => vi.setSystemTime(new Date(iso));
@@ -170,5 +170,27 @@ describe("sync on mobile data", () => {
     await syncOnce(phone, folder, phoneMemory);
     expect(reads).toHaveLength(1);
     expect((await phone.getDay("2026-10-30"))?.content).toEqual(doc("mac again"));
+  });
+});
+
+describe("direct Wi-Fi link and Drive together", () => {
+  it("an edit that arrives by Wi-Fi and then again by Drive is applied once", async () => {
+    const folder = new MemoryFolder();
+    const phone = new MemoryStore(undefined, "phone");
+    const mac = new MemoryStore(undefined, "mac");
+    await phone.saveDay({ day: "2026-11-01", content: doc("typed on the phone"), plainText: "" });
+    // The Wi-Fi link sends what the phone hasn't sent yet...
+    const sent = new Set<string>();
+    const records = await phone.syncRecords(sent);
+    expect((await importRecords(mac, records)).events.length).toBe(records.length);
+    expect((await mac.getDay("2026-11-01"))?.content).toEqual(doc("typed on the phone"));
+    const events = (await mac.eventsFor("day:2026-11-01")).length;
+    // ...then the same edit comes by Drive, and once more by Wi-Fi: nothing changes.
+    await syncOnce(phone, folder);
+    expect((await syncOnce(mac, folder)).imported).toBe(0);
+    expect((await importRecords(mac, records)).events.length).toBe(0);
+    expect((await mac.eventsFor("day:2026-11-01")).length).toBe(events);
+    expect((await mac.getDay("2026-11-01"))?.content).toEqual(doc("typed on the phone"));
+    expect(await phone.ownEventIds()).toEqual(records.map((r) => r.event.id));
   });
 });

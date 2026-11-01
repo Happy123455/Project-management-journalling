@@ -74,6 +74,10 @@ mod kokoro;
 #[cfg(desktop)]
 mod mcp;
 
+/// Instant sync with the phone over Wi-Fi.
+#[cfg(desktop)]
+mod direct;
+
 #[cfg(desktop)]
 mod youtube;
 
@@ -169,6 +173,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         mcp::mcp_start,
         mcp::mcp_stop,
         mcp::mcp_reply,
+        direct::direct_start,
+        direct::direct_reply,
         youtube::youtube_port
     ]
 }

@@ -167,6 +167,8 @@ export interface JournalStore {
   readonly deviceId: string;
   /** This device's own events (not restores), each with what its block is; `skip`: ids left out (already sent). */
   syncRecords(skip?: Set<string>): Promise<SyncRecord[]>;
+  /** Ids of this device's own events (what syncRecords would return), cheap: no content. */
+  ownEventIds(): Promise<string[]>;
   /** The local id of the day page / named page each meta names, where one exists. */
   localBlockId(meta: BlockMeta): Promise<string | null>;
   /** Known event ids, files, and the newest applied content/props event for these blocks. */

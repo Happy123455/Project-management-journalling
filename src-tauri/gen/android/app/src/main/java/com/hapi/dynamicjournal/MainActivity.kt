@@ -137,6 +137,10 @@ class MainActivity : TauriActivity() {
     super.onCreate(savedInstanceState)
     current = java.lang.ref.WeakReference(this)
     if (BubbleService.enabled(this)) BubbleService.setEnabled(this, true)
+    // Instant sync talks to the Mac on the Wi-Fi; Android 17 needs this asked for once.
+    val localNetwork = "android.permission.ACCESS_LOCAL_NETWORK"
+    if (android.os.Build.VERSION.SDK_INT >= 37 && checkSelfPermission(localNetwork) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+      requestPermissions(arrayOf(localNetwork), 77)
     handleIntent(intent)
   }
 

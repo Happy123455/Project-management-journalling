@@ -1,6 +1,6 @@
 import type { FileRecord, JournalStore } from "../store/types";
 import { sha256 } from "../lib/files";
-import { fromLines, planMerge, toLines, type SyncRecord } from "./merge";
+import { fromLines, planMerge, toLines, type MergePlan, type SyncRecord } from "./merge";
 
 /** The shared folder (Google Drive), seen as paths relative to "Dynamic Journal Sync/". */
 export interface SyncFolder {
@@ -117,15 +117,7 @@ export async function syncOnce(store: JournalStore, folder: SyncFolder, memory: 
       if (key) read.push(key);
     }
   }
-  // Pages both devices made for the same day (or name) before syncing are one page here.
-  for (const r of incoming) {
-    if (r.meta.kind !== "block") continue;
-    const local = await store.localBlockId(r.meta);
-    if (local && local !== r.event.blockId) r.event = { ...r.event, blockId: local };
-  }
-  const state = await store.syncState([...new Set(incoming.map((r) => r.event.blockId))]);
-  const plan = planMerge(state, incoming);
-  if (plan.events.length) await store.applySync({ ...plan, files: [] }, new Map());
+  const plan = await importRecords(store, incoming);
   // Bytes travel separately from the events and can reach the folder later (the phone uploads
   // after writing its events; Drive for desktop downloads in its own time). Every file whose
   // bytes this device still lacks is tried again each round until they arrive.
@@ -148,6 +140,32 @@ export async function syncOnce(store: JournalStore, folder: SyncFolder, memory: 
   mem.seen = [...mem.seen.filter((k) => !replaced.has(k.slice(0, k.lastIndexOf("@")))), ...read];
   remember();
   return { exported: missing.length, imported: plan.events.length, files: got.length };
+}
+
+/**
+ * Adds other devices' events to this one through the merge (Drive rounds and the direct Wi-Fi
+ * link both come here). Events already known are skipped, so the same edit arriving both ways
+ * changes nothing the second time. File bytes are not fetched here.
+ */
+/** One import at a time, so a Wi-Fi batch and a Drive round never merge the same page at once. */
+let importing: Promise<unknown> = Promise.resolve();
+export function importRecords(store: JournalStore, incoming: SyncRecord[]): Promise<MergePlan> {
+  const next = importing.then(() => importNow(store, incoming));
+  importing = next.catch(() => {});
+  return next;
+}
+
+async function importNow(store: JournalStore, incoming: SyncRecord[]) {
+  // Pages both devices made for the same day (or name) before syncing are one page here.
+  for (const r of incoming) {
+    if (r.meta.kind !== "block") continue;
+    const local = await store.localBlockId(r.meta);
+    if (local && local !== r.event.blockId) r.event = { ...r.event, blockId: local };
+  }
+  const state = await store.syncState([...new Set(incoming.map((r) => r.event.blockId))]);
+  const plan = planMerge(state, incoming);
+  if (plan.events.length) await store.applySync({ ...plan, files: [] }, new Map());
+  return plan;
 }
 
 /** A folder in memory, for tests and the browser preview. */

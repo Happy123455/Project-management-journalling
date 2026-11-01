@@ -725,7 +725,7 @@ function App() {
   );
   const menuFooter = (
     <div className="menu-footer">
-      <SyncStatus status={sync.status} live={sync.live} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
+      <SyncStatus status={sync.status} live={sync.live} direct={sync.direct} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
       <div className="menu-footer-row">
         <button type="button" onClick={() => (setDrawerOpen(false), void backUpNow())} title="Back up now">💾 Back up</button>
         <RestoreButton store={store} onBeforeRestore={flush} />
