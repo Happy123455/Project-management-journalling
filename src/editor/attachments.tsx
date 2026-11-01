@@ -33,6 +33,8 @@ export function fileUrl(id: string): Promise<string> {
       if (!file || !bytes) throw new Error("missing file");
       return URL.createObjectURL(new Blob([bytes as BlobPart], { type: file.mime }));
     })();
+    // Not cached when it fails: the bytes may still arrive by sync.
+    url.catch(() => urls.get(id) === url && urls.delete(id));
     urls.set(id, url);
   }
   return url;
@@ -62,14 +64,24 @@ function primeUrl(id: string, blob: Blob) {
 export function useFileUrl(id: string | null, stream = false) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!id) return;
     let live = true;
-    (stream ? mediaUrl(id) : fileUrl(id)).then((u) => live && setUrl(u)).catch(() => live && setFailed(true));
+    (stream ? mediaUrl(id) : fileUrl(id))
+      .then((u) => live && (setUrl(u), setFailed(false)))
+      .catch(() => live && setFailed(true));
     return () => {
       live = false;
     };
-  }, [id, stream]);
+  }, [id, stream, attempt]);
+  // Sync brought files in: a missing one may be here now.
+  useEffect(() => {
+    if (!failed) return;
+    const retry = () => setAttempt((n) => n + 1);
+    window.addEventListener("journal:files-arrived", retry);
+    return () => window.removeEventListener("journal:files-arrived", retry);
+  }, [failed]);
   return { url, failed };
 }
 
@@ -100,7 +112,7 @@ export function mediaNode(r: FileRecord) {
 /** data-* attributes that let a copied photo, video, PDF or file be pasted back as itself. */
 function mediaData(attrs: Record<string, unknown>) {
   const data: Record<string, string> = {};
-  for (const key of ["fileId", "width", "align", "name", "mime", "size"]) {
+  for (const key of ["fileId", "width", "units", "align", "name", "mime", "size"]) {
     if (attrs[key] != null && attrs[key] !== "") data[`data-${key === "fileId" ? "file-id" : key}`] = String(attrs[key]);
   }
   return data;
@@ -110,7 +122,9 @@ function mediaData(attrs: Record<string, unknown>) {
 export function mediaLeafText(node: PMNode): string {
   if (node.type.name === "youtubeEmbed") return `![${node.attrs.width ? `|${node.attrs.width}` : ""}](${node.attrs.url})`;
   if (!["attachmentImage", "attachmentMedia", "attachmentFile"].includes(node.type.name)) return "";
-  return embedText(node.attrs.fileId, node.attrs.name || "file", node.attrs.width);
+  // Shares of the note's width become pixels of a phone-wide note (Obsidian's embeds use pixels).
+  const width = node.attrs.units === "note" && node.attrs.width ? Math.round(node.attrs.width * 400) : node.attrs.width;
+  return embedText(node.attrs.fileId, node.attrs.name || "file", width);
 }
 
 /**
@@ -267,7 +281,8 @@ export const mediaNodeViewOptions = {
 
 /** Shared frame for photos, videos and PDFs: width, placement, the resize handle and the placement toolbar. */
 export function PlacedMedia({ node, updateAttributes, selected, editor, getPos, children, wide }: NodeViewProps & { children: ReactNode; wide?: boolean }) {
-  const { width, align, x, y } = node.attrs as { width: number | null; align: Align; x: number; y: number };
+  const { width, align, x, y, units } = node.attrs as { width: number | null; align: Align; x: number; y: number; units: "note" | null };
+  const rel = units === "note";
   const box = useRef<HTMLSpanElement>(null);
   const bar = useRef<HTMLSpanElement>(null);
   const editable = editor.isEditable;
@@ -283,7 +298,19 @@ export function PlacedMedia({ node, updateAttributes, selected, editor, getPos, 
     if (typeof pos === "number") editor.commands.setNodeSelection(pos);
   };
 
-  const noteWidth = () => box.current?.closest<HTMLElement>(".tiptap")?.clientWidth ?? window.innerWidth - 32;
+  const noteWidth = () => box.current?.closest<HTMLElement>(".tiptap")?.clientWidth || window.innerWidth - 32;
+  /** Saves a size and/or spot as shares of the note's width (older pixel values are converted). */
+  const commitRel = (next: { width?: number | null; x?: number; y?: number }) => {
+    const w = noteWidth();
+    const share = (px: number) => Math.round((px / w) * 10000) / 10000;
+    commit({
+      units: "note",
+      width: next.width === undefined ? (width == null ? null : rel ? width : share(width)) : next.width,
+      x: next.x === undefined ? (rel ? x : share(x)) : next.x,
+      y: next.y === undefined ? (rel ? y : share(y)) : next.y,
+    });
+  };
+  const toPx = (v: number) => (rel ? v * noteWidth() : v);
   // From the right corner, or the left one (for media placed on the right): never wider than the note.
   const resize = (e: ReactPointerEvent, fromLeft = false) => {
     const start = box.current?.getBoundingClientRect().width ?? 200;
@@ -297,7 +324,7 @@ export function PlacedMedia({ node, updateAttributes, selected, editor, getPos, 
       },
       () => {
         setLive(null);
-        commit({ width: next });
+        commitRel({ width: Math.round((next / noteWidth()) * 10000) / 10000 });
       },
     );
   };
@@ -312,7 +339,8 @@ export function PlacedMedia({ node, updateAttributes, selected, editor, getPos, 
       },
       () => {
         setLive(null);
-        if (moved.dx || moved.dy) commit({ x: x + moved.dx, y: y + moved.dy });
+        const w = noteWidth();
+        if (moved.dx || moved.dy) commitRel({ x: Math.round(((toPx(x) + moved.dx) / w) * 10000) / 10000, y: Math.round(((toPx(y) + moved.dy) / w) * 10000) / 10000 });
       },
     );
   };
@@ -346,17 +374,20 @@ export function PlacedMedia({ node, updateAttributes, selected, editor, getPos, 
     };
   }, [showTools, width, align, x, y, live]);
 
-  const shownWidth = live?.width ?? width;
-  const dx = x + (live?.dx ?? 0);
-  const dy = y + (live?.dy ?? 0);
+  // Shares of the note's width are drawn with container units (the note is the container), so
+  // they follow the note's width on any screen without measuring it.
+  const unit = (v: number) => (rel ? `${(v * 100).toFixed(3)}cqw` : `${v}px`);
+  const shownWidth = live?.width != null ? `${live.width}px` : width ? unit(width) : undefined;
+  const offset = (v: number, d = 0) => (d ? `calc(${unit(v)} + ${d}px)` : unit(v));
   return (
     <NodeViewWrapper
       as="span"
-      className={`attach-image align-${align}${selected ? " selected" : ""}${live ? " dragging" : ""}`}
-      style={{ width: shownWidth ? `${shownWidth}px` : undefined, transform: align === "free" ? `translate(${dx}px, ${dy}px)` : undefined }}
+      className={`attach-image align-${align}${selected ? " selected" : ""}${live ? " dragging" : ""}${shownWidth ? " sized" : ""}`}
+      style={{ width: shownWidth, transform: align === "free" ? `translate(${offset(x, live?.dx)}, ${offset(y, live?.dy)})` : undefined }}
       data-drag-handle={align === "free" ? undefined : ""}
     >
-      <span ref={box} className={draggable ? "attach-image-box attach-draggable" : "attach-image-box"} onPointerDown={move}>
+      {/* Captured: clips and GIFs keep presses for themselves, which stopped Free ones from moving. */}
+      <span ref={box} className={draggable ? "attach-image-box attach-draggable" : "attach-image-box"} onPointerDownCapture={move}>
         {children}
         {showTools && align !== "full" && <span className="attach-resize" onPointerDown={(e) => resize(e)} aria-label="Resize" />}
         {showTools && align !== "full" && <span className="attach-resize left" onPointerDown={(e) => resize(e, true)} aria-label="Resize" />}
@@ -396,7 +427,10 @@ export function PlacedMedia({ node, updateAttributes, selected, editor, getPos, 
                 key={z.label}
                 type="button"
                 onPointerDown={(e) => e.preventDefault()}
-                onClick={() => commit({ width: z.share ? Math.round(noteWidth() * z.share) : null, ...(align === "full" ? { align: "center" } : {}) })}
+                onClick={() => {
+                  if (align === "full") updateAttributes({ align: "center" });
+                  commitRel({ width: z.share });
+                }}
               >
                 {z.label}
               </button>
@@ -445,6 +479,11 @@ export const placementAttributes = () => ({
   align: { default: "inline", parseHTML: (el: HTMLElement) => el.getAttribute("data-align") ?? "inline" },
   x: { default: 0 },
   y: { default: 0 },
+  /**
+   * "note": width, x and y are shares of the note's width, so a photo is the same size and in
+   * the same spot on the phone and the Mac. Older media (null) kept pixels.
+   */
+  units: { default: null, parseHTML: (el: HTMLElement) => el.getAttribute("data-units") },
 });
 
 /** A stored photo (or GIF) in the page, with width and placement kept in the document. */

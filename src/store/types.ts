@@ -169,4 +169,9 @@ export interface JournalStore {
   syncState(blockIds: string[]): Promise<LocalState>;
   /** Adds the plan's events, updates its blocks and stores its files (bytes by hash). Idempotent. */
   applySync(plan: MergePlan, blobs: Map<string, Uint8Array>): Promise<void>;
+  /**
+   * Files other devices made (their create event is here) whose bytes never arrived: the event
+   * came before the bytes reached the shared folder. Sync fetches these again every round.
+   */
+  missingFiles(): Promise<FileRecord[]>;
 }

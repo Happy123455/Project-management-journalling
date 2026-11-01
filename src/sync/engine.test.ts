@@ -56,6 +56,28 @@ describe("sync between two devices through one folder", () => {
     expect(await syncOnce(mac, folder)).toEqual({ exported: 0, imported: 0, files: 0 });
   });
 
+  it("fetches a photo whose bytes reached the folder after its event, and skips a half-written copy", async () => {
+    const folder = new MemoryFolder();
+    const phone = new MemoryStore(undefined, "phone");
+    const mac = new MemoryStore(undefined, "mac");
+    const photo = await phone.saveFile({ name: "p.png", mime: "image/png", bytes: new Uint8Array([1, 2, 3, 4]) });
+    await syncOnce(phone, folder);
+    const path = `files/${photo.hash}`;
+    const whole = folder.files.get(path)!;
+    // The Mac sees the event while the bytes are still on their way (missing, then cut short).
+    folder.files.delete(path);
+    await syncOnce(mac, folder);
+    expect(await mac.fileBytes(photo.id)).toBeNull();
+    expect((await mac.missingFiles()).map((f) => f.id)).toEqual([photo.id]);
+    folder.files.set(path, whole.slice(0, 2));
+    await syncOnce(mac, folder);
+    expect(await mac.fileBytes(photo.id)).toBeNull();
+    folder.files.set(path, whole);
+    expect((await syncOnce(mac, folder)).files).toBe(1);
+    expect(await mac.fileBytes(photo.id)).toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(await mac.missingFiles()).toEqual([]);
+  });
+
   it("each device writes only its own files", async () => {
     const folder = new MemoryFolder();
     const phone = new MemoryStore(undefined, "phone");

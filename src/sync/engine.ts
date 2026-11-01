@@ -1,4 +1,5 @@
-import type { JournalStore } from "../store/types";
+import type { FileRecord, JournalStore } from "../store/types";
+import { sha256 } from "../lib/files";
 import { fromLines, planMerge, toLines, type SyncRecord } from "./merge";
 
 /** The shared folder (Google Drive), seen as paths relative to "Dynamic Journal Sync/". */
@@ -76,15 +77,7 @@ export async function syncOnce(store: JournalStore, folder: SyncFolder, memory: 
     for (const f of ownFiles) for (const r of fromLines(dec.decode((await folder.read(`events/${me}/${f}`)) ?? new Uint8Array()))) ids.add(r.event.id);
     mem = { files: ownFiles, ids: [...ids], hashes: [], seen: saved ? mem.seen : [] };
   }
-  const sent = new Set(mem.ids);
-  const missing = own.filter((r) => !sent.has(r.event.id));
-  if (missing.length) {
-    const name = `${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 6)}.jsonl`;
-    await folder.write(`events/${me}/${name}`, enc.encode(toLines(missing)));
-    mem.files.push(name);
-    mem.ids.push(...missing.map((r) => r.event.id));
-  }
-  remember();
+  // Attachments first, so another device never reads an event whose bytes aren't there yet.
   const uploaded = new Set(mem.hashes);
   for (const r of own) {
     if (r.meta.kind !== "file" || uploaded.has(r.meta.file.hash)) continue;
@@ -99,6 +92,15 @@ export async function syncOnce(store: JournalStore, folder: SyncFolder, memory: 
     remember();
   }
 
+  const sent = new Set(mem.ids);
+  const missing = own.filter((r) => !sent.has(r.event.id));
+  if (missing.length) {
+    const name = `${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 6)}.jsonl`;
+    await folder.write(`events/${me}/${name}`, enc.encode(toLines(missing)));
+    mem.files.push(name);
+    mem.ids.push(...missing.map((r) => r.event.id));
+  }
+  remember();
   // 2. Import from every other device.
   const incoming: SyncRecord[] = [];
   const seen = new Set(mem.seen);
@@ -123,17 +125,29 @@ export async function syncOnce(store: JournalStore, folder: SyncFolder, memory: 
   }
   const state = await store.syncState([...new Set(incoming.map((r) => r.event.blockId))]);
   const plan = planMerge(state, incoming);
+  if (plan.events.length) await store.applySync({ ...plan, files: [] }, new Map());
+  // Bytes travel separately from the events and can reach the folder later (the phone uploads
+  // after writing its events; Drive for desktop downloads in its own time). Every file whose
+  // bytes this device still lacks is tried again each round until they arrive.
+  const want = new Map<string, FileRecord>();
+  for (const f of [...plan.files, ...(await store.missingFiles())]) want.set(f.id, f);
   const blobs = new Map<string, Uint8Array>();
-  for (const f of plan.files) {
-    const bytes = await folder.read(`files/${f.hash}`);
-    if (bytes) blobs.set(f.hash, bytes);
+  const got: FileRecord[] = [];
+  for (const f of want.values()) {
+    if (!blobs.has(f.hash)) {
+      const bytes = await folder.read(`files/${f.hash}`).catch(() => null);
+      // Only whole files: a copy still being written (or cut short) is fetched again next round.
+      if (!bytes || (await sha256(bytes)) !== f.hash) continue;
+      blobs.set(f.hash, bytes);
+    }
+    got.push(f);
   }
-  if (plan.events.length || plan.files.length) await store.applySync(plan, blobs);
+  if (got.length) await store.applySync({ events: [], blocks: [], files: got }, blobs);
   // A legacy month file is read again when it changes; drop its older stamps.
   const replaced = new Set(read.map((k) => k.slice(0, k.lastIndexOf("@"))));
   mem.seen = [...mem.seen.filter((k) => !replaced.has(k.slice(0, k.lastIndexOf("@")))), ...read];
   remember();
-  return { exported: missing.length, imported: plan.events.length, files: blobs.size };
+  return { exported: missing.length, imported: plan.events.length, files: got.length };
 }
 
 /** A folder in memory, for tests and the browser preview. */

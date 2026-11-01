@@ -58,6 +58,7 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
           const result = await syncOnce(store, found.folder, localMemory);
           last.current = new Date();
           setStatus({ state: "ok", label: found.label, last: last.current });
+          if (result.files) window.dispatchEvent(new Event("journal:files-arrived"));
           if (result.imported || result.files) imported.current();
           // Once per launch, after the first round (so this device has both sides' history): put
           // back link cards and media the old merge dropped. Never while typing.

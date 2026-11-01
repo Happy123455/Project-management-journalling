@@ -170,7 +170,7 @@ function similar(a: JSONContent, b: JSONContent): boolean {
 }
 
 /** Attributes that only say how a block looks (size, placement, folded, preview details), not what it is. */
-const LOOK = new Set(["width", "height", "align", "x", "y", "collapsed", "status", "title", "site", "image"]);
+const LOOK = new Set(["width", "height", "align", "x", "y", "units", "collapsed", "status", "title", "site", "image"]);
 const identity = (n: JSONContent) => {
   const a = n.attrs ?? {};
   // A link card's title/site/image come from its url; a prompt's title is part of what it is.

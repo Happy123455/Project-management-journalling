@@ -30,3 +30,15 @@ export function toBase64(bytes: Uint8Array): string {
 export function fromBase64(data: string): Uint8Array {
   return Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
 }
+
+/** The file record a create event describes, or null when the event isn't a file's. */
+export function fileFromEvent(blockId: string, after: string | null, createdAt: string): FileRecord | null {
+  if (!after) return null;
+  try {
+    const b = JSON.parse(after) as Partial<FileRecord>;
+    if (typeof b.hash !== "string" || typeof b.path !== "string" || !b.path.startsWith("attachments/")) return null;
+    return { id: blockId, name: b.name ?? b.path.split("/").pop()!, mime: b.mime ?? "application/octet-stream", size: b.size ?? 0, hash: b.hash, path: b.path, createdAt };
+  } catch {
+    return null;
+  }
+}

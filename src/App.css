@@ -2090,3 +2090,8 @@ html.weather-cloudy.weather-night .ambience-layer::before, html.weather-cloudy.w
 .search-results { flex: 1 1 auto; min-height: 0; overscroll-behavior: contain; }
 .relative-time { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 760px) { .page-header h1 { align-items: center; text-align: center; } .relative-time { font-size: 11px; } }
+
+/* ───── Batch 10 ───── */
+/* Media sized and placed in shares of the note's width (units: "note") use container units. */
+.tiptap { container-type: inline-size; }
+.attach-image.align-inline.sized { max-width: 100%; }

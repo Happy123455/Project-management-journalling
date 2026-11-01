@@ -8,7 +8,7 @@ import { countWords, docText } from "../lib/words";
 import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
 import { Serial } from "./serial";
 import type { JSONContent } from "@tiptap/react";
-import { fileEventBody, newFileRecord } from "./files";
+import { fileEventBody, fileFromEvent, newFileRecord } from "./files";
 import { docKey, eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
 import { withPatch } from "./props";
 import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
@@ -527,6 +527,21 @@ export class SqliteStore implements JournalStore {
         );
       }
     });
+  }
+
+  async missingFiles() {
+    const rows = await this.db.select<{ block_id: string; after: string | null; created_at: string }[]>(
+      `SELECT e.block_id, e.after, e.created_at FROM events e
+       WHERE e.op = 'create' AND e.after LIKE '%"hash"%'
+         AND NOT EXISTS (SELECT 1 FROM files f WHERE f.id = e.block_id)
+         AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.id = e.block_id)`,
+    );
+    const out = new Map<string, FileRecord>();
+    for (const r of rows) {
+      const f = fileFromEvent(r.block_id, r.after, r.created_at);
+      if (f) out.set(f.id, f);
+    }
+    return [...out.values()];
   }
 
   async exportFiles() {

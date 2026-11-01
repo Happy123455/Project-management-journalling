@@ -6,7 +6,7 @@ import { dayKey } from "../lib/timestamp";
 import { countWords, docText } from "../lib/words";
 import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
 import { Serial } from "./serial";
-import { fileEventBody, fromBase64, newFileRecord, toBase64 } from "./files";
+import { fileEventBody, fileFromEvent, fromBase64, newFileRecord, toBase64 } from "./files";
 import { docKey, eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
 import { withPatch } from "./props";
 import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
@@ -268,6 +268,16 @@ export class MemoryStore implements JournalStore {
       if (matchText(f.name, terms)) hits.push({ kind: "file", file: f });
     }
     return hits;
+  }
+
+  async missingFiles() {
+    const out = new Map<string, FileRecord>();
+    for (const e of this.data.events) {
+      if (e.op !== "create" || this.files[e.blockId] || out.has(e.blockId)) continue;
+      const f = fileFromEvent(e.blockId, e.after, e.createdAt);
+      if (f) out.set(f.id, f);
+    }
+    return [...out.values()];
   }
 
   async listFiles() {
