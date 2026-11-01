@@ -6,6 +6,7 @@ import { repairMergeLosses } from "../lib/repairMerge";
 import { showToast } from "../lib/toast";
 import { findSyncFolder, pickSyncFolder, type FolderLookup } from "./folders";
 import { BEAT_MS, LIVE_POLL_MS, LIVE_SAVE_MS, openHost, othersRev, readPresence, someoneOpen, writePresence, type Presence } from "./live";
+import { setTypingSink } from "./liveTyping";
 import { canConnect, canHost, startClient, startHost, type Client, type DirectAddress, type Host } from "./direct";
 
 /** What sync remembers between rounds (what it sent and read), so it only moves what's new. */
@@ -143,6 +144,8 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
       if (v === directRef.current) return;
       directRef.current = v;
       setDirect(v);
+      const link = client.current ?? host.current;
+      setTypingSink(me, v && link ? (m) => link.sendTyping(m) : null);
     };
     // Mac: take the phone's direct connections.
     if (canHost())
@@ -219,6 +222,7 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
       client.current = null;
       host.current?.stop();
       host.current = null;
+      setTypingSink(me, null);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pagehide", bye);
     };

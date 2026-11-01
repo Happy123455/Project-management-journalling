@@ -1,6 +1,7 @@
 import type { JournalStore } from "../store";
 import { importRecords } from "./engine";
 import type { SyncRecord } from "./merge";
+import { receiveTyping, type TypingMsg } from "./liveTyping";
 
 /**
  * Instant sync over the home Wi-Fi. The Mac app listens (src-tauri/src/direct.rs) and puts its
@@ -58,6 +59,8 @@ export interface Host {
   lastSeen(): number;
   /** Something was saved: answer a waiting pull now. */
   notify(): void;
+  /** Letter-by-letter typing for the phone. */
+  sendTyping(m: TypingMsg): void;
   stop(): void;
 }
 
@@ -69,10 +72,16 @@ export async function startHost(store: JournalStore, onImported: () => void): Pr
   let seen = 0;
   let sent: Set<string> | null = null;
   let wake: (() => void) | null = null;
+  let typing: TypingMsg[] = [];
 
-  const answer = async (path: string, body: { records?: SyncRecord[]; fresh?: boolean } | null) => {
+  type Body = { records?: SyncRecord[]; fresh?: boolean; typing?: TypingMsg[] } | null;
+  const answer = async (path: string, body: Body) => {
     seen = Date.now();
     if (path === "/hello") return { ok: true, device: store.deviceId };
+    if (path === "/typing") {
+      for (const m of body?.typing ?? []) receiveTyping(m);
+      return { ok: true };
+    }
     if (path === "/push") {
       const plan = await importRecords(store, body?.records ?? []);
       if (plan.events.length) onImported();
@@ -84,7 +93,11 @@ export async function startHost(store: JournalStore, onImported: () => void): Pr
       const until = Date.now() + HOLD_MS;
       while (Date.now() < until) {
         const records = await unsent(store, sent);
-        if (records.length) return { ok: true, records };
+        if (records.length || typing.length) {
+          const t = typing;
+          typing = [];
+          return { ok: true, records, typing: t };
+        }
         await new Promise<void>((r) => {
           wake = r;
           window.setTimeout(r, CHECK_MS);
@@ -96,7 +109,7 @@ export async function startHost(store: JournalStore, onImported: () => void): Pr
     return { ok: false, error: "unknown" };
   };
 
-  const unlisten = await listen<{ id: number; path: string; body: { records?: SyncRecord[]; fresh?: boolean } | null }>("direct-req", async (e) => {
+  const unlisten = await listen<{ id: number; path: string; body: Body }>("direct-req", async (e) => {
     const result = await answer(e.payload.path, e.payload.body).catch((err) => ({ ok: false, error: String(err?.message ?? err) }));
     await invoke("direct_reply", { id: e.payload.id, result });
   });
@@ -108,6 +121,12 @@ export async function startHost(store: JournalStore, onImported: () => void): Pr
     },
     lastSeen: () => seen,
     notify: () => wake?.(),
+    sendTyping(m) {
+      // Only the newest full copy per note is worth keeping in the queue.
+      if (m.full !== undefined) typing = typing.filter((t) => t.key !== m.key);
+      typing.push(m);
+      wake?.();
+    },
     stop: unlisten,
   };
 }
@@ -117,6 +136,8 @@ export interface Client {
   readonly address: DirectAddress;
   /** Something was saved: send it now. */
   notify(): void;
+  /** Letter-by-letter typing for the Mac. */
+  sendTyping(m: TypingMsg): void;
   stop(): void;
 }
 
@@ -194,8 +215,9 @@ export function startClient(store: JournalStore, address: DirectAddress, onImpor
         setUp(true);
         let fresh = true;
         while (!stopped && up) {
-          const r = await post<{ records: SyncRecord[] }>("/pull", { fresh }, HOLD_MS + 10_000);
+          const r = await post<{ records: SyncRecord[]; typing?: TypingMsg[] }>("/pull", { fresh }, HOLD_MS + 10_000);
           fresh = false;
+          for (const m of r.typing ?? []) receiveTyping(m);
           if (r.records?.length) {
             const plan = await importRecords(store, r.records);
             if (plan.events.length) onImported();
@@ -207,12 +229,34 @@ export function startClient(store: JournalStore, address: DirectAddress, onImpor
       if (!stopped) await sleep(8000);
     }
   })();
+  // Typing goes out one request at a time; what's typed meanwhile goes in the next one.
+  let typingOut: TypingMsg[] = [];
+  let typingBusy = false;
+  const flushTyping = async () => {
+    if (typingBusy || !up || stopped) return;
+    typingBusy = true;
+    try {
+      while (typingOut.length && up && !stopped) {
+        const batch = typingOut;
+        typingOut = [];
+        await post("/typing", { typing: batch }, 5000).catch(() => {});
+      }
+    } finally {
+      typingBusy = false;
+    }
+  };
+
   // Catches every kind of save, not only the day page's.
   const checker = window.setInterval(() => void push(), CHECK_MS);
 
   return {
     address,
     notify: () => void push(),
+    sendTyping(m) {
+      if (m.full !== undefined) typingOut = typingOut.filter((t) => t.key !== m.key);
+      typingOut.push(m);
+      void flushTyping();
+    },
     stop() {
       stopped = true;
       window.clearInterval(checker);

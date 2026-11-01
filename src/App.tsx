@@ -35,7 +35,8 @@ import { fileKind } from "./lib/files";
 import { mediaIdsIn } from "./lib/media";
 import { autoBackup, exportBackup } from "./backup";
 import { fileUrl, mediaNode, openFile, setAttachmentStore, showPdf, showPhoto } from "./editor/attachments";
-import { flushPendingEdits, JournalEditor } from "./editor/JournalEditor";
+import { flushPendingEdits, hasPendingEdits, JournalEditor } from "./editor/JournalEditor";
+import { receiveTyping } from "./sync/liveTyping";
 import { CaptureHost } from "./editor/CaptureHost";
 import { PdfHost } from "./editor/PdfHost";
 import { PhotoHost } from "./editor/PhotoHost";
@@ -51,6 +52,8 @@ import { dayBlockId } from "./store/ids";
 import "./App.css";
 
 const SAVE_DELAY_MS = 800;
+/** Numbers the saved copies put into an open note after a sync (see liveTyping). */
+let importSeq = 0;
 
 function App() {
   const [store, setStore] = useState<JournalStore | null>(null);
@@ -152,6 +155,16 @@ function App() {
     // Show what arrived on the open page, unless it's being typed in right now.
     const typing = !!pending.current || !!document.activeElement?.closest?.(".tiptap, .source-text");
     if (!typing) setPageVersion((n) => n + 1);
+    else if (store && !pending.current && !hasPendingEdits()) {
+      // Typing here, nothing unsaved: put what arrived into the open note in place (cursor kept),
+      // and keep the copy the editor reopens with current.
+      const open = day;
+      void store.getDay(open).then((p) => {
+        if (!p || pending.current || hasPendingEdits()) return;
+        setContent(p.content);
+        receiveTyping({ key: `day:${open}`, device: "sync", seq: ++importSeq, full: p.content });
+      });
+    }
   });
 
   const flush = useCallback(async () => {
@@ -826,6 +839,7 @@ function App() {
                   // linked page (or search, tags…) remounts the editor and must show what was typed.
                   initialContent={content}
                   onChange={onChange}
+                  liveKey={`day:${day}`}
                   onReminder={pickReminderDay}
                   autofocus={!previewNext.current}
                   pastDay={day < today}

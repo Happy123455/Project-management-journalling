@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { applyTyping, REMOTE, sendTyping, TYPING_EVENT, type TypingMsg } from "../sync/liveTyping";
 import { EditorContent, useEditor, useEditorState, type Editor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
@@ -37,6 +38,8 @@ import { GifIcon, insertQuickLog, openQuickLogSetup, useQuickLogs } from "../pro
 interface Props {
   initialContent: JSONContent | null;
   /** `actor` is set when the change came from an AI (the transaction's "aiActor" meta). */
+  /** Live typing over Wi-Fi with the other device (see sync/liveTyping.ts), e.g. "day:2026-11-01". */
+  liveKey?: string;
   onChange: (content: JSONContent, plainText: string, actor?: string) => void;
   onReady?: (plainText: string) => void;
   /** The "/" menu's Reminder tile: let the user pick a future day to write on. */
@@ -66,6 +69,11 @@ interface Tool {
 /** Edits typed but not yet handed to `onChange` (it runs once typing pauses, not per letter). */
 const pendingEmits = new Set<() => void>();
 /** Hands every open editor's latest text to its `onChange` now (before saving or switching day). */
+/** True while some open editor has letters not yet handed over (typed in the last moment). */
+export const hasPendingEdits = () => pendingEmits.size > 0;
+/** When this device last changed a note itself; the other device's typing waits a moment after it. */
+let lastLocalEdit = 0;
+const QUIET_MS = 3000;
 export function flushPendingEdits() {
   for (const emit of [...pendingEmits]) emit();
 }
@@ -340,8 +348,10 @@ function ModePill({ mode }: { mode: ViewMode }) {
 }
 
 export function JournalEditor({
-  initialContent, onChange, onReady, onReminder, onOpenLink, onOpenTag, pageNames, autofocus = true, find, onFindCount, pastDay,
+  initialContent, onChange, onReady, onReminder, onOpenLink, onOpenTag, pageNames, autofocus = true, find, onFindCount, pastDay, liveKey,
 }: Props) {
+  const liveKeyRef = useRef(liveKey);
+  liveKeyRef.current = liveKey;
   const pastDayRef = useRef(pastDay);
   pastDayRef.current = pastDay;
   const touch = useTouchDevice();
@@ -446,6 +456,10 @@ export function JournalEditor({
       upgradeOldMedia(editor);
     },
     onUpdate: ({ editor, transaction }) => {
+      // The other device's typing (live over Wi-Fi): shown, not saved here; its own save arrives by sync.
+      if (transaction.getMeta(REMOTE)) return;
+      lastLocalEdit = Date.now();
+      if (liveKeyRef.current) sendTyping(liveKeyRef.current, editor.state.doc);
       const actor = transaction.getMeta("aiActor") as string | undefined;
       if (actor) {
         // Anything typed before goes first, then the AI's edit on its own.
@@ -464,6 +478,19 @@ export function JournalEditor({
   }, []);
 
   editorRef.current = editor;
+
+  // The other device's typing in this same note, put in place as it happens.
+  useEffect(() => {
+    if (!editor || !liveKey) return;
+    const on = (e: Event) => {
+      const m = (e as CustomEvent<TypingMsg>).detail;
+      // Never over this device's own fresh letters: those win, and the next full copy catches up.
+      if (m.key !== liveKey || modeRef.current === "source" || Date.now() - lastLocalEdit < QUIET_MS || pendingEmits.size) return;
+      applyTyping(editor, m);
+    };
+    window.addEventListener(TYPING_EVENT, on);
+    return () => window.removeEventListener(TYPING_EVENT, on);
+  }, [editor, liveKey]);
 
   // Reading mode: the note can't be changed (taps open links, play clips and show photos).
   useEffect(() => {
