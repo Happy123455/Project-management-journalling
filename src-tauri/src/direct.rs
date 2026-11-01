@@ -72,8 +72,11 @@ fn serve(app: AppHandle, server: Arc<Server>) {
     for mut request in server.incoming_requests() {
         let key = KEY.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let ok_key = request.headers().iter().any(|h| h.field.equiv("X-Journal-Key") && h.value.as_str() == key);
-        // Browsers send Origin; the phone app's Rust HTTP client doesn't. Keeps web pages out.
-        let from_page = request.headers().iter().any(|h| h.field.equiv("Origin"));
+        // Keeps web pages out: a browser always sends its page's Origin. The phone app's HTTP
+        // plugin sends one too, but it's the app's own (tauri.localhost), which no web page can use.
+        let from_page = request.headers().iter().any(|h| {
+            h.field.equiv("Origin") && !matches!(h.value.as_str(), "http://tauri.localhost" | "https://tauri.localhost" | "tauri://localhost")
+        });
         if !ok_key || from_page || *request.method() != Method::Post {
             let _ = request.respond(Response::from_string("Forbidden").with_status_code(403));
             continue;
