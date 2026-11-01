@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import type { Editor, JSONContent } from "@tiptap/react";
 import { MonthCalendar, YearPanel } from "./calendar/Calendar";
-import { Upcoming, UpcomingPanel } from "./calendar/Upcoming";
+import { Upcoming, UpcomingPanel, type ReminderAction, type UpcomingPage } from "./calendar/Upcoming";
+import { DayPickerSheet } from "./calendar/ReminderSheet";
+import { publishReminders, startInAppNudges, upcomingFrom } from "./calendar/reminderBridge";
 import { BacklinkList, PageView, TagView, type LinkHandlers } from "./pages/LinkViews";
 import { DaysList, Drawer, InfoTabs, MEDIA_DRAG, type InsertMedia } from "./panels/Panels";
 import { RestoreButton } from "./panels/Restore";
@@ -374,7 +376,22 @@ function App() {
   const loadReminders = useCallback(() => {
     store?.openReminders().then(setReminders);
   }, [store]);
-  useEffect(loadReminders, [loadReminders, days]);
+  useEffect(loadReminders, [loadReminders, days, syncTick]);
+  const upcoming = useMemo(() => upcomingFrom(reminders, today), [reminders, today]);
+  // The phone's notifications and home-screen widget follow the reminders.
+  useEffect(() => publishReminders(reminders, today), [reminders, today]);
+  useEffect(() => startInAppNudges((d) => void goTo(d)), []);
+  // A tapped notification or widget row opens its day.
+  useEffect(() => {
+    const open = () => {
+      const d = window.JournalReminders?.takeOpenDay?.();
+      if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) void goTo(d);
+    };
+    open();
+    window.addEventListener("journal:open-day", open);
+    return () => window.removeEventListener("journal:open-day", open);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store]);
 
   useEffect(() => {
     const onHide = () => void flush();
@@ -465,17 +482,58 @@ function App() {
   );
 
   // The "/" Reminder tile: pick a future day (native date picker), then open it to write there.
-  const reminderPicker = useRef<HTMLInputElement>(null);
-  const pickReminderDay = () => {
-    const input = reminderPicker.current;
-    if (!input) return;
-    input.min = addDays(today, 1);
-    input.value = addDays(today, 1);
-    try {
-      input.showPicker();
-    } catch {
-      void goTo(addDays(today, 1));
+  // (It used to open a hidden date field that was never on the page, so the tile did nothing.)
+  const [dayPicker, setDayPicker] = useState<{ title: string; from?: string; onPick: (day: string) => void } | null>(null);
+  const pickReminderDay = () =>
+    setDayPicker({
+      title: "🔔 Remind me on…",
+      onPick: (d) => {
+        setDayPicker(null);
+        void goTo(d);
+      },
+    });
+
+  /** Moves a reminder's text to another day (added after what that day already has). */
+  const moveReminder = async (from: string, to: string) => {
+    if (!store || from === to) return;
+    await flush();
+    const src = await store.getDay(from);
+    if (!src || !docText(src.content).trim()) return;
+    const dst = await store.getDay(to);
+    const kept = (dst?.content.content ?? []).filter((b) => b.content?.length || b.type !== "paragraph");
+    const content: JSONContent = { type: "doc", content: [...kept, ...(src.content.content ?? [])] };
+    await store.saveDay({ day: to, content, plainText: docText(content) });
+    await store.saveDay({ day: from, content: { type: "doc", content: [{ type: "paragraph" }] }, plainText: "" });
+    if (src.props.repeat) {
+      await store.setDayProps(to, { repeat: src.props.repeat });
+      await store.setDayProps(from, { repeat: undefined });
     }
+    if (day === from || day === to) setPageVersion((n) => n + 1);
+    setDays(await store.listDays());
+    loadReminders();
+    showToast(`Moved to ${dayTitle(to)}`);
+  };
+  const onReminderAction = (page: UpcomingPage, a: ReminderAction) => {
+    if (!store) return;
+    const origin = page.repeatOf ?? page.day;
+    if (a.kind === "snooze") void moveReminder(origin, a.to).catch((e) => showError("Couldn't move the reminder", e));
+    else if (a.kind === "pick")
+      setDayPicker({
+        title: "⏰ Move to…",
+        from: page.day,
+        onPick: (d) => {
+          setDayPicker(null);
+          void moveReminder(origin, d).catch((e) => showError("Couldn't move the reminder", e));
+        },
+      });
+    else
+      void store
+        .setDayProps(origin, { repeat: a.repeat ?? undefined })
+        .then(() => {
+          loadReminders();
+          showToast(a.repeat ? "🔁 It will come back" : "Repeat off");
+        })
+        .catch((e) => showError("Couldn't save the repeat", e));
   };
 
   const openYear = () => {
@@ -745,7 +803,7 @@ function App() {
               }}
               onPick={goTo}
               onOpenYear={openYear}
-              below={<Upcoming inMonth pages={reminders.filter((r) => r.day > today && r.day !== day)} onPick={goTo} />}
+              below={<Upcoming inMonth pages={upcoming.filter((r) => r.day !== day)} onPick={goTo} onAction={onReminderAction} />}
               actions={
                 <>
                   <button type="button" onClick={() => setDrawerOpen(true)} aria-label="Open menu">☰</button>
@@ -901,9 +959,11 @@ function App() {
         onYear={setYearShown}
         onUpcoming={() => setUpcomingOpen(true)}
       />
+      {dayPicker && <DayPickerSheet title={dayPicker.title} from={dayPicker.from} onPick={dayPicker.onPick} onClose={() => setDayPicker(null)} />}
       <UpcomingPanel
         open={upcomingOpen}
-        pages={reminders.filter((r) => r.day > today)}
+        pages={upcoming}
+        onAction={onReminderAction}
         onPick={(d) => {
           setUpcomingOpen(false);
           setYearOpen(false);

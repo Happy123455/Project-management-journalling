@@ -4,4 +4,5 @@
     <string name="quick_note">Quick note</string>
     <string name="quick_note_long">Add a quick note to today</string>
     <string name="circle_capture">Circle to capture</string>
+    <string name="upcoming_widget">Coming up: your reminders, soonest first</string>
 </resources>

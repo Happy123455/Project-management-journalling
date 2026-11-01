@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { dayKey, dayTitle } from "../lib/timestamp";
+import { addDays, dayKey, dayTitle } from "../lib/timestamp";
+import { REPEATS, stepDay, type Repeat } from "../lib/reminders";
 import { docText } from "../lib/words";
 import { MediaPeek, mediaItemsIn, type PeekItem } from "../editor/MediaPeek";
 import { Marquee } from "../ui/Marquee";
@@ -138,7 +139,45 @@ function Countdown({ day }: { day: string }) {
 const shortDay = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
 /** One reminder. Memoised: scrolling only re-renders the rows whose squeeze changed. */
-const UpcomingRow = React.memo(function UpcomingRow({ page, squeezed, stack, folded, onPick }: { page: DayPage; squeezed: boolean; stack: number | null; folded: boolean; onPick: (day: string) => void }) {
+/** What can be done to a reminder from its row: move it to another day, or make it repeat. */
+export type ReminderAction = { kind: "snooze"; to: string } | { kind: "pick" } | { kind: "repeat"; repeat: Repeat | null };
+/** A Coming up row; a repeating reminder's row stands for its next day (`repeatOf`: the day it was written on). */
+export type UpcomingPage = DayPage & { repeatOf?: string };
+
+function RowMenu({ page, onAction, onClose }: { page: UpcomingPage; onAction: (page: UpcomingPage, a: ReminderAction) => void; onClose: () => void }) {
+  const today = dayKey(new Date());
+  const from = page.day > today ? page.day : today;
+  const act = (a: ReminderAction) => {
+    onClose();
+    onAction(page, a);
+  };
+  const current = page.props.repeat ?? null;
+  return (
+    <div className="reminder-menu" role="menu" onClick={(e) => e.stopPropagation()}>
+      {!page.repeatOf && (
+        <div className="reminder-menu-row">
+          <span>⏰ Move to</span>
+          <button type="button" onClick={() => act({ kind: "snooze", to: addDays(from, 1) })}>+1 day</button>
+          <button type="button" onClick={() => act({ kind: "snooze", to: addDays(from, 7) })}>+1 week</button>
+          <button type="button" onClick={() => act({ kind: "snooze", to: stepDay(from, "monthly") })}>+1 month</button>
+          <button type="button" onClick={() => act({ kind: "pick" })}>📅 Pick…</button>
+        </div>
+      )}
+      <div className="reminder-menu-row">
+        <span>🔁 Repeat</span>
+        <button type="button" className={!current ? "active" : ""} onClick={() => act({ kind: "repeat", repeat: null })}>Off</button>
+        {REPEATS.map((r) => (
+          <button key={r.value} type="button" className={current === r.value ? "active" : ""} onClick={() => act({ kind: "repeat", repeat: r.value })}>
+            {r.label.replace("Every ", "")}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const UpcomingRow = React.memo(function UpcomingRow({ page, squeezed, stack, folded, onPick, onAction }: { page: UpcomingPage; squeezed: boolean; stack: number | null; folded: boolean; onPick: (day: string) => void; onAction?: (page: UpcomingPage, a: ReminderAction) => void }) {
+  const [menu, setMenu] = useState(false);
   const parts = useMemo(() => firstLineParts(page.content, folded ? 200 : 120), [page.content, folded]);
   // Media in the line shows where it sits in the text; the rest of the note's media follows.
   const media = useMemo(() => {
@@ -150,8 +189,8 @@ const UpcomingRow = React.memo(function UpcomingRow({ page, squeezed, stack, fol
   );
   return (
     <li className={squeezed ? "squeezed" : ""} style={stack !== null ? ({ "--stack": stack } as React.CSSProperties) : undefined}>
-      <button type="button" className="reminder-open" onClick={() => onPick(page.day)}>
-        <span className="reminder-day">{dayTitle(page.day)}</span>
+      <button type="button" className="reminder-open" onClick={() => onPick(page.repeatOf ?? page.day)}>
+        <span className="reminder-day">{dayTitle(page.day)}{page.props.repeat && <span className="reminder-repeat" title={REPEATS.find((r) => r.value === page.props.repeat)?.label}> 🔁</span>}</span>
         <span className="reminder-short">{shortDay(page.day)}</span>
         {folded ? (
           <span className="reminder-text reminder-line">
@@ -162,6 +201,10 @@ const UpcomingRow = React.memo(function UpcomingRow({ page, squeezed, stack, fol
         )}
         <Countdown day={page.day} />
       </button>
+      {!folded && onAction && (
+        <button type="button" className="reminder-more" aria-label="Move or repeat" aria-expanded={menu} onClick={() => setMenu(!menu)}>⋯</button>
+      )}
+      {menu && onAction && <RowMenu page={page} onAction={onAction} onClose={() => setMenu(false)} />}
       {!folded && media.length > 0 && <MediaPeek items={media} />}
     </li>
   );
@@ -172,7 +215,7 @@ const UpcomingRow = React.memo(function UpcomingRow({ page, squeezed, stack, fol
  * top into thin rows stacked there, so they stay in sight. In the month, scrolling folds the whole
  * list into a thin table: day, text and days left on one line each.
  */
-export function Upcoming({ pages, onPick, title = "Coming up", inMonth = false }: { pages: DayPage[]; onPick: (day: string) => void; title?: string; inMonth?: boolean }) {
+export function Upcoming({ pages, onPick, onAction, title = "Coming up", inMonth = false }: { pages: UpcomingPage[]; onPick: (day: string) => void; onAction?: (page: UpcomingPage, a: ReminderAction) => void; title?: string; inMonth?: boolean }) {
   const list = useRef<HTMLUListElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [squeezed, setSqueezed] = useState(0);
@@ -220,7 +263,7 @@ export function Upcoming({ pages, onPick, title = "Coming up", inMonth = false }
   const rows = (
     <ul ref={list}>
       {pages.map((p, i) => (
-        <UpcomingRow key={p.day} page={p} folded={folded} squeezed={!inMonth && !folded && i < squeezed} stack={!inMonth && !folded && i < STACK_MAX ? i : null} onPick={stablePick} />
+        <UpcomingRow key={`${p.day}-${p.repeatOf ?? ""}`} page={p} onAction={onAction} folded={folded} squeezed={!inMonth && !folded && i < squeezed} stack={!inMonth && !folded && i < STACK_MAX ? i : null} onPick={stablePick} />
       ))}
     </ul>
   );
@@ -274,7 +317,7 @@ export function Upcoming({ pages, onPick, title = "Coming up", inMonth = false }
 const STACK_MAX = 5;
 
 /** Everything coming up, as its own panel (swipe left past the year view). */
-export function UpcomingPanel({ open, pages, onPick, onClose }: { open: boolean; pages: DayPage[]; onPick: (day: string) => void; onClose: () => void }) {
+export function UpcomingPanel({ open, pages, onPick, onAction, onClose }: { open: boolean; pages: UpcomingPage[]; onPick: (day: string) => void; onAction?: (page: UpcomingPage, a: ReminderAction) => void; onClose: () => void }) {
   const touch = useRef<{ x: number; y: number } | null>(null);
   return (
     <aside
@@ -296,7 +339,7 @@ export function UpcomingPanel({ open, pages, onPick, onClose }: { open: boolean;
         <button type="button" className="close" onClick={onClose} aria-label="Close">✕</button>
       </header>
       <div className="upcoming-scroll">
-        {open && (pages.length ? <Upcoming pages={pages} onPick={onPick} title={`${pages.length} ahead`} /> : <p className="hint">Nothing coming up. Write on a future day to set a reminder.</p>)}
+        {open && (pages.length ? <Upcoming pages={pages} onPick={onPick} onAction={onAction} title={`${pages.length} ahead`} /> : <p className="hint">Nothing coming up. Write on a future day to set a reminder.</p>)}
       </div>
     </aside>
   );

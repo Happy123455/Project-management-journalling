@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Coming up on the home screen (UpcomingWidget in Reminders.kt). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="14dp" android:background="@drawable/widget_bg">
+    <TextView android:id="@+id/widget_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="🔔 Coming up" android:textSize="15sp" android:textStyle="bold" android:textColor="#FFFFFF" android:paddingBottom="4dp" />
+    <TextView android:id="@+id/widget_empty" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Nothing coming up. Write on a future day to set a reminder." android:textSize="13sp" android:textColor="#B4BCE8" />
+    <LinearLayout android:id="@+id/widget_row0" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:paddingTop="5dp" android:paddingBottom="5dp" android:gravity="center_vertical">
+        <TextView android:id="@+id/widget_day0" android:layout_width="78dp" android:layout_height="wrap_content"
+            android:textSize="12sp" android:textColor="#B4BCE8" android:maxLines="1" />
+        <TextView android:id="@+id/widget_text0" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:textSize="14sp" android:textColor="#FFFFFF" android:maxLines="1" android:ellipsize="end" />
+        <TextView android:id="@+id/widget_left0" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textSize="12sp" android:textColor="#FCD34D" android:paddingStart="6dp" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/widget_row1" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:paddingTop="5dp" android:paddingBottom="5dp" android:gravity="center_vertical">
+        <TextView android:id="@+id/widget_day1" android:layout_width="78dp" android:layout_height="wrap_content"
+            android:textSize="12sp" android:textColor="#B4BCE8" android:maxLines="1" />
+        <TextView android:id="@+id/widget_text1" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:textSize="14sp" android:textColor="#FFFFFF" android:maxLines="1" android:ellipsize="end" />
+        <TextView android:id="@+id/widget_left1" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textSize="12sp" android:textColor="#FCD34D" android:paddingStart="6dp" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/widget_row2" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:paddingTop="5dp" android:paddingBottom="5dp" android:gravity="center_vertical">
+        <TextView android:id="@+id/widget_day2" android:layout_width="78dp" android:layout_height="wrap_content"
+            android:textSize="12sp" android:textColor="#B4BCE8" android:maxLines="1" />
+        <TextView android:id="@+id/widget_text2" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:textSize="14sp" android:textColor="#FFFFFF" android:maxLines="1" android:ellipsize="end" />
+        <TextView android:id="@+id/widget_left2" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textSize="12sp" android:textColor="#FCD34D" android:paddingStart="6dp" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/widget_row3" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:paddingTop="5dp" android:paddingBottom="5dp" android:gravity="center_vertical">
+        <TextView android:id="@+id/widget_day3" android:layout_width="78dp" android:layout_height="wrap_content"
+            android:textSize="12sp" android:textColor="#B4BCE8" android:maxLines="1" />
+        <TextView android:id="@+id/widget_text3" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:textSize="14sp" android:textColor="#FFFFFF" android:maxLines="1" android:ellipsize="end" />
+        <TextView android:id="@+id/widget_left3" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textSize="12sp" android:textColor="#FCD34D" android:paddingStart="6dp" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/widget_row4" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:paddingTop="5dp" android:paddingBottom="5dp" android:gravity="center_vertical">
+        <TextView android:id="@+id/widget_day4" android:layout_width="78dp" android:layout_height="wrap_content"
+            android:textSize="12sp" android:textColor="#B4BCE8" android:maxLines="1" />
+        <TextView android:id="@+id/widget_text4" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:textSize="14sp" android:textColor="#FFFFFF" android:maxLines="1" android:ellipsize="end" />
+        <TextView android:id="@+id/widget_left4" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textSize="12sp" android:textColor="#FCD34D" android:paddingStart="6dp" />
+    </LinearLayout>
+</LinearLayout>

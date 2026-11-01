@@ -109,6 +109,26 @@ class MainActivity : TauriActivity() {
     private const val MAX_SHARED_BYTES = 60L * 1024 * 1024
   }
 
+  /** A day page to open, from a tapped reminder or the Coming up widget. */
+  @Volatile private var pendingOpenDay: String? = null
+  private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+  /** Reminders: phone notifications, the Coming up widget and opening a day from them. Page: src/calendar/reminderBridge.ts. */
+  inner class ReminderBridge {
+    @JavascriptInterface fun schedule(json: String) = Reminders.schedule(this@MainActivity, json)
+    @JavascriptInterface fun setUpcoming(json: String) = Reminders.setUpcoming(this@MainActivity, json)
+    @JavascriptInterface fun takeOpenDay(): String {
+      val day = pendingOpenDay ?: return ""
+      pendingOpenDay = null
+      return day
+    }
+    @JavascriptInterface fun askNotify() = runOnUiThread {
+      if (android.os.Build.VERSION.SDK_INT >= 33 &&
+        checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+      ) askNotifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
+  }
+
   /** What was shared in (or a quick-note request), waiting for the page to take it. */
   @Volatile private var pendingShare: String? = null
 
@@ -131,6 +151,12 @@ class MainActivity : TauriActivity() {
   private fun handleIntent(intent: Intent?) {
     if (intent == null) return
     val action = intent.action
+    if (action == Reminders.OPEN_DAY) {
+      pendingOpenDay = intent.getStringExtra("day")
+      intent.action = null
+      webView?.post { webView?.evaluateJavascript("window.dispatchEvent(new Event('journal:open-day'))", null) }
+      return
+    }
     if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE && action != QUICK_NOTE && action != VOICE_NOTE) return
     val payload = JSONObject().put("quickNote", action == QUICK_NOTE || action == VOICE_NOTE).put("voice", action == VOICE_NOTE)
     val text = listOfNotNull(intent.getStringExtra(Intent.EXTRA_SUBJECT), intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString())
@@ -184,6 +210,7 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(BubbleBridge(), "JournalBubble")
     webView.addJavascriptInterface(HapticsBridge(), "JournalHaptics")
     webView.addJavascriptInterface(LocationBridge(), "JournalLocation")
+    webView.addJavascriptInterface(ReminderBridge(), "JournalReminders")
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->
       val split = payload.partition { it.uri != null }

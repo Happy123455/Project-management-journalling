@@ -100,6 +100,16 @@ export class SqliteStore implements JournalStore {
     return this.writes.run(() => this.completeReminderNow(day, actor));
   }
 
+  setDayProps(day: string, patch: Partial<DayProps>, actor = "me") {
+    return this.writes.run(async () => {
+      const page = await this.getDay(day);
+      if (!page) return;
+      const props: DayProps = { ...page.props, ...patch };
+      for (const k of Object.keys(props) as (keyof DayProps)[]) if (props[k] === undefined) delete props[k];
+      await this.setProps(page.id, actor, page.props, props, new Date().toISOString());
+    });
+  }
+
   ensurePage(title: string, actor?: string) {
     return this.writes.run(() => this.ensurePageNow(title, actor));
   }

@@ -8,6 +8,8 @@ export interface DayProps {
   reminder?: boolean;
   /** The reminder was ticked off with "Done". */
   reminderDone?: boolean;
+  /** The reminder comes back (Coming up shows its next day; the phone notifies each time). */
+  repeat?: "daily" | "weekly" | "monthly" | "yearly";
 }
 
 /** A daily page. Pages are blocks of type "day"; child blocks come later. */
@@ -116,6 +118,8 @@ export interface JournalStore {
   openReminders(): Promise<DayPage[]>;
   /** Mark a day's reminder as done. */
   completeReminder(day: string, actor?: string): Promise<void>;
+  /** Changes a day page's props (e.g. a reminder's repeat), with a props event. */
+  setDayProps(day: string, patch: Partial<DayProps>, actor?: string): Promise<void>;
   /** The named page with this title (any letter case), or null. */
   getPage(title: string): Promise<NamedPage | null>;
   /** The named page with this title, created (with an event) if it doesn't exist yet. */

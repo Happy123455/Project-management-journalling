@@ -2253,3 +2253,20 @@ html.weather-cloudy.weather-night .ambience-layer::before, html.weather-cloudy.w
 .tool-heading { font-weight: 800; }
 .tool-strike { text-decoration: line-through; }
 .tool-wikilink, .tool-source { font-size: 13px !important; }
+
+/* ───── Reminders: quick picks, move / repeat ───── */
+.day-picker-sheet { width: min(420px, calc(100vw - 24px)); }
+.day-picks { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 10px 0; }
+.day-picks button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; border-radius: 14px; text-align: left; }
+.day-picks small { color: var(--muted); font-size: 12px; }
+.day-pick-custom { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.day-pick-custom input { flex: 1; min-width: 0; padding: 6px 8px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: inherit; font: inherit; }
+.reminders li { position: relative; }
+.reminder-more { position: absolute; top: 4px; right: 4px; min-width: 28px; height: 24px; padding: 0 6px; font-size: 16px; line-height: 1; border-radius: 999px; box-shadow: none; background: var(--glass, rgba(127,127,127,0.12)); z-index: 1; }
+.reminders.folded .reminder-more { display: none; }
+.reminder-menu { flex-basis: 100%; width: 100%; display: grid; gap: 6px; margin: 6px 0 2px; padding: 8px; border-radius: 14px; background: var(--glass, rgba(127,127,127,0.1)); animation: popup-fade 0.18s ease both; }
+.reminder-menu-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; }
+.reminder-menu-row > span { color: var(--muted); min-width: 74px; }
+.reminder-menu-row button { font-size: 12px; padding: 4px 10px; border-radius: 999px; }
+.reminder-menu-row button.active { background: rgba(250, 204, 21, 0.35); font-weight: 600; }
+.reminder-repeat { font-size: 0.9em; }

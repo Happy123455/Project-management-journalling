@@ -47,6 +47,19 @@ export class MemoryStore implements JournalStore {
     return this.writes.run(() => this.completeReminderNow(day, actor));
   }
 
+  setDayProps(day: string, patch: Partial<DayProps>, actor = "me") {
+    return this.writes.run(async () => {
+      const page = await this.getDay(day);
+      if (!page) return;
+      const props: DayProps = { ...page.props, ...patch };
+      for (const k of Object.keys(props) as (keyof DayProps)[]) if (props[k] === undefined) delete props[k];
+      const now = new Date().toISOString();
+      this.logEvent(page.id, actor, "props", JSON.stringify(page.props), JSON.stringify(props), now);
+      this.data.pages[day] = { ...page, props, updatedAt: now };
+      this.storage?.setItem(KEY, JSON.stringify(this.data));
+    });
+  }
+
   ensurePage(title: string, actor?: string) {
     return this.writes.run(() => this.ensurePageNow(title, actor));
   }
