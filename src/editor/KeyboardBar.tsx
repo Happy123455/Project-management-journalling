@@ -45,7 +45,7 @@ function useVisibleBottom(): { bottom: number; keyboardOpen: boolean } {
 }
 
 /** Slim formatting bar pinned just above the phone keyboard while the editor has focus. */
-export function KeyboardBar({ editor, children }: { editor: Editor; children: ReactNode }) {
+export function KeyboardBar({ editor, children, layout }: { editor: Editor; children: ReactNode; layout?: { rows?: 1 | 2; style?: "rows" | "strip"; big?: boolean } }) {
   const [focused, setFocused] = useState(editor.isFocused);
   const { bottom, keyboardOpen } = useVisibleBottom();
 
@@ -68,7 +68,7 @@ export function KeyboardBar({ editor, children }: { editor: Editor; children: Re
   if (!focused) return null;
   return (
     <div
-      className={keyboardOpen ? "keyboard-bar keyboard-open" : "keyboard-bar"}
+      className={`keyboard-bar${keyboardOpen ? " keyboard-open" : ""}${layout?.style === "strip" ? " strip" : layout?.rows === 2 ? " rows-2" : ""}${layout?.big ? " big" : ""}`}
       role="toolbar"
       aria-label="Formatting"
       style={{ top: `${bottom}px` }}

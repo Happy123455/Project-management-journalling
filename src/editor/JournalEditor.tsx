@@ -11,7 +11,7 @@ import { AttachmentFile, AttachmentImage, AttachmentMedia, insertFiles, mediaLea
 import { codeBlockFromSelection, JournalCodeBlock } from "./codeBlock";
 import { BlockInfoExtension } from "./blockInfo";
 import { BlockHandle } from "./BlockHandle";
-import { blockIndexAt, blockPos, Blocks, foldRange, indentBlock } from "./blocks";
+import { blockIndexAt, blockPos, Blocks, foldRange, indentBlock, moveBlock } from "./blocks";
 import { AutoPairs } from "./autoPairs";
 import { BlockInfoPanel } from "./BlockInfoPanel";
 import { readAloud } from "../lib/readAloud";
@@ -23,6 +23,11 @@ import { LogBlock } from "./logBlock";
 import { KeyboardBar, useTouchDevice } from "./KeyboardBar";
 import { LinkSuggest } from "./linkSuggest";
 import { insertLogOrTime, SlashMenu } from "./slashMenu";
+import { openOutline, setViewMode, useViewMode, type ViewMode } from "./viewMode";
+import { SourceEditor } from "./SourceEditor";
+import { jumpTo, OutlinePanel } from "./Outline";
+import { docToSource, sourceMemory, sourceToDoc, type SourceMemory } from "../lib/source";
+import { docText } from "../lib/words";
 import { SmartPaste } from "./SmartPaste";
 import { Timestamp } from "./timestamp";
 import { TimestampChip } from "./timestampChip";
@@ -69,23 +74,41 @@ const EMIT_DELAY_MS = 250;
 
 const TOOLS_KEY = "dynamic-journal.toolbar";
 /** The phone bar's tool order and hidden tools, kept on this device. */
-export function loadToolLayout(): { order: string[]; hidden: string[] } {
+export interface ToolLayout {
+  order: string[];
+  hidden: string[];
+  /** Rows of tools shown at once above the phone keyboard (swipe up for more). */
+  rows?: 1 | 2;
+  /** "strip": one row that scrolls sideways instead of rows that scroll up. */
+  style?: "rows" | "strip";
+  /** Bigger buttons. */
+  big?: boolean;
+}
+export const TOOL_LAYOUT_EVENT = "journal:toolbar-layout";
+export function loadToolLayout(): ToolLayout {
   try {
     const v = JSON.parse(localStorage.getItem(TOOLS_KEY) ?? "{}");
-    return { order: Array.isArray(v.order) ? v.order : [], hidden: Array.isArray(v.hidden) ? v.hidden : [] };
+    return {
+      order: Array.isArray(v.order) ? v.order : [],
+      hidden: Array.isArray(v.hidden) ? v.hidden : [],
+      rows: v.rows === 2 ? 2 : 1,
+      style: v.style === "strip" ? "strip" : "rows",
+      big: !!v.big,
+    };
   } catch {
-    return { order: [], hidden: [] };
+    return { order: [], hidden: [], rows: 1, style: "rows" };
   }
 }
-function saveToolLayout(layout: { order: string[]; hidden: string[] }) {
+function saveToolLayout(layout: ToolLayout) {
   try {
     localStorage.setItem(TOOLS_KEY, JSON.stringify(layout));
   } catch {
     // Only a convenience.
   }
+  window.dispatchEvent(new Event(TOOL_LAYOUT_EVENT));
 }
 /** Tools in the saved order (new tools go at the end), without hidden ones unless asked. */
-export function arrangeTools<T extends { key: string }>(tools: T[], layout: { order: string[]; hidden: string[] }, withHidden = false): T[] {
+export function arrangeTools<T extends { key: string }>(tools: T[], layout: ToolLayout, withHidden = false): T[] {
   const rank = (k: string) => {
     const i = layout.order.indexOf(k);
     return i < 0 ? layout.order.length + tools.findIndex((t) => t.key === k) : i;
@@ -123,6 +146,10 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
       italic: e.isActive("italic"),
       highlight: e.isActive("highlight"),
       code: e.isActive("codeBlock"),
+      strike: e.isActive("strike"),
+      inlineCode: e.isActive("code"),
+      quote: e.isActive("blockquote"),
+      heading: e.isActive("heading") ? (e.getAttributes("heading").level as number) : 0,
       canUndo: e.can().undo(),
       canRedo: e.can().redo(),
     }),
@@ -148,6 +175,48 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
     { key: "timestamp", label: "🕒", title: "Log / time: on an empty line starts a timed log, in text adds the time (Cmd/Ctrl+Shift+T)", run: () => insertLogOrTime(editor) },
     { key: "info", label: "ⓘ", title: "Block info", run: onInfo },
     {
+      key: "heading",
+      label: active.heading ? `H${active.heading}` : "H",
+      title: "Heading (tap again for a smaller one, then back to text)",
+      active: !!active.heading,
+      run: () => {
+        const next = active.heading >= 3 ? 0 : active.heading + 1;
+        const chain = editor.chain().focus();
+        if (next) chain.setHeading({ level: next as 1 | 2 | 3 }).run();
+        else chain.setParagraph().run();
+      },
+    },
+    { key: "strike", label: "S", title: "Strikethrough", active: active.strike, run: () => editor.chain().focus().toggleStrike().run() },
+    { key: "inlinecode", label: "`", title: "Inline code", active: active.inlineCode, run: () => editor.chain().focus().toggleCode().run() },
+    { key: "quote", label: "❝", title: "Quote", active: active.quote, run: () => editor.chain().focus().toggleBlockquote().run() },
+    {
+      key: "wikilink",
+      label: "[[ ]]",
+      title: "Link a page",
+      run: () => {
+        const { from, to, empty } = editor.state.selection;
+        const picked = editor.state.doc.textBetween(from, to, " ");
+        editor.chain().focus().insertContent(`[[${picked}]]`).run();
+        if (empty) editor.commands.setTextSelection(editor.state.selection.from - 2);
+      },
+    },
+    { key: "tag", label: "#", title: "Tag", run: () => editor.chain().focus().insertContent("#").run() },
+    { key: "divider", label: "—", title: "Divider", run: () => editor.chain().focus().setHorizontalRule().run() },
+    { key: "lineup", label: "⤒", title: "Move this block up", run: block((i) => moveBlock(i, -1)) },
+    { key: "linedown", label: "⤓", title: "Move this block down", run: block((i) => moveBlock(i, 1)) },
+    { key: "outline", label: "☰", title: "Outline", run: openOutline },
+    { key: "source", label: "</>", title: "Source mode (plain text)", run: () => setViewMode("source") },
+    { key: "reading", label: "📖", title: "Reading mode", run: () => setViewMode("reading") },
+    {
+      key: "hidekb",
+      label: "⌄",
+      title: "Hide the keyboard",
+      run: () => {
+        editor.commands.blur();
+        window.JournalShare?.hideKeyboard?.();
+      },
+    },
+    {
       key: "read",
       label: "🔊",
       title: "Read aloud (the selection, or this paragraph)",
@@ -165,7 +234,7 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
   const shown = phone
     ? [...quickTools, ...(quick.length ? [] : [setupTool]), ...arranged, { key: "arrange", label: "⚙︎", title: "Arrange tools", run: () => setArranging(true) }]
     : [...quickTools, ...allTools];
-  const update = (next: { order: string[]; hidden: string[] }) => {
+  const update = (next: ToolLayout) => {
     setLayout(next);
     saveToolLayout(next);
   };
@@ -193,8 +262,25 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
         <div className="arrange-tools" role="dialog" aria-label="Arrange tools" onPointerDown={(e) => e.stopPropagation()}>
           <div className="arrange-head">
             <strong>Arrange tools</strong>
-            <button type="button" onClick={() => update({ order: [], hidden: [] })}>Reset</button>
+            <button type="button" onClick={() => update({ order: [], hidden: [], rows: 1, style: "rows" })}>Reset</button>
             <button type="button" onClick={() => setArranging(false)}>Done</button>
+          </div>
+          <div className="arrange-layout">
+            <label>
+              Layout
+              <select value={`${layout.style ?? "rows"}-${layout.rows ?? 1}`} onChange={(e) => {
+                const [style, rows] = e.target.value.split("-");
+                update({ ...layout, style: style as "rows" | "strip", rows: Number(rows) as 1 | 2 });
+              }}>
+                <option value="rows-1">1 row, swipe up for more</option>
+                <option value="rows-2">2 rows, swipe up for more</option>
+                <option value="strip-1">1 row, swipe sideways</option>
+              </select>
+            </label>
+            <label className="arrange-big">
+              <input type="checkbox" checked={!!layout.big} onChange={(e) => update({ ...layout, big: e.target.checked })} /> Bigger buttons
+            </label>
+            <p className="hint">Tick the tools you want, and move them with ↑ ↓. Quick-log buttons always come first.</p>
           </div>
           <ul>
             {arrangeTools(allTools, layout, true).map((t, i, all) => {
@@ -229,6 +315,28 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
   );
 }
 
+const MODES: { mode: ViewMode; icon: string; label: string }[] = [
+  { mode: "live", icon: "✎", label: "Live" },
+  { mode: "source", icon: "</>", label: "Source" },
+  { mode: "reading", icon: "📖", label: "Reading" },
+];
+
+/** Live / Source / Reading, and the outline: always in reach above the note. */
+function ModePill({ mode }: { mode: ViewMode }) {
+  return (
+    <div className="editor-modes" role="toolbar" aria-label="How the note is shown" onPointerDown={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()}>
+      {MODES.map((m) => (
+        <button key={m.mode} type="button" className={mode === m.mode ? "active" : ""} aria-pressed={mode === m.mode} title={`${m.label} mode`} onClick={() => setViewMode(m.mode)}>
+          <span aria-hidden>{m.icon}</span> <span className="mode-label">{m.label}</span>
+        </button>
+      ))}
+      <button type="button" title="Outline" onClick={openOutline}>
+        <span aria-hidden>☰</span> <span className="mode-label">Outline</span>
+      </button>
+    </div>
+  );
+}
+
 export function JournalEditor({
   initialContent, onChange, onReady, onReminder, onOpenLink, onOpenTag, pageNames, autofocus = true, find, onFindCount, pastDay,
 }: Props) {
@@ -236,6 +344,19 @@ export function JournalEditor({
   pastDayRef.current = pastDay;
   const touch = useTouchDevice();
   const [infoOpen, setInfoOpen] = useState(false);
+  const mode = useViewMode();
+  const [toolLayout, setToolLayout] = useState(loadToolLayout);
+  useEffect(() => {
+    const on = () => setToolLayout(loadToolLayout());
+    window.addEventListener(TOOL_LAYOUT_EVENT, on);
+    return () => window.removeEventListener(TOOL_LAYOUT_EVENT, on);
+  }, []);
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  /** Source mode: the text shown, and what the note had (media details the text doesn't show). */
+  const source = useRef<{ text: string; start: string; mem: SourceMemory } | null>(null);
+  const sourceTimer = useRef<number | undefined>(undefined);
   const editorRef = useRef<Editor | null>(null);
   const emitTimer = useRef<number | undefined>(undefined);
   const changeRef = useRef(onChange);
@@ -342,6 +463,68 @@ export function JournalEditor({
 
   editorRef.current = editor;
 
+  // Reading mode: the note can't be changed (taps open links, play clips and show photos).
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    editor.setEditable(mode !== "reading");
+    if (mode === "reading") editor.commands.blur();
+  }, [editor, mode]);
+
+  // Source mode: the text is read back into a note as it's typed (saved like any edit), and the
+  // editor takes it over again when Source mode ends.
+  const sourceEmit = useRef(() => {
+    window.clearTimeout(sourceTimer.current);
+    pendingEmits.delete(sourceEmit.current);
+    const s = source.current;
+    if (!s) return;
+    const doc = sourceToDoc(s.text, s.mem);
+    changeRef.current(doc, docText(doc));
+  });
+  if (editor && mode === "source" && !source.current) {
+    const json = editor.getJSON();
+    const text = docToSource(json);
+    source.current = { text, start: text, mem: sourceMemory(json) };
+  }
+  useEffect(() => {
+    if (!editor || mode === "source") return;
+    const s = source.current;
+    if (!s) return;
+    if (pendingEmits.has(sourceEmit.current)) sourceEmit.current();
+    source.current = null;
+    if (s.text !== s.start && !editor.isDestroyed) editor.commands.setContent(sourceToDoc(s.text, s.mem), { emitUpdate: false });
+  }, [editor, mode]);
+  useEffect(() => () => {
+    if (pendingEmits.has(sourceEmit.current)) sourceEmit.current();
+  }, []);
+  const onSource = (text: string) => {
+    if (!source.current) return;
+    source.current.text = text;
+    pendingEmits.add(sourceEmit.current);
+    window.clearTimeout(sourceTimer.current);
+    sourceTimer.current = window.setTimeout(sourceEmit.current, 400);
+  };
+
+  useEffect(() => {
+    const open = () => setOutlineOpen(true);
+    // Like Obsidian: Cmd/Ctrl+E switches Reading mode, Cmd/Ctrl+Shift+E Source mode, Cmd/Ctrl+Shift+O the outline.
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const k = e.key.toLowerCase();
+      const now = modeRef.current;
+      if (k === "e" && !e.shiftKey) setViewMode(now === "reading" ? "live" : "reading");
+      else if (k === "e" && e.shiftKey) setViewMode(now === "source" ? "live" : "source");
+      else if (k === "o" && e.shiftKey) setOutlineOpen((o) => !o);
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener("journal:outline", open);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("journal:outline", open);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
   // The line being typed never sits under the bottom edge, the phone keyboard or its tool bar
   // (the window doesn't shrink for the keyboard on Android, so ProseMirror's own scrolling can't tell).
   useEffect(() => {
@@ -429,19 +612,32 @@ export function JournalEditor({
   }, [editor]);
 
   return (
-    <div className="editor">
-      {editor && !touch && (
+    <div className={`editor mode-${mode}`}>
+      <ModePill mode={mode} />
+      {editor && mode === "source" && source.current && <SourceEditor value={source.current.text} onChange={onSource} touch={touch} autofocus={autofocus} />}
+      {editor && outlineOpen && (
+        <OutlinePanel
+          editor={editor}
+          onClose={() => setOutlineOpen(false)}
+          onJump={(pos) => {
+            if (mode === "source") setViewMode("live");
+            if (touch) setOutlineOpen(false);
+            window.setTimeout(() => jumpTo(editor, pos, unfoldAround), mode === "source" ? 80 : 0);
+          }}
+        />
+      )}
+      {editor && !touch && mode === "live" && (
         // Keep focus in the editor so Enter after a toolbar click types, not re-clicks (from #2).
         <div className="toolbar" onMouseDown={(e) => e.preventDefault()}>
           <ToolbarButtons editor={editor} onInfo={() => setInfoOpen(true)} />
         </div>
       )}
       <EditorContent editor={editor} className={touch ? "editor-body with-keyboard-bar" : "editor-body"} />
-      {editor && <BlockHandle editor={editor} touch={touch} onInfo={() => setInfoOpen(true)} />}
-      {editor && <SmartPaste editor={editor} />}
+      {editor && mode === "live" && <BlockHandle editor={editor} touch={touch} onInfo={() => setInfoOpen(true)} />}
+      {editor && mode === "live" && <SmartPaste editor={editor} />}
       {editor && infoOpen && <BlockInfoPanel editor={editor} onClose={() => setInfoOpen(false)} />}
-      {editor && touch && (
-        <KeyboardBar editor={editor}>
+      {editor && touch && mode === "live" && (
+        <KeyboardBar editor={editor} layout={toolLayout}>
           <ToolbarButtons editor={editor} onInfo={() => setInfoOpen(true)} phone />
         </KeyboardBar>
       )}

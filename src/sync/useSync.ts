@@ -74,7 +74,7 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
           if (result.imported || result.files) imported.current();
           // Once per launch, after the first round (so this device has both sides' history): put
           // back link cards and media the old merge dropped. Never while typing.
-          const typing = !!document.activeElement?.closest?.(".tiptap");
+          const typing = !!document.activeElement?.closest?.(".tiptap, .source-text");
           if (!repaired.current && !typing) {
             repaired.current = true;
             await window.__journalFlush?.();

@@ -2195,3 +2195,61 @@ html.weather-cloudy.weather-night .ambience-layer::before, html.weather-cloudy.w
 .search-filters small { opacity: 0.7; }
 .search-recent-clear { box-shadow: none; background: none; border: 0; }
 .search-tips { padding: 0 12px; font-size: 12px; }
+
+/* ───── Live / Source / Reading, and the outline ───── */
+.editor-modes { display: flex; gap: 2px; justify-content: flex-end; margin: 0 0 6px auto; width: fit-content; padding: 2px; border-radius: 999px; background: var(--glass, rgba(127,127,127,0.1)); }
+.editor-modes button { border: 0; box-shadow: none; background: transparent; font-size: 12px; padding: 3px 10px; border-radius: 999px; min-height: 0; height: auto; color: var(--muted); }
+.editor-modes button.active { background: var(--glass-strong, rgba(255,255,255,0.85)); color: var(--text, inherit); font-weight: 600; }
+@media (max-width: 480px) { .editor-modes .mode-label { display: none; } .editor-modes button { padding: 4px 11px; font-size: 14px; } }
+.editor.mode-source > .editor-body, .editor.mode-source > .toolbar { display: none; }
+.editor.mode-reading .block-handle, .editor.mode-reading .block-bottom-fold, .editor.mode-reading .code-bottom-fold { display: none !important; }
+.editor.mode-reading .tiptap { caret-color: transparent; font-size: 1.04em; line-height: 1.7; }
+.editor.mode-reading .tiptap .block-box-fold, .editor.mode-reading .tiptap .block-heading-fold { pointer-events: auto; }
+.source-mode { display: flex; flex-direction: column; gap: 6px; }
+.source-text { width: 100%; box-sizing: border-box; min-height: 50vh; resize: none; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; font: inherit; font-size: 15px; line-height: 1.6; background: color-mix(in srgb, var(--panel) 60%, transparent); color: inherit; tab-size: 4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.source-text:focus { outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+.source-text.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 14px; }
+.source-stats { margin: 0; font-size: 11px; color: var(--muted); text-align: right; }
+.source-tools { display: flex; gap: 4px; flex-wrap: wrap; }
+.source-tools .tool { font-size: 14px; padding: 4px 8px; min-width: 34px; }
+.keyboard-bar.source-bar { display: block; height: 44px; overflow: hidden; }
+.keyboard-bar.source-bar .source-tools { flex-wrap: nowrap; overflow-x: auto; height: 44px; align-items: center; scrollbar-width: none; }
+.keyboard-bar.source-bar .source-tools::-webkit-scrollbar { display: none; }
+.keyboard-bar.source-bar .tool { flex: none; height: 38px; min-width: 42px; font-size: 16px; }
+.mode-source .source-text { padding-bottom: 40vh; }
+@media (pointer: fine) { .mode-source .source-text { padding-bottom: 14px; } }
+.outline-backdrop { position: fixed; inset: 0; z-index: 46; background: rgba(0, 0, 0, 0.25); }
+.outline-panel { position: fixed; z-index: 47; top: max(10px, env(safe-area-inset-top)); right: 8px; bottom: max(10px, env(safe-area-inset-bottom)); width: min(340px, calc(100vw - 16px)); display: flex; flex-direction: column; border-radius: 20px; border: 1px solid var(--border); background: color-mix(in srgb, var(--panel) 88%, transparent); -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4); box-shadow: 0 16px 50px rgba(0, 0, 0, 0.3); animation: outline-in 0.28s cubic-bezier(0.2, 1.2, 0.4, 1) both; }
+@keyframes outline-in { from { transform: translateX(30px); opacity: 0; } }
+.outline-panel header { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.outline-panel header input { flex: 1; min-width: 0; font-size: 13px; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: inherit; }
+.outline-panel header button { border: 0; box-shadow: none; background: none; }
+.outline-panel ul { list-style: none; margin: 0; padding: 6px 4px 12px; overflow-y: auto; }
+.outline-panel li button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 0; box-shadow: none; background: transparent; padding: 6px 8px; border-radius: 10px; font-size: 14px; color: inherit; }
+.outline-panel li button:hover, .outline-panel li button:active { background: var(--glass, rgba(127,127,127,0.12)); }
+.outline-panel li hr { border: 0; border-top: 1px dashed var(--border); margin: 6px 8px; }
+.outline-icon { flex: none; width: 26px; text-align: center; font-size: 12px; font-weight: 700; color: var(--muted); }
+.outline-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outline-heading .outline-label { font-weight: 600; }
+.outline-folded { color: var(--muted); font-size: 11px; }
+.outline-flash { animation: outline-flash 1.5s ease; border-radius: 6px; }
+@keyframes outline-flash { 0%, 40% { background: rgba(250, 204, 21, 0.35); box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.25); } }
+/* Phone tool bar layouts (Arrange tools ⚙︎): two rows, or one row that scrolls sideways; bigger buttons. */
+.keyboard-bar.rows-2 { height: 88px; }
+.keyboard-bar.strip { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; gap: 4px; }
+.keyboard-bar.strip .tool { flex: 0 0 calc((100% - 7 * 4px) / 8); scroll-snap-align: start; }
+.keyboard-bar.big { grid-template-columns: repeat(6, 1fr); grid-auto-rows: 52px; height: 52px; }
+.keyboard-bar.big.rows-2 { height: 104px; }
+.keyboard-bar.big .tool { height: 48px; font-size: 22px; }
+.keyboard-bar.big.strip .tool { flex-basis: calc((100% - 5 * 4px) / 6); }
+.keyboard-bar .tool .gif-icon, .toolbar .tool .gif-icon { width: 28px; height: 28px; object-fit: cover; border-radius: 8px; display: block; margin: auto; }
+.quick-log-icon .gif-icon { width: 30px; height: 30px; object-fit: cover; border-radius: 8px; }
+.quick-log-gifs { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 6px; width: 100%; margin-top: 6px; max-height: 220px; overflow-y: auto; }
+.quick-log-gifs button { padding: 2px; aspect-ratio: 1; }
+.quick-log-gifs .gif-icon { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
+.arrange-layout { display: grid; gap: 6px; margin-bottom: 8px; font-size: 13px; }
+.arrange-layout label { display: flex; align-items: center; gap: 8px; }
+.arrange-layout select { flex: 1; }
+.tool-heading { font-weight: 800; }
+.tool-strike { text-decoration: line-through; }
+.tool-wikilink, .tool-source { font-size: 13px !important; }

@@ -148,7 +148,7 @@ function App() {
     // Mac: quick logs waiting for an icon get one from the local model.
     if (store) void assignQuickLogIcons(store).catch(() => {});
     // Show what arrived on the open page, unless it's being typed in right now.
-    const typing = !!pending.current || !!document.activeElement?.closest?.(".tiptap");
+    const typing = !!pending.current || !!document.activeElement?.closest?.(".tiptap, .source-text");
     if (!typing) setPageVersion((n) => n + 1);
   });
 
