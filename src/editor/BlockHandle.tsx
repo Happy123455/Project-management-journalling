@@ -123,7 +123,8 @@ export function BlockHandle({ editor, touch, onInfo }: { editor: Editor; touch: 
   const doc = editor.state.doc;
   if (index >= doc.childCount) return null;
   const node = doc.child(index);
-  const hasChildren = foldRange(doc, index).end > index + 1;
+  // Headings fold from their own ▾ in the text.
+  const hasChildren = node.type.name !== "heading" && foldRange(doc, index).end > index + 1;
   const isText = TEXT_TYPES.has(node.type.name);
 
   /** Puts the cursor in the block first, for commands that act on the selection. */

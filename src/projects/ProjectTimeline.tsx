@@ -28,9 +28,10 @@ type Entry = ProjectEntry & { n: number };
 /** When the entry was written: the first timestamp in it (Hapi's format), or null. */
 export function entryTime(e: ProjectEntry): { date: Date; hour: number } | null {
   for (const line of e.lines) {
-    TIMESTAMP_RE.lastIndex = 0;
-    const m = TIMESTAMP_RE.exec(line);
-    if (m) {
+    // A fresh copy: the shared pattern is global and keeps its place between uses.
+    for (const m of line.matchAll(new RegExp(TIMESTAMP_RE.source, "g"))) {
+      // "✎ " + time is when an older day was edited, not when the entry was written.
+      if (line.slice(Math.max(0, m.index! - 2), m.index) === "✎ ") continue;
       const [, d, month, y, , hh, mm, ss] = m;
       return { date: new Date(Number(y), MONTHS.indexOf(month), Number(d), Number(hh), Number(mm), Number(ss)), hour: Number(hh) };
     }
@@ -182,8 +183,8 @@ function NoteMode({ entries, onOpenDay, ...links }: ViewProps) {
 const timeLabel = (e: Entry) => {
   const t = entryTime(e);
   const date = t?.date ?? new Date(`${e.day}T12:00:00`);
-  const d = date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "2-digit" });
-  return t ? `${d}, ${String(t.date.getHours()).padStart(2, "0")}:${String(t.date.getMinutes()).padStart(2, "0")}` : d;
+  const d = date.toLocaleDateString(undefined, { day: "numeric", month: "short", ...(date.getFullYear() !== new Date().getFullYear() ? { year: "2-digit" } : {}) });
+  return t ? `${d} · ${String(t.date.getHours()).padStart(2, "0")}:${String(t.date.getMinutes()).padStart(2, "0")}` : d;
 };
 
 /** Time, Day N and a one-line ticker; the row takes the sky's colour at the hour it was written. */
@@ -216,7 +217,7 @@ function TableMode({ entries, onOpenDay, ...links }: ViewProps) {
                 <td className="entries-n">Day {e.n}</td>
                 <td className="entries-text">
                   <Marquee>
-                    <span>{e.lines.map((l) => l.trim()).join("  ·  ").replace(/\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_, a, b) => b || a).replace(TIMESTAMP_RE, "").replace(/\s+/g, " ")}</span>
+                    <span>{e.lines.map((l) => l.trim()).join("  ·  ").replace(/\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_, a, b) => b || a).replace(new RegExp(`(✎ )?${TIMESTAMP_RE.source}`, "g"), "").replace(/\s+/g, " ")}</span>
                   </Marquee>
                 </td>
               </tr>

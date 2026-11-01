@@ -73,6 +73,8 @@ export function flushPendingEdits() {
 const EMIT_DELAY_MS = 250;
 
 const TOOLS_KEY = "dynamic-journal.toolbar";
+/** Tools the Mac's toolbar leaves out (the mode pill and the keyboard cover them there). */
+const PHONE_ONLY = new Set(["hidekb", "lineup", "linedown", "outline", "source", "reading"]);
 /** The phone bar's tool order and hidden tools, kept on this device. */
 export interface ToolLayout {
   order: string[];
@@ -233,7 +235,7 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
   const arranged = arrangeTools(allTools, layout).filter((t) => quick.length || t.key !== "quicklog");
   const shown = phone
     ? [...quickTools, ...(quick.length ? [] : [setupTool]), ...arranged, { key: "arrange", label: "⚙︎", title: "Arrange tools", run: () => setArranging(true) }]
-    : [...quickTools, ...allTools];
+    : [...quickTools, ...allTools.filter((t) => !PHONE_ONLY.has(t.key))];
   const update = (next: ToolLayout) => {
     setLayout(next);
     saveToolLayout(next);

@@ -287,7 +287,7 @@ export function blockDecorations(doc: PMNode): DecorationSet {
           }, { side: -1, key: `hfold-${i}-${node.attrs.collapsed}`, ignoreSelection: true }),
         );
       }
-      if (!node.attrs.collapsed) {
+      if (!node.attrs.collapsed && range.end - i > 3) {
         // A fold button after the last hidden-able block too: fold a long block from its bottom.
         const last = doc.child(range.end - 1);
         const endPos = blockPos(doc, range.end) - 1;
