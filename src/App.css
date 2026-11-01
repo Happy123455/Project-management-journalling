@@ -2097,3 +2097,6 @@ html.weather-cloudy.weather-night .ambience-layer::before, html.weather-cloudy.w
 .attach-image.align-inline.sized { max-width: 100%; }
 .sync-live { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 999px; font-size: 12px; background: rgba(250, 204, 21, 0.18); color: #a16207; animation: live-pulse 2s ease-in-out infinite; }
 @keyframes live-pulse { 50% { box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.15); } }
+/* Coming up (open): GIFs and photos sit in the line where they are in the note. */
+.reminder-inline { display: block; line-height: 1.6; }
+.reminder-inline .inline-peek .peek-item { width: 44px; height: 30px; }

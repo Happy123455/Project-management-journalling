@@ -22,6 +22,8 @@ export interface ProjectInfo {
   icon?: string;
   /** No icon picked: the Mac's local model picks one (it arrives on the phone by sync). */
   iconAuto?: boolean;
+  /** A GIF (or meme clip) from the journal's media as the button's icon, instead of the emoji. */
+  iconFile?: string;
 }
 
 /** The tag that files a task under a project: "Project X" → "project-x". */

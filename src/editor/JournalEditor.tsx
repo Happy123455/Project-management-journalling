@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { EditorContent, useEditor, useEditorState, type Editor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { cleanPastedHTML } from "../lib/smartPaste";
-import { formatTimestamp } from "../lib/timestamp";
 import { LinkHighlight } from "./linkHighlight";
 import { hasEmbeds } from "../lib/embeds";
 import { AttachmentFile, AttachmentImage, AttachmentMedia, insertFiles, mediaLeafText, pasteEmbeds, upgradeOldMedia } from "./attachments";
@@ -15,7 +14,6 @@ import { BlockHandle } from "./BlockHandle";
 import { blockIndexAt, Blocks, indentBlock } from "./blocks";
 import { AutoPairs } from "./autoPairs";
 import { BlockInfoPanel } from "./BlockInfoPanel";
-import { saveToInspiration } from "./inspiration";
 import { readAloud } from "../lib/readAloud";
 import { isLoneUrl, LinkCard } from "./linkCard";
 import { PromptBlock } from "./promptBlock";
@@ -24,12 +22,12 @@ import { FindHighlight, findKey } from "./findHighlight";
 import { LogBlock } from "./logBlock";
 import { KeyboardBar, useTouchDevice } from "./KeyboardBar";
 import { LinkSuggest } from "./linkSuggest";
-import { SlashMenu } from "./slashMenu";
+import { insertLogOrTime, SlashMenu } from "./slashMenu";
 import { SmartPaste } from "./SmartPaste";
 import { Timestamp } from "./timestamp";
 import { TimestampChip } from "./timestampChip";
 import { EditStamp } from "./editStamp";
-import { insertQuickLog, openQuickLogSetup, useQuickLogs } from "../projects/quickLog";
+import { GifIcon, insertQuickLog, openQuickLogSetup, useQuickLogs } from "../projects/quickLog";
 
 interface Props {
   initialContent: JSONContent | null;
@@ -53,7 +51,7 @@ interface Props {
 
 interface Tool {
   key: string;
-  label: string;
+  label: React.ReactNode;
   title: string;
   run: () => void;
   active?: boolean;
@@ -132,14 +130,8 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
     { key: "italic", label: "I", title: "Italic (Cmd/Ctrl+I)", active: active.italic, run: () => editor.chain().focus().toggleItalic().run() },
     { key: "highlight", label: "H", title: "Highlight (Cmd/Ctrl+Shift+H)", active: active.highlight, run: () => editor.chain().focus().toggleHighlight().run() },
     { key: "code", label: "</>", title: "Code block (or type ``` and Enter)", active: active.code, run: () => codeBlockFromSelection(editor) },
-    { key: "timestamp", label: "🕒", title: "Insert timestamp (Cmd/Ctrl+Shift+T)", run: () => editor.chain().focus().insertContent(formatTimestamp(new Date()) + " ").run() },
+    { key: "timestamp", label: "🕒", title: "Log / time: on an empty line starts a timed log, in text adds the time (Cmd/Ctrl+Shift+T)", run: () => insertLogOrTime(editor) },
     { key: "info", label: "ⓘ", title: "Block info", run: onInfo },
-    {
-      key: "inspire",
-      label: "✨",
-      title: "Save this block to Inspiration",
-      run: () => void saveToInspiration(editor, document.querySelector(".page-header h1")?.textContent?.trim() ?? ""),
-    },
     {
       key: "read",
       label: "🔊",
@@ -151,7 +143,7 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
     },
   ];
   // Quick log: one tap adds a project's box (its icon picked by hand or by the Mac's AI). They come first.
-  const quickTools: Tool[] = quick.map((q) => ({ key: `ql:${q.id}`, label: q.icon ?? "⚡", title: `Quick log: ${q.title}`, run: () => insertQuickLog(editor, q.title) }));
+  const quickTools: Tool[] = quick.map((q) => ({ key: `ql:${q.id}`, label: q.iconFile ? <GifIcon fileId={q.iconFile} /> : q.icon ?? "⚡", title: `Quick log: ${q.title}`, run: () => insertQuickLog(editor, q.title) }));
   const setupTool: Tool = { key: "quicklog", label: "⚡", title: "Quick log buttons", run: openQuickLogSetup };
   const allTools = [...tools, setupTool];
   const arranged = arrangeTools(allTools, layout).filter((t) => quick.length || t.key !== "quicklog");

@@ -170,9 +170,15 @@ const shortDay = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString
 
 /** One reminder. Memoised: scrolling only re-renders the rows whose squeeze changed. */
 const UpcomingRow = React.memo(function UpcomingRow({ page, squeezed, stack, folded, onPick }: { page: DayPage; squeezed: boolean; stack: number | null; folded: boolean; onPick: (day: string) => void }) {
-  const text = useMemo(() => snippet(page), [page.content]);
-  const media = useMemo(() => mediaItemsIn(page.content), [page.content]);
-  const parts = useMemo(() => (folded ? firstLineParts(page.content) : []), [page.content, folded]);
+  const parts = useMemo(() => firstLineParts(page.content, folded ? 200 : 120), [page.content, folded]);
+  // Media in the line shows where it sits in the text; the rest of the note's media follows.
+  const media = useMemo(() => {
+    const inline = new Set(parts.flatMap((p) => ("media" in p && "fileId" in p.media ? [p.media.fileId] : [])));
+    return mediaItemsIn(page.content).filter((m) => !("fileId" in m) || !inline.has(m.fileId));
+  }, [page.content, parts]);
+  const line = parts.map((p, i) =>
+    "text" in p ? <span key={i}>{p.text}</span> : <span key={i} className="inline-peek"><MediaPeek items={[p.media]} /></span>,
+  );
   return (
     <li className={squeezed ? "squeezed" : ""} style={stack !== null ? ({ "--stack": stack } as React.CSSProperties) : undefined}>
       <button type="button" className="reminder-open" onClick={() => onPick(page.day)}>
@@ -180,18 +186,14 @@ const UpcomingRow = React.memo(function UpcomingRow({ page, squeezed, stack, fol
         <span className="reminder-short">{shortDay(page.day)}</span>
         {folded ? (
           <span className="reminder-text reminder-line">
-            <Marquee>
-              {parts.map((p, i) =>
-                "text" in p ? <span key={i}>{p.text}</span> : <span key={i} className="inline-peek"><MediaPeek items={[p.media]} /></span>,
-              )}
-            </Marquee>
+            <Marquee>{line}</Marquee>
           </span>
         ) : (
-          <span className="reminder-text">{text}</span>
+          <span className="reminder-text reminder-inline">{line}</span>
         )}
         <Countdown day={page.day} />
       </button>
-      {!folded && <MediaPeek items={media} />}
+      {!folded && media.length > 0 && <MediaPeek items={media} />}
     </li>
   );
 });

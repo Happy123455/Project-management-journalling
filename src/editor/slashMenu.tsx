@@ -7,10 +7,19 @@ import { formatTimestamp } from "../lib/timestamp";
 import { openCapture, pickFiles } from "./attachments";
 import { openVoiceRecorder } from "./VoiceRecorder";
 import { openMemeKit } from "./MemeKit";
-import { saveToInspiration } from "./inspiration";
 
-/** Where the editor is (the page title), for "saved from" notes. */
-const placeLabel = () => document.querySelector(".page-header h1")?.textContent?.trim() ?? "";
+/**
+ * Log and timestamp in one: on an empty line it starts a log (a list whose entries each begin with
+ * the time; Enter adds the next one), inside text it puts the time where the cursor is.
+ */
+export function insertLogOrTime(editor: Editor) {
+  const { $from, empty } = editor.state.selection;
+  const inList = editor.isActive("bulletList") || editor.isActive("orderedList") || editor.isActive("taskList");
+  const blankLine = empty && $from.parent.type.name === "paragraph" && $from.parent.content.size === 0;
+  const chain = editor.chain().focus();
+  if (blankLine && !inList) chain.toggleBulletList();
+  return chain.insertContent(formatTimestamp(new Date()) + " ").run();
+}
 
 export interface SlashMenuOptions {
   /** Called by the Reminder tile; the app opens a day picker for a future page. */
@@ -30,7 +39,9 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
     case "quote": return chain.toggleBlockquote().run();
     case "code": return chain.toggleCodeBlock().run();
     case "divider": return chain.setHorizontalRule().run();
-    case "timestamp": return chain.insertContent(formatTimestamp(new Date()) + " ").run();
+    case "timestamp":
+      chain.run();
+      return insertLogOrTime(editor);
     case "tag": return chain.insertContent("#").run();
     case "link": {
       chain.insertContent("[[]]").run();
@@ -61,10 +72,6 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       chain.run();
       openMemeKit(editor, "sounds");
       return true;
-    case "inspiration":
-      chain.run();
-      void saveToInspiration(editor, placeLabel());
-      return true;
     case "prompt":
       return chain.insertContent({ type: "promptBlock" }).run();
     case "logproject":
@@ -75,9 +82,6 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       chain.run();
       window.dispatchEvent(new CustomEvent("journal:new-project", { detail: { editor } }));
       return true;
-    case "log":
-      // A list whose items each start with the time; Enter adds the next timestamped entry.
-      return chain.toggleBulletList().insertContent(formatTimestamp(new Date()) + " ").run();
   }
 }
 

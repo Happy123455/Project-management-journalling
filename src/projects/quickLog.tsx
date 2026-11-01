@@ -5,15 +5,17 @@ import { TextSelection } from "@tiptap/pm/state";
 import { loadAiSettings } from "../ai/settings";
 import { OLLAMA_URL } from "../ai/providers";
 import { isDesktopApp } from "../bubble/macBubble";
-import { journalStore } from "../editor/attachments";
+import { journalStore, useFileUrl } from "../editor/attachments";
 import { showError, showToast } from "../lib/toast";
-import type { JournalStore, NamedPage } from "../store";
+import type { FileRecord, JournalStore, NamedPage } from "../store";
 
 /** A quick-log button: the project it logs into and its icon. */
 export interface QuickLog {
   id: string;
   title: string;
   icon: string | null;
+  /** A GIF or clip from the journal shown instead of the emoji. */
+  iconFile: string | null;
 }
 
 export const QUICK_LOG_CHANGED = "journal:quick-log";
@@ -21,7 +23,7 @@ export const QUICK_LOG_CHANGED = "journal:quick-log";
 export async function quickLogs(store: JournalStore): Promise<QuickLog[]> {
   return (await store.projects())
     .filter((p) => p.props.project?.quickLog && p.props.project.status !== "done")
-    .map((p) => ({ id: p.id, title: p.title, icon: p.props.project?.icon ?? null }));
+    .map((p) => ({ id: p.id, title: p.title, icon: p.props.project?.icon ?? null, iconFile: p.props.project?.iconFile ?? null }));
 }
 
 /**
@@ -125,6 +127,22 @@ export function useQuickLogs(): QuickLog[] {
   return list;
 }
 
+/** GIFs and looping clips in the journal: what a quick-log button can show as its icon. */
+const isGifLike = (f: FileRecord) => f.mime === "image/gif" || /^(gif|meme|greenscreen)-/.test(f.name) || f.mime === "image/webp";
+
+/** A small, looping GIF or clip as a button icon. */
+export function GifIcon({ fileId, mime }: { fileId: string; mime?: string }) {
+  const [file, setFile] = useState<FileRecord | null>(null);
+  useEffect(() => {
+    if (!mime) void journalStore()?.getFile(fileId).then(setFile);
+  }, [fileId, mime]);
+  const type = mime ?? file?.mime ?? "";
+  const video = type.startsWith("video/");
+  const { url } = useFileUrl(type ? fileId : null, video);
+  if (!url) return <span className="gif-icon loading">🎞</span>;
+  return video ? <video className="gif-icon" src={url} autoPlay loop muted playsInline aria-hidden /> : <img className="gif-icon" src={url} alt="" draggable={false} />;
+}
+
 export const openQuickLogSetup = () => window.dispatchEvent(new Event("journal:quick-log-setup"));
 
 /** Which projects get a quick-log button, and their icons (picked by hand, or by the Mac's AI). */
@@ -133,6 +151,7 @@ export function QuickLogSetup() {
   const [projects, setProjects] = useState<NamedPage[]>([]);
   const [picking, setPicking] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [gifs, setGifs] = useState<FileRecord[] | null>(null);
   const store = journalStore();
   const reload = () => void store?.projects().then((all) => setProjects(all.filter((p) => p.props.project?.status !== "done")));
   useEffect(() => {
@@ -183,7 +202,7 @@ export function QuickLogSetup() {
             return (
               <li key={p.id}>
                 <button type="button" className="quick-log-icon" onClick={() => setPicking(picking === p.id ? null : p.id)} aria-label={`Icon for ${p.title}`}>
-                  {busy === p.id ? "…" : info.icon ?? (info.iconAuto ? "✨" : "＋")}
+                  {busy === p.id ? "…" : info.iconFile ? <GifIcon fileId={info.iconFile} /> : info.icon ?? (info.iconAuto ? "✨" : "＋")}
                 </button>
                 <span className="quick-log-title">
                   {p.title}
@@ -195,8 +214,30 @@ export function QuickLogSetup() {
                 {picking === p.id && (
                   <div className="quick-log-emoji">
                     <button type="button" className="quick-log-ai" onClick={() => void aiPick(p)}>✨ Let the Mac's AI pick</button>
+                    <button
+                      type="button"
+                      className="quick-log-ai"
+                      onClick={() => void store.listFiles().then((all) => setGifs(all.filter(isGifLike)))}
+                    >
+                      🎞 Use a GIF
+                    </button>
+                    {info.iconFile && (
+                      <button type="button" className="quick-log-ai" onClick={() => void save(p, { iconFile: undefined })}>
+                        ✕ Remove GIF
+                      </button>
+                    )}
+                    {gifs && (
+                      <div className="quick-log-gifs">
+                        {gifs.length === 0 && <p className="hint">No GIFs in the journal yet: add one from the meme kit or paste one from the keyboard.</p>}
+                        {gifs.map((g) => (
+                          <button key={g.id} type="button" onClick={() => (setPicking(null), setGifs(null), void save(p, { iconFile: g.id, quickLog: true }))}>
+                            <GifIcon fileId={g.id} mime={g.mime} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {EMOJI.map((e) => (
-                      <button key={e} type="button" onClick={() => (setPicking(null), void save(p, { icon: e, iconAuto: false, quickLog: true }))}>
+                      <button key={e} type="button" onClick={() => (setPicking(null), void save(p, { icon: e, iconAuto: false, iconFile: undefined, quickLog: true }))}>
                         {e}
                       </button>
                     ))}

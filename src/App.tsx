@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import type { Editor, JSONContent } from "@tiptap/react";
 import { MonthCalendar, YearPanel } from "./calendar/Calendar";
-import { DueReminders, Upcoming, UpcomingPanel } from "./calendar/Upcoming";
+import { Upcoming, UpcomingPanel } from "./calendar/Upcoming";
 import { BacklinkList, PageView, TagView, type LinkHandlers } from "./pages/LinkViews";
 import { DaysList, Drawer, InfoTabs, MEDIA_DRAG, type InsertMedia } from "./panels/Panels";
 import { RestoreButton } from "./panels/Restore";
@@ -375,12 +375,6 @@ function App() {
     store?.openReminders().then(setReminders);
   }, [store]);
   useEffect(loadReminders, [loadReminders, days]);
-
-  const completeReminder = async (d: string) => {
-    if (!store) return;
-    await store.completeReminder(d);
-    loadReminders();
-  };
 
   useEffect(() => {
     const onHide = () => void flush();
@@ -760,9 +754,7 @@ function App() {
                 </>
               }
             />
-            {day === today && (
-              <DueReminders pages={reminders.filter((r) => r.day <= today)} onPick={goTo} onDone={completeReminder} />
-            )}
+            {/* Reminders only look ahead: a day's notes are on that day's page once it comes. */}
 
             {page === undefined || loadedDay !== day ? (
               <p className="loading">Loading…</p>
