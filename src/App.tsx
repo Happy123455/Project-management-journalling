@@ -50,6 +50,7 @@ import { countWords, docText } from "./lib/words";
 import { openStore, type DayPage, type JournalStore, type NamedPage, type SearchHit } from "./store";
 import { dayBlockId } from "./store/ids";
 import "./App.css";
+import "./themes.css";
 
 const SAVE_DELAY_MS = 800;
 /** Numbers the saved copies put into an open note after a sync (see liveTyping). */

@@ -11,6 +11,7 @@ import type { AiChange, JournalStore } from "../store";
 import { mcpAvailable, mcpEnabled, setMcpServer } from "../mcp";
 import { isDesktopApp, macBubbleEnabled, setMacBubble } from "../bubble/macBubble";
 import { editorPrefs, setEditorPrefs, type EditorPrefs } from "../lib/editorPrefs";
+import { THEMES, currentTheme, setTheme } from "../lib/theme";
 import { CANVAS_ACTIONS, loadGestures, saveGestures, type CanvasAction, type Gestures } from "../lib/gestures";
 
 const money = (usd: number) => (usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`);
@@ -313,9 +314,42 @@ function EditorSettings() {
   );
 }
 
+/** Theme picker, like Obsidian's: a card per theme with a small preview. Kept on this device. */
+function ThemeSection() {
+  const [theme, setT] = useState(currentTheme);
+  return (
+    <section className="settings-section">
+      <h2>Theme</h2>
+      <div className="theme-picker" role="radiogroup" aria-label="Theme">
+        {THEMES.map((t) => (
+          <button key={t.id} type="button" role="radio" aria-checked={theme === t.id} className="theme-card" onClick={() => setT(setTheme(t.id))}>
+            <span className={`theme-preview ${t.id}`} aria-hidden="true">
+              <i className="tp-card" />
+              <i className="tp-button" />
+              <i className="tp-well" />
+            </span>
+            <span className="theme-card-name">
+              {t.name}
+              {theme === t.id && <span className="theme-check">✓</span>}
+            </span>
+            <span className="theme-card-hint">{t.hint}</span>
+          </button>
+        ))}
+      </div>
+      <p className="hint">Light or dark follows the system setting.</p>
+    </section>
+  );
+}
+
 /** Optional light, weather and sound on the glass. */
 function AmbienceSection() {
   const [a, setA] = useState(ambienceSettings);
+  const [theme, setThemeState] = useState(currentTheme);
+  useEffect(() => {
+    const on = () => setThemeState(currentTheme());
+    window.addEventListener("journal:theme", on);
+    return () => window.removeEventListener("journal:theme", on);
+  }, []);
   const row = (key: keyof AmbienceSettings, label: string) => (
     <label className="settings-toggle">
       <input type="checkbox" checked={a[key]} onChange={(e) => setA(setAmbienceSettings({ [key]: e.target.checked }))} />
@@ -328,6 +362,7 @@ function AmbienceSection() {
       {row("daylight", "Brightness follows the time of day")}
       {row("weather", "Weather on the glass (sun rays, clouds, rain drops)")}
       {row("sounds", "Glass sounds and haptics when touching and swiping")}
+      {theme !== "glass" && <p className="hint">Brightness and weather show only with the Liquid glass theme.</p>}
       <p className="hint">Weather uses Open-Meteo for this device’s rough location (asked once, then remembered for 6 hours), checked every 30 minutes.</p>
     </section>
   );
@@ -427,7 +462,7 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
   };
 
   const pages: { id: SettingsPage; icon: string; name: string; hint: string }[] = [
-    { id: "general", icon: "✦", name: "Appearance", hint: "Light, weather, sounds, gestures" },
+    { id: "general", icon: "✦", name: "Appearance", hint: "Theme, light, weather, sounds, gestures" },
     { id: "editor", icon: "✎", name: "Editor", hint: "Code blocks, quick log, bubble" },
     { id: "ai", icon: "✨", name: "AI", hint: "Provider, models, grammar" },
     { id: "voice", icon: "🔊", name: "Read aloud", hint: "Voice and speed" },
@@ -439,6 +474,7 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
     <>
       {page === "general" && (
         <>
+          <ThemeSection />
           <AmbienceSection />
           <GestureSettings />
         </>

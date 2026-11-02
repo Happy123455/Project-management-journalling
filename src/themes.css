@@ -1,0 +1,329 @@
+/* ───────────── Themes ─────────────
+   Liquid glass is the base look (App.css). Other themes are layers chosen in Settings → Appearance
+   and set as data-theme on <html> (src/lib/theme.ts).
+
+   Every rule here is prefixed with `:where(html[data-theme="…"])`, which adds no specificity, so a
+   rule wins only over the App.css rule it mirrors (this file loads after App.css) and never over a
+   more specific one. That keeps special buttons (flat icons, coloured actions, heat-map days) as
+   they are while the generic surfaces change. */
+
+/* ═══════════ Soft UI (neumorphism) ═══════════
+   One soft colour for the page and everything on it. Shapes come out of the surface with two
+   shadows (light from the top left, shade to the bottom right) and press into it with the same
+   shadows inset. Text and focus rings stay high-contrast: soft shapes, never soft text. */
+:root[data-theme="neu"] {
+  --bg: #e4e8ee;
+  --panel: #dce1e8;
+  --text: #1e2430;
+  --muted: #4f5a6b;
+  --border: #c9d0da;
+  --accent: #3451d1;
+  --tag: #8a4b00;
+  --reminder: #9a4706;
+  --heat-empty: #d9dee6;
+  --mark: #fde68a;
+
+  --neu-light: rgba(255, 255, 255, 0.95);
+  --neu-dark: rgba(150, 163, 184, 0.62);
+  --neu-knob: #f4f6f9;
+  --neu-out: 7px 7px 16px var(--neu-dark), -7px -7px 16px var(--neu-light);
+  --neu-out-sm: 4px 4px 9px var(--neu-dark), -4px -4px 9px var(--neu-light);
+  --neu-out-xs: 2px 2px 5px var(--neu-dark), -2px -2px 5px var(--neu-light);
+  --neu-in: inset 5px 5px 10px var(--neu-dark), inset -5px -5px 10px var(--neu-light);
+  --neu-in-sm: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
+  --neu-in-xs: inset 1px 1px 2px var(--neu-dark), inset -1px -1px 2px var(--neu-light);
+  --neu-overlay: 0 18px 50px rgba(30, 40, 60, 0.28);
+
+  /* The glass tokens become the soft surface, so every glass panel in App.css turns soft too. */
+  --glass: var(--bg);
+  --glass-strong: var(--bg);
+  --glass-rim: transparent;
+  --glass-edge: transparent;
+  --glass-shadow: var(--neu-out);
+  --glass-blur: none;
+  --wash-1: transparent;
+  --wash-2: transparent;
+  --wash-3: transparent;
+  --lg-fill: linear-gradient(var(--bg), var(--bg));
+  --lg-sheen: linear-gradient(transparent, transparent);
+  --lg-rim: 0 0 0 transparent;
+  --lg-drop: var(--neu-out);
+  --lg-panel: var(--bg);
+  --block-edge: var(--border);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="neu"] {
+    --bg: #2a2d34;
+    --panel: #30343c;
+    --text: #e8eaef;
+    --muted: #a9b0bd;
+    --border: #3d424c;
+    --accent: #9db0ff;
+    --tag: #f0a54a;
+    --reminder: #f59e0b;
+    --heat-empty: #31353d;
+    --mark: rgba(250, 204, 21, 0.35);
+    --neu-light: rgba(255, 255, 255, 0.07);
+    --neu-dark: rgba(0, 0, 0, 0.5);
+    --neu-knob: #e8eaef;
+    --neu-overlay: 0 18px 50px rgba(0, 0, 0, 0.55);
+    color-scheme: dark;
+  }
+}
+
+/* No colour wash, daylight tint or weather on the page: soft UI needs the page and the shapes on
+   it to be exactly the same colour, or the shadows stop reading as depth. */
+:where(html[data-theme="neu"]) body::after,
+:where(html[data-theme="neu"]) .ambience-layer { display: none; }
+:where(html[data-theme="neu"]) body { background: var(--bg); }
+
+/* Keyboard focus is always visible (soft shapes alone don't show it). */
+:where(html[data-theme="neu"]) :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:where(html[data-theme="neu"]) .editor-body .tiptap:focus-visible { outline: none; }
+
+/* ── Buttons: raised; pressed or switched on = pushed in ── */
+:where(html[data-theme="neu"]) button {
+  background: var(--bg);
+  border: 1px solid transparent;
+  box-shadow: var(--neu-out-sm);
+}
+:where(html[data-theme="neu"]) button:hover { background: var(--bg); box-shadow: var(--neu-out); }
+:where(html[data-theme="neu"]) button:active {
+  box-shadow: var(--neu-in-sm);
+  transform: scale(0.98);
+  transition-duration: 0.08s;
+}
+:where(html[data-theme="neu"]) button:disabled { box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) button.active,
+:where(html[data-theme="neu"]) button[aria-pressed="true"],
+:where(html[data-theme="neu"]) button[aria-checked="true"],
+:where(html[data-theme="neu"]) button[aria-selected="true"] {
+  box-shadow: var(--neu-in-sm);
+  color: var(--accent);
+}
+/* Small tool buttons are flat until pressed or on. */
+:where(html[data-theme="neu"]) .tool { box-shadow: none; }
+:where(html[data-theme="neu"]) .tool:hover { box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .tool:active,
+:where(html[data-theme="neu"]) .tool.active { box-shadow: var(--neu-in-sm); background: var(--bg); color: var(--accent); border-color: transparent; }
+:where(html[data-theme="neu"]) .tool:disabled { box-shadow: none; }
+
+/* ── Panels and cards: raised out of the page ── */
+:where(html[data-theme="neu"]) .sidebar,
+:where(html[data-theme="neu"]) .links-panel { background: var(--bg); border-color: transparent; box-shadow: none; }
+:where(html[data-theme="neu"]) .sidebar { box-shadow: 6px 0 14px -8px var(--neu-dark); position: relative; z-index: 1; }
+:where(html[data-theme="neu"]) .links-panel { box-shadow: -6px 0 14px -8px var(--neu-dark); }
+:where(html[data-theme="neu"]) .month-calendar,
+:where(html[data-theme="neu"]) .slash-menu,
+:where(html[data-theme="neu"]) .paste-chip,
+:where(html[data-theme="neu"]) .reminder-open,
+:where(html[data-theme="neu"]) .project-panel,
+:where(html[data-theme="neu"]) .sync-status,
+:where(html[data-theme="neu"]) .prompt-builder,
+:where(html[data-theme="neu"]) .pull-today {
+  background: var(--bg);
+  border-color: transparent;
+  box-shadow: var(--neu-out);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:where(html[data-theme="neu"]) .reminder-open { box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .reminders.due .reminder-open { background: color-mix(in srgb, var(--reminder) 12%, var(--bg)); }
+:where(html[data-theme="neu"]) .reminder-open:active { box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .pull-today { box-shadow: var(--neu-out), var(--neu-overlay); }
+:where(html[data-theme="neu"]) .keyboard-bar {
+  background: var(--bg);
+  border-color: transparent;
+  border-bottom-color: var(--bg);
+  box-shadow: 0 -6px 14px -6px var(--neu-dark);
+}
+
+/* Things that float over the page (menus, sheets, popups, toasts): the soft shape plus a real drop
+   shadow, so they stay clearly above what's under them, also over a dimmed backdrop. */
+:where(html[data-theme="neu"]) .toast,
+:where(html[data-theme="neu"]) .search-panel,
+:where(html[data-theme="neu"]) .confirm-card,
+:where(html[data-theme="neu"]) .block-menu,
+:where(html[data-theme="neu"]) .outline-panel,
+:where(html[data-theme="neu"]) .arrange-tools,
+:where(html[data-theme="neu"]) .entry-popup,
+:where(html[data-theme="neu"]) .meme-kit,
+:where(html[data-theme="neu"]) .upcoming-panel,
+:where(html[data-theme="neu"]) .year-panel,
+:where(html[data-theme="neu"]) .drawer,
+:where(html[data-theme="neu"]) .mac-capture {
+  background: var(--bg);
+  border-color: transparent;
+  box-shadow: var(--neu-out-xs), var(--neu-overlay);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:where(html[data-theme="neu"]) .toast.error { box-shadow: inset 4px 0 0 #dc2626, var(--neu-out-xs), var(--neu-overlay); }
+:where(html[data-theme="neu"]) .year-backdrop.open { -webkit-backdrop-filter: none; backdrop-filter: none; }
+:where(html[data-theme="neu"]) .entry-popup header { background: color-mix(in srgb, var(--row-sky, var(--panel)) 45%, var(--bg)); }
+@media (pointer: coarse) {
+  :where(html[data-theme="neu"]) .month-calendar { background: var(--bg); box-shadow: var(--neu-out); }
+  :where(html[data-theme="neu"]) .drawer,
+  :where(html[data-theme="neu"]) .year-panel { background: var(--bg); box-shadow: var(--neu-overlay); }
+  :where(html[data-theme="neu"]) .toast,
+  :where(html[data-theme="neu"]) .slash-menu,
+  :where(html[data-theme="neu"]) .meme-kit { background: var(--bg); }
+  :where(html[data-theme="neu"]) .reminder-open { background: var(--bg); }
+}
+:where(html[data-theme="neu"]) .upcoming li.squeezed .reminder-open { background: var(--bg); box-shadow: var(--neu-out-xs); }
+
+/* ── Inputs: pressed into the surface ── */
+:where(html[data-theme="neu"]) .search-bar {
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border-radius: 14px;
+  box-shadow: var(--neu-in-sm);
+}
+:where(html[data-theme="neu"]) .project-name-input,
+:where(html[data-theme="neu"]) .chat-compose textarea,
+:where(html[data-theme="neu"]) .settings-row input,
+:where(html[data-theme="neu"]) .settings-section > label.settings-row select,
+:where(html[data-theme="neu"]) .settings-section select,
+:where(html[data-theme="neu"]) .prompt-template,
+:where(html[data-theme="neu"]) .prompt-fields input,
+:where(html[data-theme="neu"]) .block-day-input,
+:where(html[data-theme="neu"]) .mac-capture textarea,
+:where(html[data-theme="neu"]) .outline-panel header input,
+:where(html[data-theme="neu"]) .day-pick-custom input,
+:where(html[data-theme="neu"]) .source-text {
+  background: var(--bg);
+  border-color: transparent;
+  box-shadow: var(--neu-in-sm);
+}
+:where(html[data-theme="neu"]) .chat-compose { background: var(--bg); border-top-color: transparent; box-shadow: 0 -6px 14px -6px var(--neu-dark); }
+
+/* Switches: an inset track and a raised knob. */
+:where(html[data-theme="neu"]) .settings-toggle input[type="checkbox"] { background: var(--bg); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .settings-toggle input[type="checkbox"]:checked { background: rgb(var(--heat-rgb)); box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.3); }
+:where(html[data-theme="neu"]) .settings-toggle input[type="checkbox"]::after { background: var(--neu-knob); box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.25); }
+
+/* ── Segmented choices (Live / Source / Reading, entry modes, panel tabs): an inset well with the
+   chosen one raised. ── */
+:where(html[data-theme="neu"]) .editor-modes,
+:where(html[data-theme="neu"]) .entries-modes { background: var(--bg); box-shadow: var(--neu-in-sm); padding: 3px; }
+:where(html[data-theme="neu"]) .editor-modes button.active,
+:where(html[data-theme="neu"]) .entries-modes button.active { background: var(--bg); box-shadow: var(--neu-out-xs); color: var(--text); }
+:where(html[data-theme="neu"]) .panel-tabs button.active,
+:where(html[data-theme="neu"]) .media-scope button.active { background: var(--bg); box-shadow: var(--neu-in-sm); color: var(--accent); border-color: transparent; }
+
+/* ── Lists and menus ── */
+:where(html[data-theme="neu"]) .day-list button.active,
+:where(html[data-theme="neu"]) .drawer .day-list button.active { background: var(--bg); box-shadow: var(--neu-in-sm); color: var(--accent); }
+:where(html[data-theme="neu"]) .settings-nav { background: var(--bg); border-right-color: transparent; box-shadow: 6px 0 14px -8px var(--neu-dark); }
+:where(html[data-theme="neu"]) .settings-nav-item.active { background: var(--bg); box-shadow: var(--neu-in-sm); color: var(--accent); }
+@media (max-width: 760px) {
+  /* Phone settings list: one raised row per category. */
+  :where(html[data-theme="neu"]) .settings-nav { box-shadow: none; }
+  :where(html[data-theme="neu"]) .settings-nav-item,
+  :where(html[data-theme="neu"]) .settings-nav-item:first-of-type,
+  :where(html[data-theme="neu"]) .settings-nav-item:last-of-type {
+    background: var(--bg); border-radius: 16px; border-bottom: none; margin-bottom: 12px; box-shadow: var(--neu-out-sm);
+  }
+  :where(html[data-theme="neu"]) .settings-nav-item:active { box-shadow: var(--neu-in-sm); }
+}
+:where(html[data-theme="neu"]) .outline-panel li button:hover,
+:where(html[data-theme="neu"]) .outline-panel li button:active { background: var(--bg); box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .reminder-menu { background: var(--bg); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .reminder-more { background: var(--bg); box-shadow: var(--neu-out-xs); }
+
+/* "/" grid: raised tiles; the highlighted one pressed in with the accent ring. */
+:where(html[data-theme="neu"]) .slash-tile { background: var(--bg); box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .slash-tile.selected { background: var(--bg); box-shadow: var(--neu-in-sm), 0 0 0 2px rgb(var(--heat-rgb)); }
+:where(html[data-theme="neu"]) .slash-label { color: var(--muted); }
+
+/* ── Calendar: days sit slightly pressed in; the heat-map purple still fills them ── */
+:where(html[data-theme="neu"]) .cal-day { box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .cal-day:hover { border-color: rgb(var(--heat-rgb)); }
+:where(html[data-theme="neu"]) .month-calendar.compact .cal-day { box-shadow: none; }
+
+/* ── Note content ── */
+:where(html[data-theme="neu"]) .code-block { background: var(--panel); border-color: transparent; box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .ts-chip { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1), 1px 1px 3px var(--neu-dark); }
+:where(html[data-theme="neu"]) .audio-note,
+:where(html[data-theme="neu"]) .audio-pill { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .timeline-gap-label { background: var(--bg); box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .relative-time { background: var(--bg); border-color: transparent; box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .doc-link-card { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .attach-image img,
+:where(html[data-theme="neu"]) .pdf-preview canvas { box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .media-ghost { background: var(--bg); box-shadow: var(--neu-out), var(--neu-overlay); }
+:where(html[data-theme="neu"]) .chat-bubble { box-shadow: var(--neu-out-sm); }
+@media (prefers-color-scheme: dark) {
+  :where(html[data-theme="neu"]) .editor-body .tiptap > .block-box-body.block-box-end,
+  :where(html[data-theme="neu"]) .editor-body .tiptap > .block-box-head.block-box-end { box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.6); }
+}
+
+/* Live sync pill: darker text on light so it stays readable. */
+:where(html[data-theme="neu"]) .sync-live { color: #854d0e; }
+@media (prefers-color-scheme: dark) { :where(html[data-theme="neu"]) .sync-live { color: #fde047; } }
+
+/* Neumorphism moves by pressing, not by bouncing: no hover lift, no squish. */
+@media (prefers-reduced-motion: no-preference) {
+  :where(html[data-theme="neu"]) button:hover { transform: none; }
+  :where(html[data-theme="neu"]) button,
+  :where(html[data-theme="neu"]) .ts-chip { transition: box-shadow 0.18s ease, transform 0.12s ease, background-color 0.2s, color 0.2s; }
+}
+
+/* ═══════════ Theme picker (Settings → Appearance) ═══════════
+   Each card shows a fixed preview of its theme, whatever theme is on. */
+.theme-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; margin: 10px 0 4px; }
+.theme-card {
+  display: grid; gap: 8px; padding: 10px; text-align: left; border-radius: 18px; height: auto;
+  border: 2px solid transparent;
+}
+.theme-card[aria-checked="true"] { border-color: rgb(var(--heat-rgb)); }
+.theme-card-name { font-weight: 650; display: flex; align-items: center; gap: 6px; }
+.theme-card-name .theme-check { margin-left: auto; color: rgb(var(--heat-rgb)); font-weight: 800; }
+.theme-card-hint { font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.theme-preview {
+  position: relative; height: 92px; border-radius: 12px; overflow: hidden; display: grid;
+  grid-template-columns: 1fr 1fr; align-items: center; justify-items: center; gap: 8px; padding: 12px;
+}
+.theme-preview i { display: block; font-style: normal; }
+.theme-preview .tp-card { grid-column: 1 / -1; width: 100%; height: 26px; border-radius: 10px; }
+.theme-preview .tp-button { width: 70%; height: 24px; border-radius: 12px; }
+.theme-preview .tp-well { width: 70%; height: 24px; border-radius: 12px; }
+/* Glass preview */
+.theme-preview.glass {
+  background:
+    radial-gradient(80% 90% at 0% 0%, rgba(167, 139, 250, 0.55), transparent 70%),
+    radial-gradient(70% 80% at 100% 100%, rgba(125, 211, 252, 0.55), transparent 70%),
+    #f6f4fb;
+}
+.theme-preview.glass .tp-card,
+.theme-preview.glass .tp-button,
+.theme-preview.glass .tp-well {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.5));
+  box-shadow: inset 0 1px 0 #fff, 0 4px 12px rgba(60, 40, 110, 0.18);
+  border: 1px solid rgba(120, 100, 160, 0.2);
+}
+/* Soft UI preview */
+.theme-preview.neu { background: #e4e8ee; }
+.theme-preview.neu .tp-card,
+.theme-preview.neu .tp-button { background: #e4e8ee; box-shadow: 4px 4px 9px rgba(150, 163, 184, 0.62), -4px -4px 9px #fff; }
+.theme-preview.neu .tp-well { background: #e4e8ee; box-shadow: inset 3px 3px 6px rgba(150, 163, 184, 0.62), inset -3px -3px 6px #fff; }
+@media (prefers-color-scheme: dark) {
+  .theme-preview.glass {
+    background:
+      radial-gradient(80% 90% at 0% 0%, rgba(124, 58, 237, 0.45), transparent 70%),
+      radial-gradient(70% 80% at 100% 100%, rgba(14, 116, 144, 0.45), transparent 70%),
+      #1b1a22;
+  }
+  .theme-preview.glass .tp-card,
+  .theme-preview.glass .tp-button,
+  .theme-preview.glass .tp-well {
+    background: linear-gradient(180deg, rgba(70, 66, 92, 0.7), rgba(38, 36, 52, 0.6));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 6px 16px rgba(0, 0, 0, 0.4);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  .theme-preview.neu { background: #2a2d34; }
+  .theme-preview.neu .tp-card,
+  .theme-preview.neu .tp-button { background: #2a2d34; box-shadow: 4px 4px 9px rgba(0, 0, 0, 0.5), -4px -4px 9px rgba(255, 255, 255, 0.07); }
+  .theme-preview.neu .tp-well { background: #2a2d34; box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.5), inset -3px -3px 6px rgba(255, 255, 255, 0.07); }
+}
