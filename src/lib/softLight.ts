@@ -27,6 +27,10 @@ export interface SoftLight {
   sunX: number;
   sunY: number;
   phase: "day" | "twilight" | "night";
+  /** The surface colour itself: a soft, never-white tone by day that dims as the sun gets low and
+   * goes dark after sunset (Soft UI follows the sky, not the system's light/dark setting). */
+  base: string;
+  tone: "light" | "dark";
 }
 
 const BASE = 7; // px: the theme's resting shadow offset
@@ -41,6 +45,15 @@ const MOON: RGB = [146, 170, 255];
 const OVERCAST: RGB = [200, 207, 218];
 const RAIN: RGB = [168, 188, 214];
 
+// Surfaces: soft grey-blue by day (brightest at noon, still well short of white), dusky violet in
+// twilight, deep blue-grey at night. Day and night tones are far enough apart that text always
+// stays readable; the swap at sunset/sunrise is animated in CSS.
+const DAY_NOON: RGB = [214, 219, 226];
+const DAY_LOW: RGB = [196, 200, 209];
+const DUSK_SURFACE: RGB = [58, 54, 68];
+const NIGHT_SURFACE: RGB = [34, 37, 45];
+
+const hex = (c: RGB) => "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("");
 const mix = (a: RGB, b: RGB, t: number): RGB => [0, 1, 2].map((i) => Math.round(a[i] + (b[i] - a[i]) * t)) as RGB;
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -79,7 +92,9 @@ export function softLightAt(now: number, rise: number, set: number, weather: Wea
   let tint: RGB;
   let tintAmt: number;
   let glow: number;
+  let surface: RGB;
   if (phase === "day") {
+    surface = mix(DAY_LOW, DAY_NOON, Math.pow(e, 0.7));
     strength = 0.85 + 0.15 * e;
     tint = mix(GOLDEN, NOON, Math.pow(e, 0.6));
     tintAmt = 3 + 6 * (1 - e);
@@ -87,6 +102,9 @@ export function softLightAt(now: number, rise: number, set: number, weather: Wea
   } else if (phase === "twilight") {
     // The sun is just below the horizon: glow on its side, faint and pink.
     lx = dawn ? -0.9 : 0.9; // before sunrise the glow is on the rising (left) side
+    // Deeper into the dusk the further from the sun (0 at sunset/sunrise, 1 at full night).
+    const fromSun = Math.min(now >= set ? now - set : now < rise ? rise - now : TWILIGHT, TWILIGHT) / TWILIGHT;
+    surface = mix(DUSK_SURFACE, NIGHT_SURFACE, fromSun);
     ly = -0.44;
     const l2 = Math.hypot(lx, ly);
     lx /= l2;
@@ -97,6 +115,7 @@ export function softLightAt(now: number, rise: number, set: number, weather: Wea
     tintAmt = 7;
     glow = 28;
   } else {
+    surface = NIGHT_SURFACE;
     dist *= 0.6;
     blur *= 0.9;
     strength = 0.6;
@@ -132,5 +151,7 @@ export function softLightAt(now: number, rise: number, set: number, weather: Wea
     sunX: Math.round(50 - Math.cos(Math.PI * p) * 55),
     sunY: Math.round(-12 + (1 - e) * 42),
     phase,
+    base: hex(surface),
+    tone: phase === "day" ? "light" : "dark",
   };
 }

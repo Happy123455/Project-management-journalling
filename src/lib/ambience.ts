@@ -140,7 +140,49 @@ export function todaySun(now: Date, times: { rise: number; set: number } | null 
   return { rise: at(6, 0), set: at(19, 0) };
 }
 
-const LIGHT_PROPS = ["--neu-x", "--neu-y", "--neu-blur", "--neu-strength", "--neu-tint", "--neu-tint-amt", "--neu-glow", "--sun-x", "--sun-y"];
+/** Colours for the two tones the soft surface moves between (contrast checked at the dimmest and
+ * most tinted surface of each: text ≥ 9:1, muted, links, tags and reminders ≥ 5:1). */
+const TONES = {
+  light: {
+    "--text": "#1e2430",
+    "--muted": "#3f4859",
+    "--accent": "#2a3db0",
+    "--tag": "#6e3b00",
+    "--reminder": "#7a3604",
+    "--heat-rgb": "91, 33, 182",
+    "--mark": "#fde68a",
+    "--border": "color-mix(in srgb, var(--bg) 82%, #6b7891)",
+    "--panel": "color-mix(in srgb, var(--bg) 93%, #7d8ba3)",
+    "--heat-empty": "color-mix(in srgb, var(--bg) 90%, #7d8ba3)",
+    "--neu-shade-a": "0.7",
+    "--neu-hi-a": "0.8",
+    "--neu-knob": "#f1f3f6",
+    "--neu-tint-k": "1",
+    "--neu-sun-a": "0.07",
+    "--neu-overlay": "0 18px 50px rgba(30, 40, 60, 0.28)",
+  },
+  dark: {
+    "--text": "#e8eaef",
+    "--muted": "#a9b0bd",
+    "--accent": "#9db0ff",
+    "--tag": "#f0a54a",
+    "--reminder": "#f59e0b",
+    "--heat-rgb": "167, 112, 255",
+    "--mark": "rgba(250, 204, 21, 0.35)",
+    "--border": "color-mix(in srgb, var(--bg) 85%, #fff)",
+    "--panel": "color-mix(in srgb, var(--bg) 92%, #fff)",
+    "--heat-empty": "color-mix(in srgb, var(--bg) 93%, #fff)",
+    "--neu-shade-a": "0.55",
+    "--neu-hi-a": "0.07",
+    "--neu-knob": "#e8eaef",
+    "--neu-tint-k": "0.5",
+    "--neu-sun-a": "0.05",
+    "--neu-overlay": "0 18px 50px rgba(0, 0, 0, 0.55)",
+  },
+} as const;
+
+const LIGHT_PROPS = ["--neu-x", "--neu-y", "--neu-blur", "--neu-strength", "--neu-tint", "--neu-tint-amt", "--neu-glow", "--sun-x", "--sun-y", "--neu-base", "--neu-shade-rgb", "color-scheme", ...Object.keys(TONES.light)];
+let lightApplied = false;
 
 /** Soft UI: shadows turn with the sun and take the colour of the light (Settings → brightness). */
 function applySoftLight() {
@@ -149,8 +191,17 @@ function applySoftLight() {
   if (!softTheme() || !s.daylight) {
     for (const p of LIGHT_PROPS) root.style.removeProperty(p);
     root.removeAttribute("data-light");
+    root.removeAttribute("data-tone");
+    lightApplied = false;
     return;
   }
+  // The first time (app start, theme switched on) the light is set at once; after that every change
+  // (the sun moving, sunset, clouds coming) glides over a few seconds (transitions in themes.css).
+  if (!lightApplied) {
+    root.classList.add("neu-instant");
+    requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("neu-instant")));
+  }
+  lightApplied = true;
   const now = new Date();
   const { rise, set } = todaySun(now);
   const l = softLightAt(now.getTime(), rise, set, s.weather ? weather : null);
@@ -165,6 +216,13 @@ function applySoftLight() {
   set1("--sun-x", `${l.sunX}%`);
   set1("--sun-y", `${l.sunY}%`);
   root.dataset.light = l.phase;
+  root.dataset.tone = l.tone;
+  set1("--neu-base", l.base);
+  // The shade is the surface itself, darker (so it never looks grey or dirty on a tinted surface).
+  const b = [1, 3, 5].map((i) => parseInt(l.base.slice(i, i + 2), 16));
+  set1("--neu-shade-rgb", l.tone === "light" ? b.map((v) => Math.round(v * 0.6)).join(", ") : "0, 0, 0");
+  set1("color-scheme", l.tone);
+  for (const [k, v] of Object.entries(TONES[l.tone])) set1(k, v);
 }
 
 async function fetchWeather(): Promise<Weather> {
@@ -221,7 +279,8 @@ function startRain(): { stop: () => void } {
     let hi = "rgba(255, 255, 255, 0.55)";
     let lo = "rgba(60, 75, 100, 0.22)";
     if (soft) {
-      if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) {
+      const tone = document.documentElement.dataset.tone;
+      if (tone ? tone === "dark" : window.matchMedia?.("(prefers-color-scheme: dark)").matches) {
         hi = "rgba(255, 255, 255, 0.09)";
         lo = "rgba(0, 0, 0, 0.35)";
       }

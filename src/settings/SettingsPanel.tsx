@@ -336,7 +336,7 @@ function ThemeSection() {
           </button>
         ))}
       </div>
-      <p className="hint">Light or dark follows the system setting.</p>
+      <p className="hint">Soft UI with “Shadows follow the sun” on: the surface moves by itself from a soft daytime tone, dimmer and warmer as the sun gets low, to dark after sunset. Otherwise light or dark follows the system setting.</p>
     </section>
   );
 }

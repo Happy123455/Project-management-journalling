@@ -11,6 +11,19 @@
    One soft colour for the page and everything on it. Shapes come out of the surface with two
    shadows (light from the top left, shade to the bottom right) and press into it with the same
    shadows inset. Text and focus rings stay high-contrast: soft shapes, never soft text. */
+/* The light and the surface colour glide when they change (the sun moving, sunset, clouds). */
+@property --neu-base { syntax: "<color>"; inherits: true; initial-value: #e4e8ee; }
+@property --text { syntax: "<color>"; inherits: true; initial-value: #1e2430; }
+@property --muted { syntax: "<color>"; inherits: true; initial-value: #4f5a6b; }
+@property --neu-x { syntax: "<length>"; inherits: true; initial-value: 7px; }
+@property --neu-y { syntax: "<length>"; inherits: true; initial-value: 7px; }
+@property --neu-blur { syntax: "<length>"; inherits: true; initial-value: 16px; }
+@property --neu-strength { syntax: "<number>"; inherits: true; initial-value: 1; }
+:root[data-theme="neu"] {
+  transition: --neu-base 4s ease, --text 4s ease, --muted 4s ease, --neu-x 4s ease, --neu-y 4s ease, --neu-blur 4s ease, --neu-strength 4s ease;
+}
+:root[data-theme="neu"].neu-instant { transition: none; }
+@media (prefers-reduced-motion: reduce) { :root[data-theme="neu"] { transition: none; } }
 :root[data-theme="neu"] {
   /* The light (src/lib/softLight.ts sets these on <html> when shadows follow the sun; these are the
      resting values: light from the top left, white). */
@@ -116,9 +129,11 @@ html[data-theme="neu"].weather-cloudy .ambience-layer::after {
   display: block !important; opacity: 1 !important; background: rgba(40, 52, 75, 0.06) !important; filter: blur(60px);
 }
 @media (prefers-color-scheme: dark) {
-  html[data-theme="neu"].weather-cloudy .ambience-layer::before,
-  html[data-theme="neu"].weather-cloudy .ambience-layer::after { background: rgba(0, 0, 0, 0.14) !important; }
+  html[data-theme="neu"]:not([data-tone="light"]).weather-cloudy .ambience-layer::before,
+  html[data-theme="neu"]:not([data-tone="light"]).weather-cloudy .ambience-layer::after { background: rgba(0, 0, 0, 0.14) !important; }
 }
+html[data-theme="neu"][data-tone="dark"].weather-cloudy .ambience-layer::before,
+html[data-theme="neu"][data-tone="dark"].weather-cloudy .ambience-layer::after { background: rgba(0, 0, 0, 0.14) !important; }
 html[data-theme="neu"] .ambience-rain { opacity: 0.7; }
 :where(html[data-theme="neu"]) body { background: var(--bg); }
 
@@ -305,7 +320,9 @@ html[data-theme="neu"] .ambience-rain { opacity: 0.7; }
 
 /* Live sync pill: darker text on light so it stays readable. */
 :where(html[data-theme="neu"]) .sync-live { color: #854d0e; }
-@media (prefers-color-scheme: dark) { :where(html[data-theme="neu"]) .sync-live { color: #fde047; } }
+@media (prefers-color-scheme: dark) { :where(html[data-theme="neu"]:not([data-tone="light"])) .sync-live { color: #fde047; } }
+:where(html[data-theme="neu"][data-tone="dark"]) .sync-live { color: #fde047; }
+:where(html[data-theme="neu"][data-tone="light"]) .sync-live { color: #854d0e; }
 
 /* Neumorphism moves by pressing, not by bouncing: no hover lift, no squish. */
 @media (prefers-reduced-motion: no-preference) {
