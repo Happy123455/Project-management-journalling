@@ -7,6 +7,10 @@
  * Weather comes from Open-Meteo (no key) for the rough location of this internet connection.
  */
 
+import { softLightAt } from "./softLight";
+
+const softTheme = () => document.documentElement.dataset.theme === "neu";
+
 export interface AmbienceSettings {
   daylight: boolean;
   weather: boolean;
@@ -125,6 +129,44 @@ export function sunIsUp(now: Date, times: { rise: number; set: number } | null =
   return h >= 6 && h < 19;
 }
 
+/** Today's sunrise and sunset (ms): the real ones when known, otherwise 6:00 and 19:00. */
+export function todaySun(now: Date, times: { rise: number; set: number } | null = sun): { rise: number; set: number } {
+  const at = (h: number, m: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m).getTime();
+  if (times) {
+    const r = new Date(times.rise);
+    const s = new Date(times.set);
+    return { rise: at(r.getHours(), r.getMinutes()), set: at(s.getHours(), s.getMinutes()) };
+  }
+  return { rise: at(6, 0), set: at(19, 0) };
+}
+
+const LIGHT_PROPS = ["--neu-x", "--neu-y", "--neu-blur", "--neu-strength", "--neu-tint", "--neu-tint-amt", "--neu-glow", "--sun-x", "--sun-y"];
+
+/** Soft UI: shadows turn with the sun and take the colour of the light (Settings → brightness). */
+function applySoftLight() {
+  const root = document.documentElement;
+  const s = ambienceSettings();
+  if (!softTheme() || !s.daylight) {
+    for (const p of LIGHT_PROPS) root.style.removeProperty(p);
+    root.removeAttribute("data-light");
+    return;
+  }
+  const now = new Date();
+  const { rise, set } = todaySun(now);
+  const l = softLightAt(now.getTime(), rise, set, s.weather ? weather : null);
+  const set1 = (k: string, v: string) => root.style.setProperty(k, v);
+  set1("--neu-x", `${l.x}px`);
+  set1("--neu-y", `${l.y}px`);
+  set1("--neu-blur", `${l.blur}px`);
+  set1("--neu-strength", String(l.strength));
+  set1("--neu-tint", l.tint);
+  set1("--neu-tint-amt", `${l.tintAmt}%`);
+  set1("--neu-glow", `${l.glow}%`);
+  set1("--sun-x", `${l.sunX}%`);
+  set1("--sun-y", `${l.sunY}%`);
+  root.dataset.light = l.phase;
+}
+
 async function fetchWeather(): Promise<Weather> {
   if (Date.now() - weatherAt < 30 * 60_000) return weather;
   weatherAt = Date.now();
@@ -173,6 +215,20 @@ function startRain(): { stop: () => void } {
     if (t - last < 33 || document.hidden) return;
     last = t;
     ctx.clearRect(0, 0, w, h);
+    const soft = softTheme();
+    let sx = 3;
+    let sy = 3;
+    let hi = "rgba(255, 255, 255, 0.55)";
+    let lo = "rgba(60, 75, 100, 0.22)";
+    if (soft) {
+      if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) {
+        hi = "rgba(255, 255, 255, 0.09)";
+        lo = "rgba(0, 0, 0, 0.35)";
+      }
+      const css = getComputedStyle(document.documentElement);
+      sx = parseFloat(css.getPropertyValue("--neu-x")) || 3;
+      sy = parseFloat(css.getPropertyValue("--neu-y")) || 3;
+    }
     for (let i = 0; i < drops.length; i++) {
       const d = drops[i];
       if (d.wait > 0) d.wait--;
@@ -187,6 +243,20 @@ function startRain(): { stop: () => void } {
         ctx.moveTo(d.x, d.y - d.v * 6);
         ctx.lineTo(d.x, d.y);
         ctx.stroke();
+      }
+      if (soft) {
+        // Soft UI: a raised bead of water on the surface, lit from the same side as everything else.
+        const k = d.r / Math.max(1, Math.hypot(sx, sy));
+        ctx.fillStyle = lo;
+        ctx.beginPath();
+        ctx.ellipse(d.x + sx * k * 0.5, d.y + sy * k * 0.5, d.r, d.r * 1.15, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = hi;
+        ctx.beginPath();
+        ctx.ellipse(d.x - sx * k * 0.4, d.y - sy * k * 0.4, d.r * 0.9, d.r * 1.05, 0, 0, Math.PI * 2);
+        ctx.fill();
+        if (d.y > h + 10) drops[i] = { ...spawn(), y: Math.random() * h * 0.3 };
+        continue;
       }
       // The drop: a lens, bright rim at the bottom, highlight at the top.
       const g = ctx.createRadialGradient(d.x - d.r * 0.3, d.y - d.r * 0.4, d.r * 0.1, d.x, d.y, d.r);
@@ -234,7 +304,8 @@ export function applyAmbience() {
     if (wantRain && !rain) rain = startRain();
     if (!wantRain && rain) (rain.stop(), (rain = null));
   };
-  if (s.weather) void fetchWeather().then((w) => show(ambienceSettings().weather ? w : null));
+  applySoftLight();
+  if (s.weather) void fetchWeather().then((w) => (show(ambienceSettings().weather ? w : null), applySoftLight()));
   else show(null);
   glassSounds(s.sounds);
 }
@@ -246,6 +317,10 @@ export function startAmbience() {
   started = true;
   applyAmbience();
   window.setInterval(applyAmbience, 10 * 60_000);
+  // Soft UI shadows follow the sun minute by minute (cheap: a few CSS variables).
+  window.setInterval(() => !document.hidden && applySoftLight(), 60_000);
+  window.addEventListener("journal:theme", applyAmbience);
+  window.addEventListener("storage", (e) => e.key === "journal.theme" && applyAmbience());
   document.addEventListener("visibilitychange", () => !document.hidden && applyAmbience());
 }
 
@@ -292,8 +367,59 @@ const haptic = (kind: "tap" | "tick" | "press" | "edge", strength: number) => {
   }
 };
 
+/**
+ * Soft UI: pressing a soft, rubbery surface. A muffled low thump (a sine that drops in pitch, like a
+ * cushion giving way) with a breath of felt-like noise; no ring.
+ */
+function softPress(onButton: boolean) {
+  const a = ctx();
+  if (!a || !noise) return;
+  const t = a.currentTime + 0.005;
+  const o = a.createOscillator();
+  o.type = "sine";
+  o.frequency.setValueAtTime(onButton ? 210 : 170, t);
+  o.frequency.exponentialRampToValueAtTime(onButton ? 95 : 80, t + 0.09);
+  const g = a.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(onButton ? 0.2 : 0.11, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0005, t + 0.12);
+  o.connect(g).connect(a.destination);
+  o.start(t);
+  o.stop(t + 0.14);
+  const n = a.createBufferSource();
+  n.buffer = noise;
+  const lp = a.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = 650 + Math.random() * 150;
+  const ng = a.createGain();
+  ng.gain.setValueAtTime(0, t);
+  ng.gain.linearRampToValueAtTime(onButton ? 0.16 : 0.09, t + 0.004);
+  ng.gain.exponentialRampToValueAtTime(0.0005, t + 0.06);
+  n.connect(lp).connect(ng).connect(a.destination);
+  n.start(t, Math.random(), 0.08);
+}
+
+/** Soft UI: the shape springing back up when the finger lifts, a tiny airy "pop". */
+function softRelease() {
+  const a = ctx();
+  if (!a) return;
+  const t = a.currentTime + 0.005;
+  const o = a.createOscillator();
+  o.type = "sine";
+  o.frequency.setValueAtTime(320, t);
+  o.frequency.exponentialRampToValueAtTime(520, t + 0.05);
+  const g = a.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.05, t + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0003, t + 0.08);
+  o.connect(g).connect(a.destination);
+  o.start(t);
+  o.stop(t + 0.1);
+}
+
 /** A fingertip landing on glass: a soft, short knock with a faint glassy ring. */
 function tink(onButton: boolean) {
+  if (softTheme()) return softPress(onButton);
   const a = ctx();
   if (!a || !noise) return;
   const t = a.currentTime + 0.005;
@@ -324,7 +450,7 @@ function tink(onButton: boolean) {
 }
 
 /** A finger sliding on glass: soft friction noise that follows the finger's speed, fading out when it stops. */
-let swish: { gain: GainNode; band: BiquadFilterNode; src: AudioBufferSourceNode } | null = null;
+let swish: { gain: GainNode; band: BiquadFilterNode; hp: BiquadFilterNode; src: AudioBufferSourceNode } | null = null;
 let swishIdle = 0;
 function slide(speed: number) {
   const a = ctx();
@@ -343,13 +469,16 @@ function slide(speed: number) {
     gain.gain.value = 0;
     src.connect(hp).connect(band).connect(gain).connect(a.destination);
     src.start();
-    swish = { gain, band, src };
+    swish = { gain, band, hp, src };
   }
   const t = a.currentTime;
   // px/ms: ~0.2 slow drag, ~2 fast flick.
-  const level = Math.min(0.09, 0.015 + speed * 0.03);
+  // Soft UI: a finger on a matte, rubbery surface is lower and quieter than on glass.
+  const soft = softTheme();
+  swish.hp.frequency.value = soft ? 150 : 600;
+  const level = Math.min(soft ? 0.06 : 0.09, 0.012 + speed * (soft ? 0.02 : 0.03));
   swish.gain.gain.setTargetAtTime(level, t, 0.025);
-  swish.band.frequency.setTargetAtTime(900 + Math.min(3200, speed * 1500), t, 0.04);
+  swish.band.frequency.setTargetAtTime(soft ? 380 + Math.min(900, speed * 450) : 900 + Math.min(3200, speed * 1500), t, 0.04);
   window.clearTimeout(swishIdle);
   swishIdle = window.setTimeout(endSlide, 60);
 }
@@ -408,7 +537,10 @@ function end() {
   gesture = null;
   if (!g) return;
   window.clearTimeout(g.timer);
-  if (!g.swiping) tap(g);
+  if (!g.swiping) {
+    tap(g);
+    if (g.target && softTheme()) window.setTimeout(softRelease, 40);
+  }
   else {
     endSlide();
     haptic("edge", 0.2);

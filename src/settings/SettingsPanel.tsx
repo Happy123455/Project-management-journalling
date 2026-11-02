@@ -359,10 +359,19 @@ function AmbienceSection() {
   return (
     <section className="settings-section">
       <h2>Look and feel</h2>
-      {row("daylight", "Brightness follows the time of day")}
-      {row("weather", "Weather on the glass (sun rays, clouds, rain drops)")}
-      {row("sounds", "Glass sounds and haptics when touching and swiping")}
-      {theme !== "glass" && <p className="hint">Brightness and weather show only with the Liquid glass theme.</p>}
+      {theme === "neu" ? (
+        <>
+          {row("daylight", "Shadows follow the sun (direction, length and colour of the light)")}
+          {row("weather", "Weather on the surface (soft light when cloudy, raised drops when it rains)")}
+          {row("sounds", "Soft press sounds and haptics when touching and swiping")}
+        </>
+      ) : (
+        <>
+          {row("daylight", "Brightness follows the time of day")}
+          {row("weather", "Weather on the glass (sun rays, clouds, rain drops)")}
+          {row("sounds", "Glass sounds and haptics when touching and swiping")}
+        </>
+      )}
       <p className="hint">Weather uses Open-Meteo for this device’s rough location (asked once, then remembered for 6 hours), checked every 30 minutes.</p>
     </section>
   );
