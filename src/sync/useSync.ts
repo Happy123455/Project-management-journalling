@@ -7,6 +7,7 @@ import { showToast } from "../lib/toast";
 import { findSyncFolder, pickSyncFolder, type FolderLookup } from "./folders";
 import { BEAT_MS, LIVE_POLL_MS, LIVE_SAVE_MS, openHost, othersRev, readPresence, someoneOpen, writePresence, type Presence } from "./live";
 import { setTypingSink } from "./liveTyping";
+import { visibleInterval } from "../lib/power";
 import { canConnect, canHost, startClient, startHost, type Client, type DirectAddress, type Host } from "./direct";
 
 /** What sync remembers between rounds (what it sent and read), so it only moves what's new. */
@@ -106,18 +107,21 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
   useEffect(() => {
     if (!store) return;
     void syncNow.current();
-    const timer = window.setInterval(() => void syncNow.current(), EVERY_MS);
+    // Every few minutes while the app is on screen; never in the background (battery).
+    const stopTimer = visibleInterval(() => void syncNow.current(), EVERY_MS);
     // Coming back to the app: sync once things have settled, not in the same moment the page is
     // redrawn (that stalled the first touches after returning from YouTube or another app).
+    // Leaving it: the page saves (App.tsx) and then sends the edits to Drive once, before the
+    // phone lets the app sleep (see lib/power.ts).
     let back: number | undefined;
     const onVisible = () => {
       window.clearTimeout(back);
-      if (document.visibilityState === "visible") back = window.setTimeout(() => void syncNow.current(), 2500);
+      back = window.setTimeout(() => void syncNow.current(), document.visibilityState === "visible" ? 2500 : 1200);
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.clearTimeout(back);
-      window.clearInterval(timer);
+      stopTimer();
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [store]);
@@ -194,7 +198,8 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
         folderCache.current = null; // e.g. the Drive sign-in expired: look the folder up again
       }
       // Connected directly: Drive is only the backup, so it needn't be watched closely.
-      if (!stopped) timer = window.setTimeout(tick, liveRef.current && !directRef.current ? LIVE_POLL_MS : 15_000);
+      // In the background nothing is watched at all: the loop starts again when the app is back.
+      if (!stopped && document.visibilityState !== "hidden") timer = window.setTimeout(tick, liveRef.current && !directRef.current ? LIVE_POLL_MS : 15_000);
     };
     timer = window.setTimeout(tick, 4000);
     // Going to the background or closing: tell the other device right away.
@@ -207,8 +212,10 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
       client.current = null;
     };
     const onVisible = () => {
-      if (document.visibilityState === "hidden") bye();
-      else {
+      if (document.visibilityState === "hidden") {
+        window.clearTimeout(timer);
+        bye();
+      } else {
         window.clearTimeout(timer);
         timer = window.setTimeout(tick, 500);
       }

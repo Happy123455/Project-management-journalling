@@ -12,6 +12,7 @@ import { fileEventBody, fileFromEvent, newFileRecord } from "./files";
 import { docKey, eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
 import { withPatch } from "./props";
 import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
+import { notifyLogged } from "./logged";
 
 interface BlockRow {
   id: string;
@@ -614,6 +615,7 @@ export class SqliteStore implements JournalStore {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [newId(), this.device, actor, blockId, op, before, after, JSON.stringify(last.map((e) => e.id)), now],
     );
+    notifyLogged();
   }
 
   async eventsFor(blockId: string) {

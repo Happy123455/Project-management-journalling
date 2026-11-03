@@ -14,6 +14,7 @@ import { BlockInfoExtension } from "./blockInfo";
 import { BlockHandle } from "./BlockHandle";
 import { blockIndexAt, blockPos, Blocks, foldRange, indentBlock, moveBlock } from "./blocks";
 import { AutoPairs } from "./autoPairs";
+import { MathAuto } from "./mathAuto";
 import { BlockInfoPanel } from "./BlockInfoPanel";
 import { readAloud } from "../lib/readAloud";
 import { isLoneUrl, LinkCard } from "./linkCard";
@@ -27,6 +28,7 @@ import { insertLogOrTime, SlashMenu } from "./slashMenu";
 import { openOutline, setViewMode, useViewMode, type ViewMode } from "./viewMode";
 import { SourceEditor } from "./SourceEditor";
 import { jumpTo, OutlinePanel } from "./Outline";
+import { TimeRail, useTimeRail } from "./TimeRail";
 import { docToSource, sourceMemory, sourceToDoc, type SourceMemory } from "../lib/source";
 import { docText } from "../lib/words";
 import { SmartPaste } from "./SmartPaste";
@@ -366,6 +368,7 @@ export function JournalEditor({
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const [outlineOpen, setOutlineOpen] = useState(false);
+  const timeRail = useTimeRail();
   /** Source mode: the text shown, and what the note had (media details the text doesn't show). */
   const source = useRef<{ text: string; start: string; mem: SourceMemory } | null>(null);
   const sourceTimer = useRef<number | undefined>(undefined);
@@ -403,6 +406,7 @@ export function JournalEditor({
       BlockInfoExtension,
       Blocks,
       AutoPairs,
+      MathAuto,
       SlashMenu.configure({ onReminder: () => onReminder?.() }),
     ],
     content: initialContent ?? "",
@@ -655,6 +659,7 @@ export function JournalEditor({
           }}
         />
       )}
+      {editor && timeRail && mode !== "source" && <TimeRail editor={editor} onJump={(pos) => jumpTo(editor, pos, unfoldAround)} />}
       {editor && !touch && mode === "live" && (
         // Keep focus in the editor so Enter after a toolbar click types, not re-clicks (from #2).
         <div className="toolbar" onMouseDown={(e) => e.preventDefault()}>

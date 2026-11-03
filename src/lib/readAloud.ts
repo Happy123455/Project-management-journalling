@@ -7,6 +7,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { holdAwake } from "./power";
 
 declare global {
   interface Window {
@@ -124,8 +125,12 @@ let reached = 0;
 let run = 0;
 const listeners = new Set<(s: ReadState) => void>();
 
+/** Keeps the phone from pausing the page in the background while reading aloud (lib/power.ts). */
+let awake: (() => void) | null = null;
 function set(patch: Partial<ReadState>) {
   state = { ...state, ...patch };
+  if (state.status === "playing" && !awake) awake = holdAwake();
+  else if (state.status !== "playing" && awake) (awake(), (awake = null));
   listeners.forEach((l) => l(state));
 }
 

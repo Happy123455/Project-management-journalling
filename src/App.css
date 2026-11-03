@@ -1823,7 +1823,8 @@ html.weather-clear .ambience-layer::before {
   opacity: 1; width: 160vmax; height: 160vmax; top: -80vmax; right: -80vmax;
   background: repeating-conic-gradient(from 0deg, rgba(255, 236, 170, 0.16) 0deg 4deg, transparent 4deg 13deg);
   -webkit-mask: radial-gradient(closest-side, #000 10%, transparent 75%); mask: radial-gradient(closest-side, #000 10%, transparent 75%);
-  animation: sun-turn 90s linear infinite;
+  /* ~10 small steps a second instead of every frame of a 120 Hz screen: looks the same, far less work. */
+  animation: sun-turn 90s steps(900) infinite;
 }
 html.weather-clear .ambience-layer::after {
   opacity: 1; width: 60vmax; height: 60vmax; top: -24vmax; right: -24vmax; border-radius: 50%;
@@ -1832,7 +1833,7 @@ html.weather-clear .ambience-layer::after {
 /* Cloudy: big frosted shapes drifting behind the glass. */
 html.weather-cloudy .ambience-layer::before, html.weather-cloudy .ambience-layer::after {
   opacity: 1; width: 70vmax; height: 30vmax; border-radius: 50%; filter: blur(40px);
-  background: rgba(235, 240, 248, 0.35); animation: cloud-drift 70s ease-in-out infinite alternate;
+  background: rgba(235, 240, 248, 0.35); animation: cloud-drift 70s steps(560) infinite alternate;
 }
 html.weather-cloudy .ambience-layer::before { top: 4vh; left: -20vmax; }
 html.weather-cloudy .ambience-layer::after { top: 45vh; left: 30vw; animation-duration: 95s; animation-direction: alternate-reverse; background: rgba(210, 218, 232, 0.3); }
@@ -2028,7 +2029,7 @@ html.code-wrap .code-block code, html.code-wrap .tiptap pre code { white-space: 
 
 /* Clear night: a moon with a cool halo and a few faint stars, never the sun. */
 html.weather-clear.weather-night .ambience-layer::before {
-  width: 100vw; height: 60vh; top: 0; right: 0; border-radius: 0; animation: star-twinkle 6s ease-in-out infinite alternate;
+  width: 100vw; height: 60vh; top: 0; right: 0; border-radius: 0; animation: star-twinkle 6s steps(24) infinite alternate;
   background:
     radial-gradient(1.5px 1.5px at 12% 18%, rgba(255, 255, 255, 0.7), transparent),
     radial-gradient(1px 1px at 28% 8%, rgba(255, 255, 255, 0.6), transparent),
@@ -2095,7 +2096,7 @@ html.weather-cloudy.weather-night .ambience-layer::before, html.weather-cloudy.w
 /* Media sized and placed in shares of the note's width (units: "note") use container units. */
 .tiptap { container-type: inline-size; }
 .attach-image.align-inline.sized { max-width: 100%; }
-.sync-live { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 999px; font-size: 12px; background: rgba(250, 204, 21, 0.18); color: #a16207; animation: live-pulse 2s ease-in-out infinite; }
+.sync-live { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 999px; font-size: 12px; background: rgba(250, 204, 21, 0.18); color: #a16207; animation: live-pulse 2s steps(8) infinite; }
 @keyframes live-pulse { 50% { box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.15); } }
 /* Coming up (open): GIFs and photos sit in the line where they are in the note. */
 .reminder-inline { display: block; line-height: 1.6; }
@@ -2270,3 +2271,55 @@ html.weather-cloudy.weather-night .ambience-layer::before, html.weather-cloudy.w
 .reminder-menu-row button { font-size: 12px; padding: 4px 10px; border-radius: 999px; }
 .reminder-menu-row button.active { background: rgba(250, 204, 21, 0.35); font-weight: 600; }
 .reminder-repeat { font-size: 0.9em; }
+
+/* Block copy + fold: on the box's top row and on its lower edge at the bottom right, never in the
+   line being typed. */
+.block-bottom-host { position: relative; }
+.block-bottom-host:not(.block-box-end) { padding-bottom: 14px; }
+.block-bottom-tools { position: absolute; right: 10px; bottom: -12px; z-index: 2; display: inline-flex; gap: 4px; align-items: center; font-weight: 400; line-height: 1; user-select: none; -webkit-user-select: none; }
+.block-bottom-tools.inline { position: static; margin-left: 8px; vertical-align: middle; }
+.block-bottom-tools .block-bottom-fold { margin-left: 0; opacity: 0.85; }
+.block-copy { border: 0; background: color-mix(in srgb, var(--panel) 80%, rgba(127, 127, 127, 0.25)); color: var(--muted); border-radius: 999px; font-size: 12px; line-height: 1; height: 22px; min-width: 26px; padding: 0 8px; cursor: pointer; box-shadow: none; opacity: 0.85; }
+.block-bottom-tools .block-bottom-fold { height: 22px; background: color-mix(in srgb, var(--panel) 80%, rgba(127, 127, 127, 0.25)); }
+.block-copy:hover { opacity: 1; }
+.block-copy.copied { color: #22c55e; }
+.block-box-tools .block-copy { height: 24px; }
+.editor.mode-reading .block-copy, .editor.mode-reading .block-bottom-tools { display: none !important; }
+:where(html[data-theme="neu"]) .block-copy, :where(html[data-theme="neu"]) .block-bottom-tools .block-bottom-fold { background: var(--bg); box-shadow: var(--neu-out-xs); }
+
+/* Code block bar on a narrow note (deeply nested, small window): the language shrinks first and
+   the buttons wrap onto their own row instead of hiding past the edge. */
+.code-block-bar { flex-wrap: wrap; row-gap: 4px; min-width: 0; }
+.code-language { flex: 1 1 5em; min-width: 3em; width: auto; max-width: 9em; }
+.code-block-bar .code-copy { flex: none; margin-left: auto; }
+.code-block-bar > .code-fold-preview { flex: 1 1 6em; }
+.code-bottom-row { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; padding: 0 8px 6px; }
+.code-block .code-bottom-row .code-bottom-fold { display: inline-block; margin: 0; }
+.prompt-block .prompt-head { flex-wrap: wrap; row-gap: 4px; }
+
+/* Outline → 🕒 Time: timestamps with the time between them, and the time rail on the right edge. */
+.outline-panel header .outline-time { border-radius: 999px; padding: 2px 8px; opacity: 0.6; }
+.outline-panel header .outline-time.active { opacity: 1; background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.outline-panel.with-rail { right: 30px; width: min(340px, calc(100vw - 38px)); }
+.outline-span { margin: 6px 14px 0; font-size: 12px; color: var(--muted); }
+.outline-stamp { display: flex; flex-direction: column; align-items: stretch; }
+.outline-gap { align-self: flex-start; margin: 0 0 0 30px; padding: 1px 8px; font-size: 11px; color: var(--muted); border-left: 2px dotted color-mix(in srgb, var(--muted) 60%, transparent); }
+.outline-time-at { font-variant-numeric: tabular-nums; font-weight: 600; flex: none; }
+.time-rail {
+  position: fixed; z-index: 48; right: 2px; width: 22px;
+  top: calc(env(safe-area-inset-top, 0px) + 110px); bottom: calc(env(safe-area-inset-bottom, 0px) + 120px);
+  touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.time-rail::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; border-radius: 1px; background: color-mix(in srgb, var(--muted) 25%, transparent); }
+.time-rail-seg { position: absolute; left: 50%; width: 4px; margin-left: -2px; border-radius: 2px; opacity: 0.9; pointer-events: none; }
+.time-rail-seg em { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); white-space: nowrap; font: 600 10px/1.4 system-ui, sans-serif; font-style: normal; color: var(--text); padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--panel) 85%, transparent); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18); opacity: 0; transition: opacity 0.2s; }
+.time-rail:hover .time-rail-seg em, .time-rail.touching .time-rail-seg em { opacity: 1; }
+.time-rail-dot { position: absolute; left: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; padding: 0; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--text) 45%, transparent); box-shadow: none; cursor: pointer; }
+.time-rail-dot::after { content: ""; position: absolute; inset: -8px; }
+.time-rail-dot.active { width: 14px; height: 14px; margin: -7px 0 0 -7px; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
+.time-rail-dot i { position: absolute; right: 18px; top: 50%; transform: translateY(-50%); font: 600 10px/1.4 system-ui, sans-serif; font-style: normal; color: var(--text); white-space: nowrap; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--panel) 85%, transparent); pointer-events: none; }
+.time-rail-end { position: absolute; right: 0; font: 600 9px/1 system-ui, sans-serif; color: var(--muted); white-space: nowrap; opacity: 0; transition: opacity 0.2s; }
+.time-rail-end.top { top: -14px; }
+.time-rail-end.bottom { bottom: -14px; }
+.time-rail:hover .time-rail-end, .time-rail.touching .time-rail-end { opacity: 1; }
+html.time-rail-on .editor-body { padding-right: 22px; }

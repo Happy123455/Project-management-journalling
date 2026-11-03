@@ -11,6 +11,7 @@ import { docKey, eventDocument, eventKey, type BlockMeta, type LocalState, type 
 import { withPatch } from "./props";
 import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
 import type { JSONContent } from "@tiptap/react";
+import { notifyLogged } from "./logged";
 
 interface Snapshot {
   pages: Record<string, DayPage>;
@@ -459,5 +460,6 @@ export class MemoryStore implements JournalStore {
       parentEventIds: last ? [last.id] : [],
       createdAt: now,
     });
+    notifyLogged();
   }
 }

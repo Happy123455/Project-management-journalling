@@ -2,6 +2,9 @@ import { Extension } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, Selection, TextSelection, type Command, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
+import { Mapping, ReplaceAroundStep } from "@tiptap/pm/transform";
+import type { JSONContent } from "@tiptap/core";
+import { docToSource } from "../lib/source";
 
 /**
  * The block system. Every top-level node of a note is a block. Nesting is an `indent` level on the
@@ -255,6 +258,68 @@ function foldButton(collapsed: boolean, className: string, onClick: () => void):
   return button;
 }
 
+/** The last text line inside a block (the block itself when it's one), with its position. */
+function lastTextblock(node: PMNode, pos: number): { node: PMNode; pos: number } | null {
+  if (node.isTextblock) return { node, pos };
+  let found: { node: PMNode; pos: number } | null = null;
+  node.descendants((child, at) => {
+    if (child.isTextblock) found = { node: child, pos: pos + 1 + at };
+    return !child.isTextblock;
+  });
+  return found;
+}
+
+function copyButton(onCopy: () => Promise<void>): HTMLElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "block-copy";
+  button.contentEditable = "false";
+  button.textContent = "⧉";
+  button.title = "Copy this block";
+  button.setAttribute("aria-label", "Copy this block");
+  button.addEventListener("mousedown", (e) => e.preventDefault());
+  button.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    void onCopy().then(
+      () => {
+        button.textContent = "✓";
+        button.classList.add("copied");
+        window.setTimeout(() => {
+          button.textContent = "⧉";
+          button.classList.remove("copied");
+        }, 1400);
+      },
+      () => {},
+    );
+  });
+  return button;
+}
+
+/** The block at `index` with everything nested in it, as text (Markdown-like, nesting as tabs). */
+export function blockText(doc: PMNode, index: number): string {
+  // A heading takes the text under it, like folding does.
+  const range = foldRange(doc, index);
+  const base = indentOf(doc.child(index));
+  const content: JSONContent[] = [];
+  for (let i = range.start; i < range.end; i++) {
+    const json = doc.child(i).toJSON() as JSONContent;
+    if (json.attrs?.indent) json.attrs = { ...json.attrs, indent: Math.max(0, json.attrs.indent - base) };
+    if (json.attrs?.collapsed) json.attrs = { ...json.attrs, collapsed: false };
+    content.push(json);
+  }
+  return docToSource({ type: "doc", content })
+    .split("\n")
+    .filter((l) => !/^\s*%%list\{.*\}%%\s*$/.test(l))
+    .map((l) => l.replace(/ ?%%\{.*\}%%$/, ""))
+    .join("\n");
+}
+
+async function copyBlock(view: EditorView, index: number) {
+  const { copyText } = await import("./codeBlock");
+  await copyText(blockText(view.state.doc, index));
+}
+
 export function blockDecorations(doc: PMNode): DecorationSet {
   const decos: Decoration[] = [];
   // The view, handed over by the first widget drawn (decorations are built without one).
@@ -263,6 +328,8 @@ export function blockDecorations(doc: PMNode): DecorationSet {
   // A [[Project]] / [[Person]] / [[Log]] line with lines nested under it is drawn as one box.
   let boxUntil = -1;
   let pos = 0;
+  /** Last lines that carry a block's bottom tools: position → size (they become position: relative). */
+  const bottomHosts = new Map<number, number>();
   for (let i = 0; i < doc.childCount; i++) {
     const node = doc.child(i);
     const range = foldRange(doc, i);
@@ -287,18 +354,30 @@ export function blockDecorations(doc: PMNode): DecorationSet {
           }, { side: -1, key: `hfold-${i}-${node.attrs.collapsed}`, ignoreSelection: true }),
         );
       }
-      if (!node.attrs.collapsed && range.end - i > 3) {
-        // A fold button after the last hidden-able block too: fold a long block from its bottom.
+      const isBox = node.isTextblock && /\[\[[^\]]+\]\]/.test(node.textContent);
+      if (!node.attrs.collapsed && (range.end - i > 3 || isBox)) {
+        // Copy and fold at the bottom right, on the block's lower edge (away from the line being
+        // typed, so a tap at the end of the text doesn't hit them).
         const last = doc.child(range.end - 1);
-        const endPos = blockPos(doc, range.end) - 1;
+        const lastPos = blockPos(doc, range.end - 1);
+        const inner = lastTextblock(last, lastPos);
+        const at = inner ? inner.pos + inner.node.nodeSize - 1 : blockPos(doc, range.end);
+        if (inner) bottomHosts.set(inner.pos, inner.node.nodeSize);
         decos.push(
-          Decoration.widget(last.isTextblock ? endPos : endPos + 1, (view) => {
+          Decoration.widget(at, (view) => {
             view0 = view;
-            const b = foldButton(false, "block-bottom-fold", fold);
-            b.textContent = "▴";
-            b.title = "Fold this block";
-            return b;
-          }, { side: 1, key: `bfold-${i}-${range.end}`, ignoreSelection: true }),
+            const row = document.createElement("span");
+            row.className = inner ? "block-bottom-tools" : "block-bottom-tools inline";
+            row.contentEditable = "false";
+            row.append(copyButton(() => copyBlock(view, index)));
+            if (range.end - i > 3) {
+              const b = foldButton(false, "block-bottom-fold", fold);
+              b.textContent = "▴";
+              b.title = "Fold this block";
+              row.append(b);
+            }
+            return row;
+          }, { side: 1, key: `bfold-${i}-${range.end}`, ignoreSelection: true, stopEvent: () => true }),
         );
       }
       if (node.isTextblock && /\[\[[^\]]+\]\]/.test(node.textContent)) {
@@ -315,6 +394,7 @@ export function blockDecorations(doc: PMNode): DecorationSet {
             row.contentEditable = "false";
             const title = /\[\[([^\]|]+)/.exec(node.textContent)?.[1]?.trim();
             if (title) row.append(dayChip(view, title, node.attrs.info as Record<string, string> | null));
+            if (!node.attrs.collapsed) row.append(copyButton(() => copyBlock(view, index)));
             const button = document.createElement("button");
             button.type = "button";
             button.className = "block-box-fold";
@@ -332,10 +412,55 @@ export function blockDecorations(doc: PMNode): DecorationSet {
     if (classes.length) decos.push(Decoration.node(pos, pos + node.nodeSize, { ...attrs, class: classes.join(" ") }));
     pos += node.nodeSize;
   }
+  for (const [at, size] of bottomHosts) decos.push(Decoration.node(at, at + size, { class: "block-bottom-host" }));
   return DecorationSet.create(doc, decos);
 }
 
 const blocksKey = new PluginKey("blocks");
+
+const LISTS = new Set(["bulletList", "orderedList", "taskList"]);
+
+/**
+ * Turning a nested line into a list (the bullet button, "- ", "1. ", "[ ] ") wraps it in a new
+ * top-level list, which would start at no indent and fall out of the box it was in. The list
+ * takes the line's indent instead, so it stays nested where the line was.
+ */
+export function listKeepsIndent(state: EditorState, before?: EditorState, trs: readonly Transaction[] = []): Transaction | null {
+  let tr: Transaction | null = null;
+  // Back to where each line was before: a line just lifted out of a nested list keeps its nesting.
+  const back = new Mapping();
+  for (const t of trs) back.appendMapping(t.mapping);
+  const undo = back.invert();
+  state.doc.forEach((node, offset) => {
+    if (before && node.isTextblock && !indentOf(node) && node.type.spec.attrs?.indent !== undefined) {
+      const old = undo.map(offset + 1, 1);
+      if (old > 0 && old < before.doc.content.size) {
+        const $old = before.doc.resolve(old);
+        const was = $old.depth >= 2 ? $old.node(1) : null;
+        if (was && LISTS.has(was.type.name) && indentOf(was)) {
+          tr ??= state.tr;
+          tr.setNodeMarkup(offset, undefined, { ...node.attrs, indent: indentOf(was) });
+        }
+      }
+      return;
+    }
+    if (!LISTS.has(node.type.name)) return;
+    let inner = 0;
+    node.descendants((child) => {
+      if (inner) return false;
+      if (child.isTextblock) inner = indentOf(child);
+      return !child.isTextblock;
+    });
+    if (!inner) return;
+    tr ??= state.tr;
+    const listIndent = indentOf(node) || Math.min(MAX_INDENT, inner);
+    tr.setNodeMarkup(offset, undefined, { ...node.attrs, indent: listIndent });
+    node.descendants((child, at) => {
+      if (child.isTextblock && indentOf(child)) tr!.setNodeMarkup(offset + 1 + at, undefined, { ...child.attrs, indent: 0 });
+    });
+  });
+  return tr;
+}
 
 /** At the very start of a top-level text block (not in a list or code). */
 function atBlockStart(state: EditorState) {
@@ -399,6 +524,12 @@ export const Blocks = Extension.create({
           apply: (tr, old) => (tr.docChanged ? blockDecorations(tr.doc) : old),
         },
         props: { decorations: (state) => blocksKey.getState(state) },
+      }),
+      new Plugin({
+        key: new PluginKey("listIndent"),
+        // Only wrapping into and lifting out of lists (ReplaceAroundStep); typing never runs this.
+        appendTransaction: (trs, before, state) =>
+          trs.some((t) => t.steps.some((st) => st instanceof ReplaceAroundStep)) ? listKeepsIndent(state, before, trs) : null,
       }),
     ];
   },

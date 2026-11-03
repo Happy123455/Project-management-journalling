@@ -215,6 +215,7 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(HapticsBridge(), "JournalHaptics")
     webView.addJavascriptInterface(LocationBridge(), "JournalLocation")
     webView.addJavascriptInterface(ReminderBridge(), "JournalReminders")
+    webView.addJavascriptInterface(PowerBridge(), "JournalPower")
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->
       val split = payload.partition { it.uri != null }
@@ -359,6 +360,54 @@ class MainActivity : TauriActivity() {
       BubbleService.setEnabled(this@MainActivity, on)
       return on
     }
+  }
+
+  // ───── Battery: let the page sleep in the background (page side: src/lib/power.ts) ─────
+  // A WebView keeps running its JavaScript timers after the app leaves the screen. Once the app has
+  // been out of sight for a while (the page has saved and sent its edits by then), its timers are
+  // paused until it comes back, unless the page says something is playing or recording.
+  private val sleepHandler = android.os.Handler(android.os.Looper.getMainLooper())
+  @Volatile private var pageBusy = false
+  private var pageAsleep = false
+  private var inBackground = false
+  private val sleepAfter = 30_000L
+  private val sleepNow = Runnable {
+    if (inBackground && !pageBusy && !pageAsleep) {
+      webView?.pauseTimers()
+      pageAsleep = true
+    }
+  }
+
+  inner class PowerBridge {
+    @JavascriptInterface fun setBusy(busy: Boolean) = runOnUiThread {
+      pageBusy = busy
+      if (busy && pageAsleep) wakePage()
+      if (!busy && inBackground) {
+        sleepHandler.removeCallbacks(sleepNow)
+        sleepHandler.postDelayed(sleepNow, sleepAfter)
+      }
+    }
+  }
+
+  private fun wakePage() {
+    sleepHandler.removeCallbacks(sleepNow)
+    if (pageAsleep) {
+      webView?.resumeTimers()
+      pageAsleep = false
+    }
+  }
+
+  override fun onStart() {
+    super.onStart()
+    inBackground = false
+    wakePage()
+  }
+
+  override fun onStop() {
+    super.onStop()
+    inBackground = true
+    sleepHandler.removeCallbacks(sleepNow)
+    sleepHandler.postDelayed(sleepNow, sleepAfter)
   }
 
   override fun onResume() {

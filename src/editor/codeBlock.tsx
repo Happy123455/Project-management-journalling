@@ -94,17 +94,28 @@ function CodeBlockView({ node, updateAttributes, editor }: NodeViewProps) {
         <NodeViewContent<"code"> as="code" />
       </pre>
       {!collapsed && node.textContent.split("\n").length > 4 && (
-        <button
-          type="button"
-          className="block-bottom-fold code-bottom-fold"
-          contentEditable={false}
-          onPointerDown={(e) => e.preventDefault()}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => updateAttributes({ collapsed: true })}
-          title="Collapse"
-        >
-          ▴ Collapse
-        </button>
+        // Long code: Copy and Collapse at the bottom too, so they're there without scrolling back up.
+        <div className="code-bottom-row" contentEditable={false}>
+          <button
+            type="button"
+            className={copied ? "code-copy copied" : "code-copy"}
+            onPointerDown={(e) => e.preventDefault()}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={copy}
+          >
+            {copied ? "✓ Copied" : "Copy"}
+          </button>
+          <button
+            type="button"
+            className="block-bottom-fold code-bottom-fold"
+            onPointerDown={(e) => e.preventDefault()}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => updateAttributes({ collapsed: true })}
+            title="Collapse"
+          >
+            ▴ Collapse
+          </button>
+        </div>
       )}
     </NodeViewWrapper>
   );

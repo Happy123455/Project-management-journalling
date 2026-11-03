@@ -99,8 +99,8 @@
     --reminder: #f59e0b;
     --mark: rgba(250, 204, 21, 0.35);
     --neu-shade-rgb: 0, 0, 0;
-    --neu-shade-a: 0.5;
-    --neu-hi-a: 0.07;
+    --neu-shade-a: 0.75;
+    --neu-hi-a: 0.12;
     --neu-knob: #e8eaef;
     --neu-overlay: 0 18px 50px rgba(0, 0, 0, 0.55);
     --neu-sun-a: 0.05;

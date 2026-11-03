@@ -6,10 +6,12 @@ export interface EditorPrefs {
   editStamps: boolean;
   /** The note header shows how long ago (or until) the open day is. */
   relativeTime: boolean;
+  /** Typing "=" after a sum ("12+12=") writes the answer. */
+  autoMath: boolean;
 }
 
 const KEY = "journal.editor";
-const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true };
+const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true };
 
 export function editorPrefs(): EditorPrefs {
   try {

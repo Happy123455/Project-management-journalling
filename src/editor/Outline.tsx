@@ -4,6 +4,8 @@ import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { TIMESTAMP_RE } from "../lib/timestamp";
 import { foldRange, indentOf } from "./blocks";
+import { setTimeRail, useStamps, useTimeRail } from "./TimeRail";
+import { formatGap } from "../lib/timeGaps";
 
 export interface OutlineItem {
   /** Position in the note (the block's start), to jump to. */
@@ -118,32 +120,81 @@ export function OutlinePanel({ editor, onJump, onClose }: { editor: Editor; onJu
       window.removeEventListener("keydown", onKey);
     };
   }, [editor, onClose]);
-  const shown = filter.trim() ? items.filter((i) => i.label.toLowerCase().includes(filter.trim().toLowerCase())) : items;
+  // 🕒 Time: only the timestamps, with how long passed between each one and the next, and the
+  // time rail on the right edge of the note.
+  const time = useTimeRail();
+  const stamps = useStamps(editor, time);
+  const q = filter.trim().toLowerCase();
+  const shown = q ? items.filter((i) => i.label.toLowerCase().includes(q)) : items;
+  const shownStamps = q ? stamps.filter((s) => s.label.toLowerCase().includes(q)) : stamps;
+  const clock = (t: number) => {
+    const d = new Date(t);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+  const span = stamps.length > 1 ? Math.max(...stamps.map((s) => s.time)) - Math.min(...stamps.map((s) => s.time)) : 0;
   return createPortal(
     <>
       <div className="outline-backdrop" onClick={onClose} />
-      <aside className="outline-panel" role="dialog" aria-label="Outline">
+      <aside className={time ? "outline-panel with-rail" : "outline-panel"} role="dialog" aria-label="Outline">
         <header>
           <strong>Outline</strong>
           <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter…" aria-label="Filter the outline" />
+          <button
+            type="button"
+            className={time ? "outline-time active" : "outline-time"}
+            aria-pressed={time}
+            title="Time: only timestamps, with the time between them and a time rail on the right edge"
+            onClick={() => setTimeRail(!time)}
+          >
+            🕒
+          </button>
           <button type="button" onClick={onClose} aria-label="Close">✕</button>
         </header>
-        {shown.length === 0 && <p className="hint">Nothing to list yet: headings, boxes, code, links, media and timed log lines show up here.</p>}
-        <ul>
-          {shown.map((item, i) => (
-            <li key={`${item.pos}-${i}`} className={`outline-${item.kind}`} style={{ paddingLeft: `${8 + Math.min(item.depth, 6) * 14}px` }}>
-              {item.kind === "divider" ? (
-                <hr />
-              ) : (
-                <button type="button" onClick={() => onJump(item.pos)}>
-                  <span className="outline-icon">{item.icon}</span>
-                  <span className="outline-label">{item.label}</span>
-                  {item.folded && <span className="outline-folded" title="Folded: opens when you tap it">▸</span>}
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
+        {time ? (
+          <>
+            {stamps.length > 1 && <p className="outline-span">{formatGap(span)} from the first to the last timestamp</p>}
+            {shownStamps.length === 0 && <p className="hint">No timestamps in this note yet.</p>}
+            <ul>
+              {shownStamps.map((s, i) => {
+                const prev = shownStamps[i - 1];
+                const gap = prev ? s.time - prev.time : 0;
+                return (
+                  <li key={`t-${s.pos}`} className="outline-stamp">
+                    {prev && (
+                      <span className="outline-gap" title={gap < 0 ? "Earlier than the timestamp above it" : "Time passed since the one above"}>
+                        {gap < 0 ? `↑ ${formatGap(gap)} earlier` : `↓ ${formatGap(gap)}`}
+                      </span>
+                    )}
+                    <button type="button" onClick={() => onJump(s.pos)}>
+                      <span className="outline-icon">🕒</span>
+                      <span className="outline-time-at">{clock(s.time)}</span>
+                      <span className="outline-label">{s.label}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        ) : (
+          <>
+            {shown.length === 0 && <p className="hint">Nothing to list yet: headings, boxes, code, links, media and timed log lines show up here.</p>}
+            <ul>
+              {shown.map((item, i) => (
+                <li key={`${item.pos}-${i}`} className={`outline-${item.kind}`} style={{ paddingLeft: `${8 + Math.min(item.depth, 6) * 14}px` }}>
+                  {item.kind === "divider" ? (
+                    <hr />
+                  ) : (
+                    <button type="button" onClick={() => onJump(item.pos)}>
+                      <span className="outline-icon">{item.icon}</span>
+                      <span className="outline-label">{item.label}</span>
+                      {item.folded && <span className="outline-folded" title="Folded: opens when you tap it">▸</span>}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </aside>
     </>,
     document.body,

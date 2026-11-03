@@ -31,7 +31,9 @@ describe("softLightAt", () => {
     expect(softLightAt(rise - 0.25 * H, rise, set, "clear").x).toBeGreaterThan(0);
     const night = softLightAt(day + 23 * H, rise, set, "clear");
     expect(night.phase).toBe("night");
-    expect(night.strength).toBeLessThan(0.7);
+    expect(night.strength).toBeLessThan(softLightAt(day + 12 * H, rise, set, "clear").strength);
+    // Still enough shade and highlight on the dark surface to read as depth.
+    expect(night.strength).toBeGreaterThanOrEqual(0.75);
     expect(softLightAt(day + 2 * H, rise, set, "clear").phase).toBe("night");
   });
   it("clouds and rain make shadows shorter, softer and fainter", () => {
@@ -55,5 +57,19 @@ describe("softLightAt", () => {
     expect(night.tone).toBe("dark");
     expect(lum(night.base)).toBeLessThan(3 * 60);
     expect(softLightAt(set + 0.2 * H, rise, set, "clear").tone).toBe("dark");
+  });
+
+  it("light all day stays light at night; dark all day stays dark at noon; the sun still moves the shadows", () => {
+    const lum = (hex: string) => parseInt(hex.slice(1, 3), 16) + parseInt(hex.slice(3, 5), 16) + parseInt(hex.slice(5, 7), 16);
+    const night = softLightAt(day + 23 * H, rise, set, "clear", "light");
+    expect(night.tone).toBe("light");
+    expect(lum(night.base)).toBeGreaterThan(3 * 150);
+    expect(lum(night.base)).toBeLessThan(lum(softLightAt(day + 12 * H, rise, set, "clear", "light").base));
+    const noon = softLightAt(day + 12 * H, rise, set, "clear", "dark");
+    expect(noon.tone).toBe("dark");
+    expect(lum(noon.base)).toBeLessThan(3 * 70);
+    const morning = softLightAt(rise + 1 * H, rise, set, "clear", "dark");
+    expect(morning.x).toBeGreaterThan(4);
+    expect(softLightAt(set - 1 * H, rise, set, "clear", "dark").x).toBeLessThan(-4);
   });
 });

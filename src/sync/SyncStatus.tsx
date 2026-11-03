@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SyncStatus as Status } from "./useSync";
 import type { StorageUsage } from "./engine";
 import { syncStorage } from "./folders";
+import { visibleInterval } from "../lib/power";
 
 const size = (bytes: number) =>
   bytes >= 1e9 ? `${(bytes / 1e9).toFixed(2)} GB` : bytes >= 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.round(bytes / 1e3)} KB`;
@@ -39,8 +40,7 @@ function ago(date: Date, now: number): string {
 export function SyncStatus({ status, live, direct, onSync, onChooseFolder }: { status: Status; live?: boolean; direct?: boolean; onSync: () => void; onChooseFolder: () => void }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(t);
+    return visibleInterval(() => setNow(Date.now()), 30_000);
   }, []);
 
   if (status.state === "needs-folder") {

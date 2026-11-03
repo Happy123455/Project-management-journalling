@@ -52,6 +52,19 @@ const DAY_NOON: RGB = [214, 219, 226];
 const DAY_LOW: RGB = [196, 200, 209];
 const DUSK_SURFACE: RGB = [58, 54, 68];
 const NIGHT_SURFACE: RGB = [34, 37, 45];
+// "Light all day": the night and dusk stay light, just dimmer and cooler (or a little violet).
+const LIGHT_NIGHT: RGB = [178, 184, 196];
+const LIGHT_DUSK: RGB = [192, 186, 202];
+// "Dark all day": by day the dark surface lifts a little with the sun, never grey.
+const DARK_NOON: RGB = [50, 54, 64];
+const DARK_LOW: RGB = [44, 43, 53];
+
+/**
+ * Which tones the surface moves through: "both" = light by day, dark at night (the original);
+ * "light" = light all day and night; "dark" = dark all day. The light (direction, length,
+ * colour of the shadows) follows the sun in all three.
+ */
+export type ToneMode = "both" | "light" | "dark";
 
 const hex = (c: RGB) => "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("");
 const mix = (a: RGB, b: RGB, t: number): RGB => [0, 1, 2].map((i) => Math.round(a[i] + (b[i] - a[i]) * t)) as RGB;
@@ -61,7 +74,7 @@ const r1 = (n: number) => Math.round(n * 10) / 10;
  * Light at `now` (ms) for a day whose sun rises at `rise` and sets at `set` (ms, same day).
  * Weather null = unknown, treated as clear.
  */
-export function softLightAt(now: number, rise: number, set: number, weather: Weather): SoftLight {
+export function softLightAt(now: number, rise: number, set: number, weather: Weather, mode: ToneMode = "both"): SoftLight {
   const DAY = 24 * 3600_000;
   let p: number; // 0 → 1 across the arc of the sun (day) or moon (night)
   let phase: SoftLight["phase"];
@@ -110,18 +123,29 @@ export function softLightAt(now: number, rise: number, set: number, weather: Wea
     lx /= l2;
     ly /= l2;
     dist = BASE * 1.1;
-    strength = 0.7;
+    // Dark surfaces need strong shade and highlight, or the depth disappears.
+    strength = 0.85;
     tint = DUSK;
     tintAmt = 7;
     glow = 28;
   } else {
     surface = NIGHT_SURFACE;
-    dist *= 0.6;
+    dist *= 0.8;
     blur *= 0.9;
-    strength = 0.6;
+    strength = 0.8;
     tint = MOON;
     tintAmt = 6;
     glow = 25;
+  }
+
+  let tone: SoftLight["tone"] = phase === "day" ? "light" : "dark";
+  if (mode === "light" && tone === "dark") {
+    tone = "light";
+    surface = phase === "twilight" ? LIGHT_DUSK : LIGHT_NIGHT;
+  } else if (mode === "dark" && tone === "light") {
+    tone = "dark";
+    surface = mix(DARK_LOW, DARK_NOON, Math.pow(e, 0.7));
+    tintAmt *= 0.6;
   }
 
   if (weather === "cloudy") {
@@ -152,6 +176,6 @@ export function softLightAt(now: number, rise: number, set: number, weather: Wea
     sunY: Math.round(-12 + (1 - e) * 42),
     phase,
     base: hex(surface),
-    tone: phase === "day" ? "light" : "dark",
+    tone,
   };
 }

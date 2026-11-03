@@ -5,12 +5,14 @@ import { ReplaceStep } from "@tiptap/pm/transform";
 /** Opening character → its closer. */
 export const PAIRS: Record<string, string> = { "[": "]", "(": ")", "{": "}", '"': '"', "'": "'", "`": "`" };
 const CLOSERS = new Set(Object.values(PAIRS));
+const WORD = /[\p{L}\p{N}]/u;
 const key = new PluginKey("autoPairs");
 
 /**
  * The follow-up to one typed or deleted character: typing an opener adds its closer after the
  * cursor; typing a closer that's already next steps over it; deleting an opener right before its
- * closer removes both. Quotes only pair at the start of a word ("don't" stays as typed); not in code.
+ * closer removes both. Nothing pairs when typed right against a letter or number ("word(" or "(word"
+ * get just the one character), so "don't" stays as typed too; not in code.
  * Worked out from the change itself, so it works with every keyboard (Android ones don't send keys).
  */
 export function pairFollowUp(tr: Transaction, before: EditorState, after: EditorState): Transaction | null {
@@ -31,7 +33,12 @@ export function pairFollowUp(tr: Transaction, before: EditorState, after: Editor
     }
     const close = PAIRS[typed];
     if (!close) return null;
-    if (close === typed && /[\p{L}\p{N}]/u.test(charAt(before, from - 1))) return null;
+    const prev = charAt(before, from - 1);
+    // Typed right against a word ("word(" or "(word"): just the one character, no closer, as
+    // it's most likely wrapping or adding to what's already there.
+    if (WORD.test(prev) || WORD.test(charAt(after, from + 1))) return null;
+    // The second "[" of "word[[": the first one has no closer, so this one doesn't get one either.
+    if (prev === typed && charAt(after, from + 1) !== close) return null;
     const next = after.tr.insertText(close, from + 1).setMeta(key, true);
     return next.setSelection(TextSelection.create(next.doc, from + 1));
   }

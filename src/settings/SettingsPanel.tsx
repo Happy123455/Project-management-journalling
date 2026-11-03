@@ -1,4 +1,5 @@
 import { ambienceSettings, setAmbienceSettings, type AmbienceSettings } from "../lib/ambience";
+import type { ToneMode } from "../lib/softLight";
 import { useEffect, useState } from "react";
 import { localModels, testKey } from "../ai/client";
 import { DEFAULT_MODELS, PROVIDERS, type Provider } from "../ai/providers";
@@ -310,6 +311,7 @@ function EditorSettings() {
       {row("codeScroll", "Scroll code blocks sideways", "Off: long code lines wrap onto the next line instead")}
       {row("editStamps", "Stamp edits on older days", "Writing in a past day adds a small “edited” chip with when")}
       {row("relativeTime", "Show how long ago a day is", "Under the date: years, months and days from today")}
+      {row("autoMath", "Solve math as you type", "Type = after a sum and the answer appears: 12+12= becomes 12+12=24 (undo takes it back)")}
     </section>
   );
 }
@@ -341,6 +343,12 @@ function ThemeSection() {
   );
 }
 
+const TONE_MODES: { id: ToneMode; name: string; hint: string }[] = [
+  { id: "both", name: "Both dynamic", hint: "Light by day, dark after sunset, gliding between them." },
+  { id: "light", name: "Light dynamic", hint: "Light all day and night; the shadows and light colour still follow the sun." },
+  { id: "dark", name: "Dark dynamic", hint: "Dark all day with deeper shadows; the shadows and light colour still follow the sun." },
+];
+
 /** Optional light, weather and sound on the glass. */
 function AmbienceSection() {
   const [a, setA] = useState(ambienceSettings);
@@ -350,7 +358,7 @@ function AmbienceSection() {
     window.addEventListener("journal:theme", on);
     return () => window.removeEventListener("journal:theme", on);
   }, []);
-  const row = (key: keyof AmbienceSettings, label: string) => (
+  const row = (key: Exclude<keyof AmbienceSettings, "tone">, label: string) => (
     <label className="settings-toggle">
       <input type="checkbox" checked={a[key]} onChange={(e) => setA(setAmbienceSettings({ [key]: e.target.checked }))} />
       {label}
@@ -362,6 +370,19 @@ function AmbienceSection() {
       {theme === "neu" ? (
         <>
           {row("daylight", "Shadows follow the sun (direction, length and colour of the light)")}
+          {a.daylight && (
+            <>
+              <div className="settings-label">Light and dark</div>
+              <div className="project-status" role="radiogroup" aria-label="Light and dark">
+                {TONE_MODES.map((m) => (
+                  <button key={m.id} type="button" role="radio" aria-checked={a.tone === m.id} className={a.tone === m.id ? "active status-active" : ""} onClick={() => setA(setAmbienceSettings({ tone: m.id }))}>
+                    {m.name}
+                  </button>
+                ))}
+              </div>
+              <p className="hint">{TONE_MODES.find((m) => m.id === a.tone)?.hint}</p>
+            </>
+          )}
           {row("weather", "Weather on the surface (soft light when cloudy, raised drops when it rains)")}
           {row("sounds", "Soft press sounds and haptics when touching and swiping")}
         </>

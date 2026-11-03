@@ -94,7 +94,12 @@ export class DriveFolder implements SyncFolder {
   private async file(path: string): Promise<string | null> {
     const [up, name] = split(path);
     const parent = await this.dir(up, false);
-    return parent ? this.child(parent, name) : null;
+    const id = parent ? await this.child(parent, name) : null;
+    if (id || !path.startsWith("files/")) return id;
+    // Attachment bytes are named by their hash, so one is the same file wherever it is. If the
+    // Drive folder ever got a second "files" folder (both devices made one before seeing the
+    // other's), the bytes can sit in the other one: look them up by name anywhere in Drive.
+    return (await this.search(`name = ${quote(name)} and mimeType != '${FOLDER}'`, "id"))[0]?.id ?? null;
   }
 
   async list(dir: string) {

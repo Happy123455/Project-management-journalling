@@ -7,15 +7,35 @@ import type { JournalStore, NamedPage } from "../store";
 /**
  * A project as a ready-made block: its [[link]] as the box title and an indented line under it
  * with the cursor in it, so writing goes straight into the box (no Enter + Tab each time).
+ * On an empty line it takes that line's place. On a line that already has text it never takes
+ * that text in: at the start of the line the box goes above it, anywhere else below it.
  */
 export function insertProjectBlock(editor: Editor, title: string) {
+  const { state } = editor;
+  const { $from } = state.selection;
+  const head = `[[${title}]]`;
+  // The top-level line the cursor is in (a list item or quote counts as its whole block).
+  const depth = $from.depth >= 1 ? 1 : 0;
+  const line = depth ? $from.node(1) : null;
+  const indent = Number(line?.attrs.indent ?? 0);
+  const content = [
+    { type: "paragraph", attrs: { indent }, content: [{ type: "text", text: head }] },
+    { type: "paragraph", attrs: { indent: indent + 1 } },
+  ];
+  const empty = !line || (line.type.name === "paragraph" && line.content.size === 0);
+  if (empty) {
+    editor.chain().focus().insertContent(content).run();
+    return;
+  }
+  const atStart = $from.depth === 1 && $from.parentOffset === 0;
+  const at = atStart ? $from.before(1) : $from.after(1);
   editor
     .chain()
     .focus()
-    .insertContent([
-      { type: "paragraph", content: [{ type: "text", text: `[[${title}]]` }] },
-      { type: "paragraph", attrs: { indent: 1 } },
-    ])
+    .insertContentAt(at, content)
+    // Into the empty line under the title: block start + title (text + 2) + 1.
+    .setTextSelection(at + head.length + 2 + 1)
+    .scrollIntoView()
     .run();
 }
 

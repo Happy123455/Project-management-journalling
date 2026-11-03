@@ -31,7 +31,16 @@ describe("auto pairs", () => {
     expect(show(s)).toBe("[[|]]");
     s = key(key(key(s, "A"), "]"), "]");
     expect(show(s)).toBe("[[A]]|");
-    expect(show(key(start("f"), "("))).toBe("f(|)");
+    expect(show(key(start("f "), "("))).toBe("f (|)");
+  });
+
+  it("typed right against a word: only the one character", () => {
+    expect(show(key(start("f"), "("))).toBe("f(|");
+    expect(show(key(start("word"), "["))).toBe("word[|");
+    expect(show(key(key(start("word"), "["), "["))).toBe("word[[|");
+    expect(show(key(start("word", 0), "("))).toBe("(|word");
+    // A closer typed later stays (nothing to step over).
+    expect(show(key(key(key(start("f"), "("), "x"), ")"))).toBe("f(x)|");
   });
 
   it("leaves apostrophes inside words alone", () => {

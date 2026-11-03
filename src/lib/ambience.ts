@@ -7,7 +7,7 @@
  * Weather comes from Open-Meteo (no key) for the rough location of this internet connection.
  */
 
-import { softLightAt } from "./softLight";
+import { softLightAt, type ToneMode } from "./softLight";
 
 const softTheme = () => document.documentElement.dataset.theme === "neu";
 
@@ -15,10 +15,12 @@ export interface AmbienceSettings {
   daylight: boolean;
   weather: boolean;
   sounds: boolean;
+  /** Soft UI with the light following the sun: light by day + dark at night, or one of them all day. */
+  tone: ToneMode;
 }
 
 const KEY = "dynamic-journal.ambience";
-const DEFAULTS: AmbienceSettings = { daylight: true, weather: true, sounds: false };
+const DEFAULTS: AmbienceSettings = { daylight: true, weather: true, sounds: false, tone: "both" };
 
 export function ambienceSettings(): AmbienceSettings {
   try {
@@ -172,8 +174,9 @@ const TONES = {
     "--border": "color-mix(in srgb, var(--bg) 85%, #fff)",
     "--panel": "color-mix(in srgb, var(--bg) 92%, #fff)",
     "--heat-empty": "color-mix(in srgb, var(--bg) 93%, #fff)",
-    "--neu-shade-a": "0.55",
-    "--neu-hi-a": "0.07",
+    // Strong shade and a clear top-left highlight: on a dark surface faint ones read as flat.
+    "--neu-shade-a": "0.8",
+    "--neu-hi-a": "0.13",
     "--neu-knob": "#e8eaef",
     "--neu-tint-k": "0.5",
     "--neu-sun-a": "0.05",
@@ -204,7 +207,7 @@ function applySoftLight() {
   lightApplied = true;
   const now = new Date();
   const { rise, set } = todaySun(now);
-  const l = softLightAt(now.getTime(), rise, set, s.weather ? weather : null);
+  const l = softLightAt(now.getTime(), rise, set, s.weather ? weather : null, s.tone);
   const set1 = (k: string, v: string) => root.style.setProperty(k, v);
   set1("--neu-x", `${l.x}px`);
   set1("--neu-y", `${l.y}px`);
@@ -375,7 +378,8 @@ export function startAmbience() {
   if (started || typeof window === "undefined") return;
   started = true;
   applyAmbience();
-  window.setInterval(applyAmbience, 10 * 60_000);
+  // Only while the app is on screen (it catches up when it comes back): no weather checks in the background.
+  window.setInterval(() => !document.hidden && applyAmbience(), 10 * 60_000);
   // Soft UI shadows follow the sun minute by minute (cheap: a few CSS variables).
   window.setInterval(() => !document.hidden && applySoftLight(), 60_000);
   window.addEventListener("journal:theme", applyAmbience);
