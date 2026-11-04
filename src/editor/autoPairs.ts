@@ -5,6 +5,8 @@ import { ReplaceStep } from "@tiptap/pm/transform";
 /** Opening character → its closer. */
 export const PAIRS: Record<string, string> = { "[": "]", "(": ")", "{": "}", '"': '"', "'": "'", "`": "`" };
 const CLOSERS = new Set(Object.values(PAIRS));
+/** Typed over a selection, these wrap it instead of replacing it (brackets, quotes, code). */
+export const WRAPS: Record<string, string> = { ...PAIRS, "<": ">", "“": "”", "‘": "’", "«": "»" };
 const WORD = /[\p{L}\p{N}]/u;
 const key = new PluginKey("autoPairs");
 
@@ -24,6 +26,20 @@ export function pairFollowUp(tr: Transaction, before: EditorState, after: Editor
   if ($at.parent.type.name === "codeBlock") return null;
   const charAt = (state: EditorState, pos: number) => (pos >= 0 && pos < state.doc.content.size ? state.doc.textBetween(pos, Math.min(pos + 1, state.doc.content.size)) : "");
 
+  // A wrapping character typed over a selection in one line (Android keyboards, which don't go
+  // through handleTextInput): the selected text comes back, inside the pair.
+  // (The range replaced is what was selected on screen; the editor's own selection can lag behind.)
+  if (from < to && slice.size === 1) {
+    const typed = slice.content.textBetween(0, 1);
+    const close = WRAPS[typed];
+    const $from = before.doc.resolve(from);
+    if (!close || !$from.sameParent(before.doc.resolve(to)) || $from.parent.type.name === "codeBlock") return null;
+    const picked = before.doc.slice(from, to);
+    const next = after.tr.insert(from + 1, picked.content).setMeta(key, true);
+    const end = from + 1 + picked.content.size;
+    next.insertText(close, end);
+    return next.setSelection(TextSelection.create(next.doc, from + 1, end));
+  }
   // One character typed.
   if (from === to && slice.size === 1) {
     const typed = slice.content.textBetween(0, 1);
@@ -59,6 +75,22 @@ export const AutoPairs = Extension.create({
       new Plugin({
         key,
         appendTransaction: (trs, before, after) => (trs.length === 1 ? pairFollowUp(trs[0], before, after) : null),
+        props: {
+          // Typing a bracket, quote or ` with text selected wraps it (also across lines and blocks):
+          // "word" → (word), "word" → "word". The text stays selected, so wrapping again nests.
+          handleTextInput(view, from, to, text) {
+            const close = WRAPS[text];
+            // `from`–`to` is what the letter replaces: the selection on screen.
+            if (!close || from >= to) return false;
+            const $from = view.state.doc.resolve(from);
+            const $to = view.state.doc.resolve(to);
+            if (!$from.parent.inlineContent || !$to.parent.inlineContent || $from.parent.type.name === "codeBlock") return false;
+            const tr = view.state.tr.insertText(close, to).insertText(text, from).setMeta(key, true);
+            tr.setSelection(TextSelection.create(tr.doc, from + 1, to + 1));
+            view.dispatch(tr.scrollIntoView());
+            return true;
+          },
+        },
       }),
     ];
   },

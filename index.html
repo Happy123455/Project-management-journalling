@@ -8,7 +8,15 @@
   </head>
 
   <body>
-    <div id="root"></div>
+    <!-- Shown until the app draws (never a blank screen while it loads); React replaces it. -->
+    <div id="root"><div class="boot-splash" style="position:fixed;inset:0;display:grid;place-items:center;font:600 15px system-ui,sans-serif;color:#888;background:#f3f4f8">
+      <span>📔 Dynamic Journal…</span>
+    </div></div>
+    <script>
+      try {
+        if (matchMedia("(prefers-color-scheme: dark)").matches) document.querySelector(".boot-splash").style.background = "#16171c";
+      } catch (e) {}
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

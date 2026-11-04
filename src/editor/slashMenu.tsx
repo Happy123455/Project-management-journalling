@@ -43,8 +43,10 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       chain.run();
       return insertLogOrTime(editor);
     case "tag": return chain.insertContent("#").run();
-    case "link": {
-      chain.insertContent("[[]]").run();
+    case "link":
+    case "embed": {
+      // ![[…]] shows the day or page (or one part of it, after #) right here.
+      chain.insertContent(id === "embed" ? "![[]]" : "[[]]").run();
       const at = editor.state.selection.from - 2;
       return editor.chain().setTextSelection(at).run();
     }

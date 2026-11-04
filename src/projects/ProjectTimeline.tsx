@@ -6,6 +6,34 @@ import { skyAt } from "../lib/sky";
 import { dayTitle, TIMESTAMP_RE } from "../lib/timestamp";
 import { DocView } from "../pages/DocView";
 import { Marquee } from "../ui/Marquee";
+import { plainText } from "../lib/plainText";
+import { copyText } from "../editor/codeBlock";
+import { showToast } from "../lib/toast";
+
+/** An entry as plain text (its box title line left out). */
+const entryPlain = (e: { doc?: unknown[] }) => plainText((e.doc ?? []) as never, { dropBoxTitle: true });
+
+/** ⧉: copies text, then says so on the button for a moment. */
+function CopyButton({ text, label = "Copy" }: { text: () => string; label?: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      className={`entries-copy${done ? " copied" : ""}`}
+      onClick={(ev) => {
+        ev.stopPropagation();
+        const t = text();
+        if (!t.trim()) return showToast("Nothing to copy");
+        void copyText(t).then(
+          () => (setDone(true), window.setTimeout(() => setDone(false), 1400)),
+          (err) => showToast(`Couldn't copy: ${err instanceof Error ? err.message : String(err)}`, "error"),
+        );
+      }}
+    >
+      {done ? "✓ Copied" : `⧉ ${label}`}
+    </button>
+  );
+}
 import type { JournalStore, NamedPage } from "../store";
 
 const short = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
@@ -35,6 +63,22 @@ export function entryTime(e: ProjectEntry): { date: Date; hour: number } | null 
       const [, d, month, y, , hh, mm, ss] = m;
       return { date: new Date(Number(y), MONTHS.indexOf(month), Number(d), Number(hh), Number(mm), Number(ss)), hour: Number(hh) };
     }
+  }
+  // No time written: when typing in the entry began (its first line remembers it, see blockBorn).
+  const born = firstBorn(e.doc as BornBlock[] | undefined);
+  if (born) {
+    const date = new Date(born);
+    if (!Number.isNaN(date.getTime())) return { date, hour: date.getHours() };
+  }
+  return null;
+}
+
+type BornBlock = { attrs?: { born?: string | null }; content?: BornBlock[] };
+function firstBorn(blocks: BornBlock[] | undefined): string | null {
+  for (const b of blocks ?? []) {
+    if (typeof b.attrs?.born === "string") return b.attrs.born;
+    const inner = firstBorn(b.content);
+    if (inner) return inner;
   }
   return null;
 }
@@ -81,6 +125,7 @@ export function ProjectTimeline({ store, page, refreshKey, onOpenDay, onOpenLink
     <section className="project-timeline">
       <div className="entries-head">
         <h2>Entries</h2>
+        <CopyButton label="Copy all" text={() => entries.map((e) => `${dayTitle(e.day)} · Day ${e.n}\n${entryPlain(e)}`).join("\n\n")} />
         <div className="entries-modes" role="tablist" aria-label="Show entries as">
           {(["timeline", "note", "table"] as Mode[]).map((m) => (
             <button key={m} type="button" role="tab" aria-selected={mode === m} className={mode === m ? "active" : ""} onClick={() => pick(m)}>
@@ -152,7 +197,10 @@ function Timeline({ entries, onOpenDay, ...links }: ViewProps) {
                 {open === e.day && (
                   <div className="timeline-body">
                     <DocView content={e.doc} {...links} />
-                    <button type="button" onClick={() => onOpenDay(e.day)}>Open {short(e.day)} ›</button>
+                    <div className="entries-body-actions">
+                      <button type="button" onClick={() => onOpenDay(e.day)}>Open {short(e.day)} ›</button>
+                      <CopyButton text={() => entryPlain(e)} />
+                    </div>
                   </div>
                 )}
               </div>
@@ -269,6 +317,7 @@ function EntryPopup({ entry, from, onClose, onOpenDay, ...links }: { entry: Entr
         </div>
         <footer>
           <button type="button" onClick={() => (onClose(), onOpenDay(entry.day))}>Open {dayTitle(entry.day)} ›</button>
+          <CopyButton text={() => entryPlain(entry)} />
         </footer>
       </div>
     </div>,

@@ -30,7 +30,13 @@ export interface Txn {
   at: number;
   /** Where it was read from. */
   source?: "sms" | "notification" | "note";
+  /** Read from a note: the line as written there, and that note's day (to edit it). */
+  line?: string;
+  day?: string;
 }
+
+/** The category of a payment marked "not a payment": kept in the note (so it isn't brought in again), left out of the money views. */
+export const IGNORED = "ignored";
 
 export const FINANCE_BOX = "[[Finance]]";
 
@@ -216,7 +222,44 @@ export function readLine(line: string, day: string): Txn | null {
     ...(ref ? { ref } : {}),
     at,
     source: "note",
+    line,
+    day,
   };
+}
+
+export interface TxnPatch {
+  amount?: number;
+  direction?: Direction;
+  party?: string;
+  category?: string;
+  /** "HH:MM" on the same day. */
+  time?: string;
+}
+
+/**
+ * A note's payment line with some of it corrected (amount, in/out, who, category, time). What
+ * else is on the line (the timestamp's date, the bank details in brackets) stays as it was.
+ */
+export function rewriteLine(line: string, day: string, patch: TxnPatch): string | null {
+  const t = readLine(line, day);
+  const m = LINE.exec(line);
+  if (!t || !m) return null;
+  let head = line.slice(0, m.index);
+  const paren = /\(([^()]*)\)\s*$/.exec(m[3]);
+  if (patch.time && /^\d{1,2}:\d{2}$/.test(patch.time)) {
+    const [hh, mm] = patch.time.split(":").map(Number);
+    const ts = new RegExp(TIMESTAMP_RE.source).exec(head);
+    const d = new Date(t.at);
+    d.setHours(hh, mm, ts ? d.getSeconds() : 0, 0);
+    head = ts ? head.replace(ts[0], formatTimestamp(d)) : `${formatTimestamp(d)} ${head}`;
+  }
+  if (head && !/\s$/.test(head)) head += " ";
+  const direction = patch.direction ?? t.direction;
+  const amount = patch.amount !== undefined && Number.isFinite(patch.amount) && patch.amount > 0 ? patch.amount : t.amount;
+  const party = clean((patch.party ?? t.party ?? "").replace(/[#()]/g, " ")).trim();
+  const category = (patch.category ?? t.category).trim().toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, "-").replace(/^-+|-+$/g, "") || (direction === "credit" ? "income" : "other");
+  const who = party ? ` ${direction === "debit" ? "to" : "from"} ${party}` : "";
+  return `${head}${direction === "debit" ? "💸" : "💰"} ${rupees(amount)}${who} #${category}${paren ? ` (${paren[1]})` : ""}`;
 }
 
 /** Every transaction line in a day's note. */

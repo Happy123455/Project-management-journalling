@@ -74,8 +74,7 @@ mod kokoro;
 #[cfg(desktop)]
 mod mcp;
 
-/// Instant sync with the phone over Wi-Fi.
-#[cfg(desktop)]
+/// Instant sync between the phone and the Mac over Wi-Fi (both listen: see direct.rs).
 mod direct;
 
 #[cfg(desktop)]
@@ -175,11 +174,12 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         mcp::mcp_reply,
         direct::direct_start,
         direct::direct_reply,
+        direct::direct_scan,
         youtube::youtube_port
     ]
 }
 
 #[cfg(mobile)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![]
+    tauri::generate_handler![direct::direct_start, direct::direct_reply, direct::direct_scan]
 }

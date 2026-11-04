@@ -3,6 +3,63 @@ import type { SyncStatus as Status } from "./useSync";
 import type { StorageUsage } from "./engine";
 import { syncStorage } from "./folders";
 import { visibleInterval } from "../lib/power";
+import type { ConnectResult } from "./direct";
+import { clipShareOn, setClipShare } from "./clipboard";
+import { showToast } from "../lib/toast";
+
+const inApp = () => "__TAURI_INTERNALS__" in window;
+const onPhone = () => /Android/i.test(navigator.userAgent);
+
+/**
+ * ⚡ Connect: look for the other device's open app on this Wi-Fi and link straight to it now
+ * (the automatic link keeps working too). Closing or leaving either app goes back to Drive.
+ */
+function ConnectButton({ direct, onConnect }: { direct?: boolean; onConnect: () => Promise<ConnectResult> }) {
+  const [busy, setBusy] = useState(false);
+  const other = onPhone() ? "Mac" : "phone";
+  const press = async () => {
+    if (busy) return;
+    setBusy(true);
+    window.JournalHaptics?.play("press", 0.6);
+    try {
+      const r = await onConnect();
+      if (r === "linked") {
+        window.JournalHaptics?.play("edge", 0.8);
+        showToast(`⚡ Connected to your ${other}: edits, photos and copies go across instantly`);
+      } else if (r === "no-wifi") showToast("⚡ Not on a Wi-Fi network: syncing through Google Drive", "error");
+      else if (r === "no-key")
+        showToast("⚡ This phone hasn't met your Mac yet: open the journal on both with Drive sync on for a minute, then try again", "error");
+      else showToast(`⚡ Couldn't find the journal open on your ${other} on this Wi-Fi: syncing through Google Drive`, "error");
+    } catch (e) {
+      showToast(`⚡ Couldn't connect: ${e instanceof Error ? e.message : String(e)}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button type="button" className={`sync-connect${direct ? " on" : ""}${busy ? " busy" : ""}`} onClick={() => void press()} disabled={busy}>
+      {busy ? `Looking for your ${other}…` : direct ? `⚡ Connected · check again` : `⚡ Connect to ${other}`}
+    </button>
+  );
+}
+
+/** 📋 Shared clipboard on/off (only does anything while connected). */
+function ClipToggle() {
+  const [on, setOn] = useState(clipShareOn);
+  return (
+    <label className="sync-clip">
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => {
+          setClipShare(e.target.checked);
+          setOn(e.target.checked);
+        }}
+      />
+      📋 Shared clipboard while connected
+    </label>
+  );
+}
 
 const size = (bytes: number) =>
   bytes >= 1e9 ? `${(bytes / 1e9).toFixed(2)} GB` : bytes >= 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.round(bytes / 1e3)} KB`;
@@ -37,7 +94,14 @@ function ago(date: Date, now: number): string {
 }
 
 /** "☁︎ Synced 2 min ago" with a Sync now button, or what's needed to start syncing. */
-export function SyncStatus({ status, live, direct, onSync, onChooseFolder }: { status: Status; live?: boolean; direct?: boolean; onSync: () => void; onChooseFolder: () => void }) {
+export function SyncStatus({ status, live, direct, onSync, onChooseFolder, onConnect }: {
+  status: Status;
+  live?: boolean;
+  direct?: boolean;
+  onSync: () => void;
+  onChooseFolder: () => void;
+  onConnect?: () => Promise<ConnectResult>;
+}) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     return visibleInterval(() => setNow(Date.now()), 30_000);
@@ -64,10 +128,12 @@ export function SyncStatus({ status, live, direct, onSync, onChooseFolder }: { s
     <div className={`sync-status ${status.state}`}>
       <span className="sync-line" title={status.label}>☁︎ {line}</span>
       {direct ? (
-        <span className="sync-live" title="Connected straight over Wi-Fi: edits go across in about a second (Drive still keeps a copy)">⚡ Instant with your other device (Wi-Fi)</span>
+        <span className="sync-live" title="Connected straight over Wi-Fi: edits, photos and copies go across at once (Drive still keeps a copy)">⚡ Instant with your other device (Wi-Fi)</span>
       ) : (
         live && <span className="sync-live" title="The app is open on your other device too: changes go across within seconds">⚡ Live with your other device</span>
       )}
+      {onConnect && inApp() && <ConnectButton direct={direct} onConnect={onConnect} />}
+      {inApp() && <ClipToggle />}
       <button type="button" onClick={onSync} disabled={status.state === "syncing"}>Sync now</button>
       <StorageLine />
       {status.state === "error" && window.JournalSync && (

@@ -19,47 +19,109 @@ export interface LinkHandlers {
   onOpenTag: (tag: string) => void;
 }
 
-/** One block that mentions the page or tag: where it is, and the mentioning parts drawn as in the note. */
+const shortDay = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: d.slice(0, 4) === String(new Date().getFullYear()) ? undefined : "2-digit" });
+
+/**
+ * One note that mentions the page or tag, as a compact row (where, and its first mentioning line);
+ * the arrow opens the whole mention below it, like the rows of Entries.
+ */
 function ReferenceCard({ reference, kind, target, handlers }: { reference: Reference; kind: LinkKind; target: string; handlers: LinkHandlers }) {
+  const [open, setOpen] = useState(false);
   // The mentioning parts with what's nested under them (a project's sub-points, a person's notes…).
   const lines = mentionsWithChildren(reference.content as never, kind, target);
   const blocks = mentionBlocks(reference.content as JSONContent, kind, target);
-  const open = () => (reference.day ? handlers.onOpenDay(reference.day, lines[0]?.trim()) : handlers.onOpenLink(reference.title ?? ""));
+  const go = () => (reference.day ? handlers.onOpenDay(reference.day, lines[0]?.trim()) : handlers.onOpenLink(reference.title ?? ""));
+  const first = blocks[0];
   return (
-    <li>
-      <div className="reference" role="button" tabIndex={0} onClick={open} onKeyDown={(e) => e.key === "Enter" && open()}>
-        <span className="reference-where">{reference.day ? dayTitle(reference.day) : `📄 ${reference.title}`}</span>
-        <DocView content={blocks.slice(0, 12)} compact onOpenLink={handlers.onOpenLink} onOpenTag={handlers.onOpenTag} />
+    <li className={`timeline-row reference-row${open ? " open" : ""}`}>
+      <div className="reference-head">
+        <button type="button" className="timeline-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+          <span className="reference-caret" aria-hidden>{open ? "▾" : "▸"}</span>
+          <span className="timeline-date">{reference.day ? shortDay(reference.day) : `📄 ${reference.title}`}</span>
+          <span className="timeline-first">
+            {first ? <DocView content={first} compact className="doc-line" onOpenLink={handlers.onOpenLink} onOpenTag={handlers.onOpenTag} /> : <span>{lines[0]?.trim()}</span>}
+          </span>
+          {blocks.length > 1 && <span className="reference-more">+{blocks.length - 1}</span>}
+        </button>
+        <button type="button" className="reference-go" onClick={go} aria-label="Go there" title="Go there">›</button>
       </div>
+      {open && (
+        <div className="timeline-body">
+          <DocView content={blocks.slice(0, 40)} onOpenLink={handlers.onOpenLink} onOpenTag={handlers.onOpenTag} />
+          <button type="button" onClick={go}>Open {reference.day ? dayTitle(reference.day) : reference.title} ›</button>
+        </div>
+      )}
     </li>
   );
 }
 
-function References({ store, kind, target, exclude, handlers, refreshKey }: {
+function References({ store, kind, target, exclude, excludeDay, handlers, refreshKey, onCount }: {
   store: JournalStore;
   kind: LinkKind;
   target: string;
   exclude?: string;
+  /** A day's own page doesn't count as its backlink. */
+  excludeDay?: string;
   handlers: LinkHandlers;
   refreshKey?: unknown;
+  onCount?: (n: number) => void;
 }) {
   const [refs, setRefs] = useState<Reference[] | null>(null);
   useEffect(() => {
     let cancelled = false;
-    store.references(kind, target).then((r) => !cancelled && setRefs(r.filter((x) => x.blockId !== exclude)));
+    store.references(kind, target).then((r) => {
+      if (cancelled) return;
+      const list = r.filter((x) => x.blockId !== exclude && (!excludeDay || x.day !== excludeDay));
+      setRefs(list);
+      onCount?.(list.length);
+    });
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store, kind, target, exclude, refreshKey]);
 
   if (!refs) return null;
   if (!refs.length) {
-    return <p className="hint">{kind === "tag" ? `Nothing tagged #${target} yet.` : `No days mention [[${target}]] yet.`}</p>;
+    return <p className="hint">{kind === "tag" ? `Nothing tagged #${target} yet.` : `No notes link to [[${target}]] yet.`}</p>;
   }
   return (
-    <ul className="references">
+    <ul className="references timeline compact-refs">
       {refs.map((r) => <ReferenceCard key={r.blockId} reference={r} kind={kind} target={target} handlers={handlers} />)}
     </ul>
+  );
+}
+
+/**
+ * The foot of every note: its backlinks (the notes that link to it, [[like this]] or to one of
+ * its parts), folded to one line until opened.
+ */
+export function BacklinksFooter({ store, target, exclude, handlers, refreshKey, title = "Backlinks" }: {
+  store: JournalStore;
+  target: string;
+  exclude?: string;
+  handlers: LinkHandlers;
+  refreshKey?: unknown;
+  title?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    store.references("wikilink", target).then((r) => live && setCount(r.filter((x) => x.blockId !== exclude && x.day !== target).length));
+    return () => {
+      live = false;
+    };
+  }, [store, target, exclude, refreshKey]);
+  return (
+    <section className={`history backlinks-foot${open ? " open" : ""}`}>
+      <button type="button" className="backlinks-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span>↩ {title}</span>
+        <span className="backlinks-count">{count ?? "…"}</span>
+        <span aria-hidden>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && <References store={store} kind="wikilink" target={target} exclude={exclude} excludeDay={target} handlers={handlers} refreshKey={refreshKey} onCount={setCount} />}
+    </section>
   );
 }
 
@@ -86,6 +148,7 @@ export function PageView({ store, page, onBack, handlers, pageNames, find, onFin
     pending.current = null;
     try {
       await store.savePage({ id: page.id, ...next });
+      window.dispatchEvent(new Event("journal:saved"));
       setStatus("Saved");
       setSaves((n) => n + 1);
     } catch (e) {

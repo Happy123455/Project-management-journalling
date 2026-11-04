@@ -4,7 +4,8 @@ import type { JournalStore } from "../store";
 import { askAi, AiUnavailableError } from "../ai/client";
 import { dayKey } from "../lib/timestamp";
 import { showError, showToast } from "../lib/toast";
-import { CATEGORY_ICONS, dailySpend, forecastMonth, monthly, notSpending, rupees, topPayees, type Txn } from "../lib/finance";
+import { CATEGORY_ICONS, dailySpend, forecastMonth, IGNORED, monthly, notSpending, rewriteLine, rupees, topPayees, type Direction, type Txn } from "../lib/finance";
+import { editDayLine } from "../routine/routineData";
 import { STEP_COLORS } from "../routine/charts";
 import {
   FINANCE_EVENT, importMoney, loadTxns, moneySettings, notificationsReady, onPhone, setMoneySettings, smsReady,
@@ -55,7 +56,7 @@ export function FinancePanel({ store, onClose, onOpenDay }: { store: JournalStor
           ) : tab === "overview" ? (
             <Overview txns={txns} onSetup={() => setTab("setup")} />
           ) : tab === "list" ? (
-            <Payments txns={txns} onOpenDay={(d) => (onOpenDay(d), onClose())} />
+            <Payments store={store} txns={txns} onOpenDay={(d) => (onOpenDay(d), onClose())} />
           ) : tab === "insights" ? (
             <Insights txns={txns} />
           ) : (
@@ -229,11 +230,69 @@ function MonthBars({ months }: { months: { month: string; spent: number; receive
   );
 }
 
-function Payments({ txns, onOpenDay }: { txns: Txn[]; onOpenDay: (day: string) => void }) {
+/** A payment corrected by hand: the line in its day's note is rewritten (so it syncs like any edit). */
+function EditPayment({ store, t, cats, onDone }: { store: JournalStore; t: Txn; cats: string[]; onDone: () => void }) {
+  const [amount, setAmount] = useState(String(t.amount));
+  const [direction, setDirection] = useState<Direction>(t.direction);
+  const [party, setParty] = useState(t.party ?? "");
+  const [category, setCategory] = useState(t.category);
+  const time0 = new Date(t.at).toTimeString().slice(0, 5);
+  const [time, setTime] = useState(time0);
+  const [busy, setBusy] = useState(false);
+  const write = async (patch: Parameters<typeof rewriteLine>[2], done: string) => {
+    if (!t.line || !t.day) return showToast("This payment isn't in a note, so it can't be changed here", "error");
+    const next = rewriteLine(t.line, t.day, patch);
+    if (!next) return showToast("Couldn't read that payment's line", "error");
+    setBusy(true);
+    try {
+      const ok = next === t.line || (await editDayLine(store, t.day, t.line, { index: 0, del: t.line.length, ins: next }));
+      if (!ok) return showToast("That payment's line changed in the note meanwhile: open the day to fix it there", "error");
+      window.dispatchEvent(new CustomEvent(FINANCE_EVENT, { detail: { edited: 1 } }));
+      showToast(done);
+      onDone();
+    } catch (e) {
+      showError("Couldn't save the payment", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = () => {
+    const n = Number(amount.replace(/[₹,\s]/g, ""));
+    if (!Number.isFinite(n) || n <= 0) return showToast("The amount needs to be a number above 0", "error");
+    // The time only when it was changed, so a line without a timestamp doesn't gain one.
+    void write({ amount: n, direction, party, category, time: time !== time0 ? time : undefined }, "Payment updated");
+  };
+  return (
+    <form className="fl-edit" onSubmit={(e) => (e.preventDefault(), save())}>
+      <div className="fl-edit-dir" role="radiogroup" aria-label="Money">
+        <button type="button" role="radio" aria-checked={direction === "debit"} className={direction === "debit" ? "active" : ""} onClick={() => setDirection("debit")}>💸 Spent</button>
+        <button type="button" role="radio" aria-checked={direction === "credit"} className={direction === "credit" ? "active" : ""} onClick={() => setDirection("credit")}>💰 Came in</button>
+      </div>
+      <label>Amount (₹)<input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
+      <label>{direction === "debit" ? "To" : "From"}<input value={party} onChange={(e) => setParty(e.target.value)} placeholder="Who" /></label>
+      <label>
+        Category
+        <input list="fl-cats" value={category} onChange={(e) => setCategory(e.target.value)} />
+        <datalist id="fl-cats">{[...new Set([...cats, ...Object.keys(CATEGORY_ICONS)])].map((c) => <option key={c} value={c} />)}</datalist>
+      </label>
+      <label>Time<input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></label>
+      <div className="fl-edit-actions">
+        <button type="submit" className="primary" disabled={busy}>Save</button>
+        <button type="button" disabled={busy} onClick={() => void write({ category: IGNORED }, "Marked as not a payment: it stays in the note but isn't counted")}>Not a payment</button>
+        <button type="button" onClick={onDone}>Cancel</button>
+      </div>
+      {t.line && <p className="hint fl-edit-line">In the note: {t.line}</p>}
+    </form>
+  );
+}
+
+function Payments({ store, txns, onOpenDay }: { store: JournalStore; txns: Txn[]; onOpenDay: (day: string) => void }) {
   const [cat, setCat] = useState<string>("");
+  const [editing, setEditing] = useState<string | null>(null);
   const cats = [...new Set(txns.map((t) => t.category))].sort();
   const list = txns.filter((t) => !cat || t.category === cat).slice(-200).reverse();
   let lastDay = "";
+  const keyOf = (t: Txn, i: number) => `${t.day ?? ""}|${t.line ?? t.at}|${i}`;
   return (
     <>
       <div className="trend-picks" role="radiogroup" aria-label="Category">
@@ -242,19 +301,27 @@ function Payments({ txns, onOpenDay }: { txns: Txn[]; onOpenDay: (day: string) =
           <button key={c} type="button" role="radio" aria-checked={cat === c} className={cat === c ? "active" : ""} onClick={() => setCat(c)}>{CATEGORY_ICONS[c] ?? "💸"} {c}</button>
         ))}
       </div>
+      <p className="hint">Tap ✎ to correct a payment (amount, who, category, time), or to mark it as not a payment.</p>
       <ul className="finance-list">
         {list.map((t, i) => {
-          const day = dayKey(new Date(t.at));
+          const day = t.day ?? dayKey(new Date(t.at));
           const head = day !== lastDay;
           lastDay = day;
+          const k = keyOf(t, i);
           return (
-            <li key={`${t.at}-${i}`} className={t.direction}>
+            <li key={k} className={`${t.direction}${editing === k ? " editing" : ""}`}>
               {head && <h4>{new Date(t.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}</h4>}
-              <button type="button" onClick={() => onOpenDay(day)}>
-                <span className="fl-icon">{CATEGORY_ICONS[t.category] ?? "💸"}</span>
-                <span className="fl-who">{t.party ?? t.category}<small>{[new Date(t.at).toTimeString().slice(0, 5), t.bank, t.method].filter(Boolean).join(" · ")}</small></span>
-                <span className="fl-amt">{t.direction === "credit" ? "+" : "−"}{rupees(t.amount)}</span>
-              </button>
+              <div className="fl-row">
+                <button type="button" onClick={() => onOpenDay(day)}>
+                  <span className="fl-icon">{CATEGORY_ICONS[t.category] ?? "💸"}</span>
+                  <span className="fl-who">{t.party ?? t.category}<small>{[new Date(t.at).toTimeString().slice(0, 5), t.bank, t.method].filter(Boolean).join(" · ")}</small></span>
+                  <span className="fl-amt">{t.direction === "credit" ? "+" : "−"}{rupees(t.amount)}</span>
+                </button>
+                {t.line && (
+                  <button type="button" className="fl-edit-btn" aria-label="Edit payment" title="Edit" onClick={() => setEditing(editing === k ? null : k)}>✎</button>
+                )}
+              </div>
+              {editing === k && <EditPayment store={store} t={t} cats={cats} onDone={() => setEditing(null)} />}
             </li>
           );
         })}

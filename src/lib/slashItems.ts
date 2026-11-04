@@ -1,6 +1,6 @@
 export type SlashId =
   | "heading" | "task" | "bullet" | "numbered" | "quote" | "code" | "math"
-  | "divider" | "timestamp" | "link" | "tag" | "reminder"
+  | "divider" | "timestamp" | "link" | "embed" | "tag" | "reminder"
   | "attach" | "capture" | "project" | "voice" | "meme" | "sound" | "prompt" | "logproject";
 
 export interface SlashItem {
@@ -22,7 +22,8 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: "math", label: "Math", icon: "∑", keywords: ["equation", "latex", "formula", "handwriting", "calculate", "variable"] },
   { id: "divider", label: "Divider", icon: "—", keywords: ["line", "hr", "separator"] },
   { id: "timestamp", label: "Log / Time", icon: "🕒", keywords: ["timestamp", "stamp", "time", "now", "clock", "log", "entries", "diary"] },
-  { id: "link", label: "Link page", icon: "[[ ]]", keywords: ["wikilink", "page", "person"] },
+  { id: "link", label: "Link page", icon: "[[ ]]", keywords: ["wikilink", "page", "person", "day", "date", "section"] },
+  { id: "embed", label: "Embed note", icon: "⧉", keywords: ["transclude", "preview", "inline", "day", "section", "show"] },
   { id: "tag", label: "Tag", icon: "#", keywords: ["hashtag", "label"] },
   { id: "reminder", label: "Reminder", icon: "🔔", keywords: ["future", "remind", "later", "date"] },
   { id: "attach", label: "Attach", icon: "📎", keywords: ["file", "pdf", "photo", "image", "upload", "document"] },

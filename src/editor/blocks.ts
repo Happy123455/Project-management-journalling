@@ -1,3 +1,4 @@
+import { plainText } from "../lib/plainText";
 import { Extension } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, Selection, TextSelection, type Command, type EditorState, type Transaction } from "@tiptap/pm/state";
@@ -315,9 +316,25 @@ export function blockText(doc: PMNode, index: number): string {
     .join("\n");
 }
 
+/**
+ * What ⧉ copies: the block and what's under it as plain text: no [[box title]] line, no markup,
+ * no <br/> for empty lines (Hapi pastes it into other apps).
+ */
+export function blockPlainText(doc: PMNode, index: number): string {
+  const range = foldRange(doc, index);
+  const base = indentOf(doc.child(index));
+  const content: JSONContent[] = [];
+  for (let i = range.start; i < range.end; i++) {
+    const json = doc.child(i).toJSON() as JSONContent;
+    if (json.attrs?.indent) json.attrs = { ...json.attrs, indent: Math.max(0, json.attrs.indent - base) };
+    content.push(json);
+  }
+  return plainText(content, { dropBoxTitle: true });
+}
+
 async function copyBlock(view: EditorView, index: number) {
   const { copyText } = await import("./codeBlock");
-  await copyText(blockText(view.state.doc, index));
+  await copyText(blockPlainText(view.state.doc, index));
 }
 
 export function blockDecorations(doc: PMNode): DecorationSet {

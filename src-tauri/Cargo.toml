@@ -27,6 +27,8 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-http = "2"
+# The direct Wi-Fi link (both devices) and, on the Mac, the MCP server for Claude Desktop.
+tiny_http = "0.12"
 
 # The AI key lives in the macOS Keychain (Android uses the Keystore from MainActivity).
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
@@ -37,8 +39,6 @@ ureq = "3"
 bzip2 = "0.5"
 tar = "0.4"
 rodio = { version = "0.21", default-features = false, features = ["playback"] }
-# The journal's MCP server for Claude Desktop (localhost only, off by default).
-tiny_http = "0.12"
 # The Mac floating bubble's global shortcut.
 tauri-plugin-global-shortcut = "2"
 

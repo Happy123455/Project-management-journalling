@@ -250,6 +250,8 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
+    // A WebView left paused by an earlier journal window (see wakePage) would never run its timers.
+    webView.resumeTimers()
     webView.addJavascriptInterface(SyncBridge(), "JournalSync")
     webView.addJavascriptInterface(ShareBridge(), "JournalShare")
     webView.addJavascriptInterface(SecretsBridge(), "JournalSecrets")
@@ -364,6 +366,39 @@ class MainActivity : TauriActivity() {
       }
       return ""
     }
+
+    /**
+     * What's on the clipboard without reading it (no "pasted from your clipboard" notice), as JSON
+     * {t: when it was copied, mimes: [...]}: the shared clipboard only reads it when this changed.
+     */
+    @JavascriptInterface
+    fun stamp(): String {
+      val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+      val d = try { clipboard.primaryClipDescription } catch (e: Exception) { null }
+      val mimes = JSONArray()
+      if (d != null) for (i in 0 until d.mimeTypeCount) mimes.put(d.getMimeType(i))
+      val t = if (d != null && android.os.Build.VERSION.SDK_INT >= 26) d.timestamp else 0L
+      return JSONObject().put("t", t).put("mimes", mimes).toString()
+    }
+
+    /** Puts an image (base64 bytes) on the clipboard, e.g. one copied on the Mac. */
+    @JavascriptInterface
+    fun setImage(mime: String, data: String): Boolean = try {
+      val bytes = Base64.decode(data, Base64.DEFAULT)
+      val dir = java.io.File(cacheDir, "shared-clip")
+      dir.mkdirs()
+      dir.listFiles()?.forEach { it.delete() }
+      val ext = mime.substringAfter('/').substringBefore('+').ifEmpty { "png" }
+      val file = java.io.File(dir, "clip-${System.currentTimeMillis()}.$ext")
+      file.writeBytes(bytes)
+      val uri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", file)
+      val clip = android.content.ClipData.newUri(contentResolver, "Image from your Mac", uri)
+      val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+      runOnUiThread { try { clipboard.setPrimaryClip(clip) } catch (e: Exception) { } }
+      true
+    } catch (e: Exception) {
+      false
+    }
   }
 
   /** An access token for Google Drive, answered through window.__journalDriveToken(id, token or ""). */
@@ -436,10 +471,10 @@ class MainActivity : TauriActivity() {
 
   private fun wakePage() {
     sleepHandler.removeCallbacks(sleepNow)
-    if (pageAsleep) {
-      webView?.resumeTimers()
-      pageAsleep = false
-    }
+    // Always: pauseTimers() holds every WebView in the process, so when the journal was closed
+    // while asleep, the next one started with its timers stopped (a blank screen on opening).
+    webView?.resumeTimers()
+    pageAsleep = false
   }
 
   override fun onStart() {

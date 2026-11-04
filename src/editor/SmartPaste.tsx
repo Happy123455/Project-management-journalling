@@ -38,7 +38,7 @@ async function readClipboard(): Promise<string | null> {
 /** The Android app's bridge to clipboard media with the original bytes (MainActivity.kt). */
 declare global {
   interface Window {
-    JournalClipboard?: { media(): string; text?(): string };
+    JournalClipboard?: { media(): string; text?(): string; stamp?(): string; setImage?(mime: string, data: string): boolean };
     __journalClipboardChanged?: () => void;
   }
 }

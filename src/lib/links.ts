@@ -27,7 +27,8 @@ export function linesMentioning(text: string, kind: "wikilink" | "tag", target: 
 }
 
 export function extractLinks(text: string): ExtractedLinks {
-  const wikilinks = [...text.matchAll(WIKILINK_RE)].map((m) => m[1].trim()).filter(Boolean);
+  // [[Note#Part]] links to Note (a backlink of the whole note); "C#" stays as it is.
+  const wikilinks = [...text.matchAll(WIKILINK_RE)].map((m) => m[1].trim().replace(/^([^#]+?)\s*#.+$/, "$1")).filter(Boolean);
   const tags = [...text.matchAll(TAG_RE)].map((m) => m[2].replace(/\/+$/, "")).filter(Boolean);
   return { wikilinks: unique(wikilinks), tags: unique(tags) };
 }

@@ -2,7 +2,7 @@ import Database from "@tauri-apps/plugin-sql";
 import { idFromRef } from "../lib/embeds";
 import { safeFileName } from "../lib/files";
 import { extractLinks, uniqueNames } from "../lib/links";
-import { matchText, searchTerms } from "../lib/search";
+import { docMatches, matchText, searchTerms } from "../lib/search";
 import { dayKey } from "../lib/timestamp";
 import { countWords, docText } from "../lib/words";
 import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
@@ -360,14 +360,16 @@ export class SqliteStore implements JournalStore {
     );
     const hits: SearchHit[] = [];
     for (const r of rows.filter((r) => r.type === "day")) {
-      const text = docText(JSON.parse(r.content));
-      if (matchText(text, terms)) hits.push({ kind: "day", blockId: r.id, day: r.day, title: null, text });
+      const doc = JSON.parse(r.content);
+      const text = docText(doc);
+      if (matchText(text, terms) && docMatches(doc, query)) hits.push({ kind: "day", blockId: r.id, day: r.day, title: null, text });
     }
     // Pages also match on their title, which isn't in the content, so check every page.
     for (const r of await this.db.select<{ id: string; props: string; content: string }[]>("SELECT id, props, content FROM blocks WHERE type = 'page'")) {
       const title = JSON.parse(r.props).title as string;
-      const text = `${title}\n${docText(JSON.parse(r.content))}`;
-      if (matchText(text, terms)) hits.push({ kind: "page", blockId: r.id, day: null, title, text });
+      const doc = JSON.parse(r.content);
+      const text = `${title}\n${docText(doc)}`;
+      if (matchText(text, terms) && docMatches(doc, query, title)) hits.push({ kind: "page", blockId: r.id, day: null, title, text });
     }
     for (const f of await this.listFiles()) {
       if (matchText(f.name, terms)) hits.push({ kind: "file", file: f });

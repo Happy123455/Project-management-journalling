@@ -8,7 +8,24 @@ import { findSyncFolder, pickSyncFolder, type FolderLookup } from "./folders";
 import { BEAT_MS, LIVE_POLL_MS, LIVE_SAVE_MS, openHost, othersRev, readPresence, someoneOpen, writePresence, type Presence } from "./live";
 import { setTypingSink } from "./liveTyping";
 import { visibleInterval } from "../lib/power";
-import { canConnect, canHost, startClient, startHost, type Client, type DirectAddress, type Host } from "./direct";
+import {
+  canConnect,
+  canHost,
+  findMac,
+  rememberMac,
+  sameAddress,
+  savedMac,
+  startClient,
+  startHost,
+  startRinger,
+  type Client,
+  type Clip,
+  type ConnectResult,
+  type DirectAddress,
+  type Host,
+  type Ringer,
+} from "./direct";
+import { receiveClip, setClipSink, startClipWatch } from "./clipboard";
 
 /** What sync remembers between rounds (what it sent and read), so it only moves what's new. */
 const localMemory: SyncMemory = {
@@ -127,7 +144,10 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
   }, [store]);
 
   // Live mode: say this app is open, watch for the other device's app, and while both are open
-  // look for its changes every couple of seconds.
+  // look for its changes every couple of seconds. Over that, the direct Wi-Fi link (direct.ts):
+  // the phone connects to the Mac as soon as it knows where it is (its last address, at once, then
+  // the Mac's presence file), and either side's ⚡ Connect finds the other on the Wi-Fi.
+  const connectRef = useRef<() => Promise<ConnectResult>>(async () => "not-found");
   useEffect(() => {
     if (!store) return;
     const me = store.deviceId;
@@ -136,6 +156,8 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
     let stopped = false;
     let timer: number | undefined;
     let lastBeat = 0;
+    let myIp: string | null = null;
+    let ringer: Ringer | null = null;
     const folder = async () => {
       const c = folderCache.current;
       if (c && Date.now() - c.at < 5 * 60_000) return c.found.folder;
@@ -144,22 +166,91 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
       folderCache.current = { found, at: Date.now() };
       return found.folder;
     };
+    let sinkLink: Client | Host | null = null;
     const showDirect = (v: boolean) => {
+      const link = v ? (client.current ?? host.current) : null;
+      if (link !== sinkLink) {
+        sinkLink = link;
+        setTypingSink(me, link ? (m) => link.sendTyping(m) : null);
+        setClipSink(me, link ? (c) => link.sendClip(c) : null, canHost() ? "your phone" : "your Mac");
+      }
       if (v === directRef.current) return;
       directRef.current = v;
       setDirect(v);
-      const link = client.current ?? host.current;
-      setTypingSink(me, v && link ? (m) => link.sendTyping(m) : null);
+      // Off the link: Drive takes over at once (and catches up what the link carried).
+      if (!v) void syncNow.current();
     };
-    // Mac: take the phone's direct connections.
+    const onClip = (c: Clip) => void receiveClip(c);
+    startClipWatch();
+    // Mac: take the phone's direct connections, whether or not the window is in front.
     if (canHost())
-      void startHost(store, () => imported.current()).then(
+      void startHost(store, { onImported: () => imported.current(), onLink: showDirect, onClip }).then(
         (h) => (stopped ? h.stop() : (host.current = h)),
         () => {},
       );
+    /** Phone: listen, so the Mac's ⚡ Connect can ring this phone (once its key is known). */
+    let ringing = false;
+    const ensureRinger = (key: string) => {
+      if (ringer) return ringer.setKey(key);
+      if (ringing) return;
+      ringing = true;
+      void startRinger(key, (at) => linkTo(at, true)).then(
+        (r) => (stopped ? r.stop() : ((ringer = r), (myIp = r.ip))),
+        () => (ringing = false),
+      );
+    };
+    /** Phone: connect to the Mac at `at` (keeps a working link; a new address replaces a dead one). */
+    const linkTo = (at: DirectAddress, force = false) => {
+      if (stopped || document.visibilityState === "hidden") return;
+      rememberMac(at);
+      ensureRinger(at.key);
+      const cur = client.current;
+      if (cur && sameAddress(cur.address, at)) return void (force && cur.kick());
+      if (cur?.isUp() && !force) return;
+      cur?.stop();
+      client.current = startClient(store, at, {
+        onImported: () => imported.current(),
+        onState: (up) => {
+          showDirect(up);
+          if (up) void syncNow.current(); // catch up on what happened before the link
+        },
+        onClip,
+        myIp: () => myIp,
+      });
+    };
+    if (canConnect()) {
+      // The Mac's last address: try it right away, without waiting for Drive.
+      const saved = savedMac();
+      if (saved) linkTo(saved);
+    }
+    connectRef.current = async () => {
+      if (canHost()) {
+        // Tell the phone through Drive too (it reads it when it next looks), then ring it.
+        const f = folderCache.current?.found.folder;
+        if (f && host.current) {
+          lan.current = await host.current.address();
+          void writePresence(f, me, { at: Date.now(), rev: myRev.current, lan: lan.current ?? undefined }).catch(() => {});
+        }
+        return host.current ? host.current.ring() : "not-found";
+      }
+      if (!canConnect()) return "not-found";
+      if (client.current?.isUp()) return "linked";
+      const f = await folder().catch(() => null);
+      if (f) await readPresence(f, me, known).catch(() => {});
+      const { address, result } = await findMac(openHost(known) ?? null);
+      if (!address) return result;
+      linkTo(address, true);
+      for (let i = 0; i < 30; i++) {
+        if (client.current?.isUp()) return "linked";
+        await new Promise((r) => window.setTimeout(r, 200));
+      }
+      return client.current?.isUp() ? "linked" : "not-found";
+    };
     const tick = async () => {
       if (stopped) return;
-      const visible = document.visibilityState === "visible";
+      // The Mac keeps its presence fresh in the background too (no battery to save), so the phone
+      // still sees it while its window is behind others.
+      const visible = document.visibilityState === "visible" || canHost();
       try {
         const f = visible ? await folder() : null;
         if (f) {
@@ -170,20 +261,11 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
             await writePresence(f, me, { at: Date.now(), rev: myRev.current, lan: lan.current ?? undefined });
           }
           await readPresence(f, me, known);
-          if (host.current) showDirect(Date.now() - host.current.lastSeen() < 35_000);
+          if (host.current) showDirect(host.current.linked());
           // Phone: connect straight to the Mac while its app is open.
           if (canConnect()) {
             const at = openHost(known);
-            const same = at && client.current && JSON.stringify(client.current.address) === JSON.stringify(at);
-            if (!same) {
-              client.current?.stop();
-              client.current = at
-                ? startClient(store, at, () => imported.current(), (up) => {
-                    showDirect(up);
-                    if (up) void syncNow.current(); // catch up on what happened before the link
-                  })
-                : null;
-            }
+            if (at) linkTo(at);
           }
           const open = someoneOpen(known);
           if (open !== liveRef.current) {
@@ -198,8 +280,8 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
         folderCache.current = null; // e.g. the Drive sign-in expired: look the folder up again
       }
       // Connected directly: Drive is only the backup, so it needn't be watched closely.
-      // In the background nothing is watched at all: the loop starts again when the app is back.
-      if (!stopped && document.visibilityState !== "hidden") timer = window.setTimeout(tick, liveRef.current && !directRef.current ? LIVE_POLL_MS : 15_000);
+      // In the background nothing is watched at all on the phone: the loop starts again when the app is back.
+      if (!stopped && (canHost() || document.visibilityState !== "hidden")) timer = window.setTimeout(tick, liveRef.current && !directRef.current ? LIVE_POLL_MS : 15_000);
     };
     timer = window.setTimeout(tick, 4000);
     // Going to the background or closing: tell the other device right away.
@@ -207,17 +289,21 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
       const f = folderCache.current?.found.folder;
       if (f) void writePresence(f, me, { at: Date.now(), rev: myRev.current, closed: true }).catch(() => {});
       lastBeat = 0;
-      // Phone in the background: drop the link (it comes back on return).
-      client.current?.stop();
+      // Phone in the background: drop the link (it comes back on return); Drive carries on.
+      client.current?.bye();
       client.current = null;
     };
     const onVisible = () => {
+      // The Mac stays linked while its window is hidden; it only says goodbye when it quits.
+      if (canHost()) return;
       if (document.visibilityState === "hidden") {
         window.clearTimeout(timer);
         bye();
       } else {
         window.clearTimeout(timer);
         timer = window.setTimeout(tick, 500);
+        const saved = savedMac();
+        if (saved) linkTo(saved);
       }
     };
     document.addEventListener("visibilitychange", onVisible);
@@ -229,7 +315,9 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
       client.current = null;
       host.current?.stop();
       host.current = null;
+      ringer?.stop();
       setTypingSink(me, null);
+      setClipSink(me, null);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pagehide", bye);
     };
@@ -249,5 +337,8 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
     if (await pickSyncFolder()) await syncNow.current();
   }, []);
 
-  return { status, live, direct, syncNow: () => syncNow.current(), afterSaved, chooseFolder };
+  /** ⚡ Connect: find the other device's open app on this Wi-Fi and link now. */
+  const connect = useCallback(() => connectRef.current(), []);
+
+  return { status, live, direct, syncNow: () => syncNow.current(), afterSaved, chooseFolder, connect };
 }

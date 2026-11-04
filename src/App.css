@@ -2517,7 +2517,7 @@ html.time-rail-on .editor-body { padding-right: 22px; }
 .fc-val { font-variant-numeric: tabular-nums; font-weight: 600; }
 .finance-list { list-style: none; margin: 0; padding: 0; }
 .finance-list h4 { margin: 12px 0 4px; font-size: 12px; color: var(--muted); }
-.finance-list button { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border-radius: 12px; border: 0; box-shadow: none; background: none; text-align: left; font: inherit; color: inherit; }
+.finance-list .fl-row > button:first-child { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border-radius: 12px; border: 0; box-shadow: none; background: none; text-align: left; font: inherit; color: inherit; }
 .fl-icon { font-size: 18px; text-align: center; }
 .fl-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; flex-direction: column; }
 .fl-who small { color: var(--muted); font-size: 11px; }
@@ -2527,3 +2527,131 @@ html.time-rail-on .editor-body { padding-right: 22px; }
 .finance-empty { text-align: center; padding: 20px 6px; }
 /* Phone: the Money button lives with the calendar's buttons; the day title keeps its room. */
 @media (max-width: 760px) { .money-button { display: none; } }
+
+/* ⚡ Connect (direct Wi-Fi link) and the shared clipboard switch, in the menu's sync box. */
+.sync-connect { font-weight: 600; }
+.sync-connect.on { color: #a16207; }
+.sync-connect.busy { opacity: 0.75; animation: live-pulse 1.2s steps(6) infinite; }
+.sync-clip { display: flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.85; }
+.sync-clip input { margin: 0; }
+.link-suggest-hint { padding: 6px 10px 4px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--glass-edge, rgba(127,127,127,.2)); }
+
+/* Mentions / backlinks as compact rows (like Entries); ▸ opens the mention, › goes there. */
+.compact-refs { gap: 4px; }
+.reference-row .reference-head { display: flex; align-items: center; }
+.reference-row .timeline-head { flex: 1; min-width: 0; }
+.reference-caret { flex: none; width: 12px; color: var(--muted); font-size: 11px; }
+.reference-more { flex: none; font-size: 11px; color: var(--muted); padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 14%, transparent); }
+.reference-go { flex: none; border: none; background: transparent; box-shadow: none; padding: 6px 12px; font-size: 18px; color: var(--muted); }
+.reference-row .doc-line p { margin: 0; }
+.backlinks-foot { margin: 28px 0 12px; }
+.backlinks-toggle { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font-size: 13px; padding: 8px 12px; border-radius: 12px; }
+.backlinks-toggle span:first-child { flex: 1; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; font-size: 12px; }
+.backlinks-count { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 14%, transparent); }
+.backlinks-foot.open .backlinks-toggle { margin-bottom: 8px; }
+
+/* ![[note]] embeds: the note drawn inline under its link. */
+.note-embed-host { display: block; margin: 6px 0 4px; user-select: none; -webkit-user-select: none; white-space: normal; }
+.note-embed { border-left: 3px solid rgb(var(--heat-rgb, 124 58 237)); border-radius: 12px; background: color-mix(in srgb, var(--panel, #fff) 85%, rgb(var(--heat-rgb, 124 58 237))); overflow: hidden; }
+.note-embed-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; border: none; border-radius: 0; background: transparent; box-shadow: none; text-align: left; font-size: 13px; font-weight: 600; }
+.note-embed-head span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-embed-go { flex: none; font-size: 12px; font-weight: 500; color: var(--muted); }
+.note-embed-body { padding: 0 12px 8px; font-size: 14px; }
+.note-embed-body .doc-view p { margin: 4px 0; }
+.note-embed-more { display: block; width: 100%; border: none; border-radius: 0; background: transparent; box-shadow: none; font-size: 12px; color: var(--muted); padding: 4px 10px 8px; text-align: left; }
+.wikilink.daylink { text-decoration-style: dotted; }
+:where(html[data-theme="neu"]) .note-embed { background: var(--bg); box-shadow: var(--neu-in-sm); border-left-color: var(--accent, rgb(var(--heat-rgb, 124 58 237))); }
+:where(html[data-theme="neu"]) .backlinks-toggle { background: var(--bg); box-shadow: var(--neu-out-sm); border-color: transparent; }
+
+/* Money → Payments: correcting a payment. */
+.finance-list .fl-row { display: flex; align-items: center; gap: 4px; }
+.finance-list .fl-row > button:first-child { flex: 1; min-width: 0; }
+.finance-list button.fl-edit-btn { display: block; width: auto; flex: none; padding: 6px 10px; font-size: 15px; color: var(--muted); }
+.fl-edit { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; margin: 4px 0 10px; border-radius: 14px; background: color-mix(in srgb, var(--panel, #fff) 80%, transparent); box-shadow: inset 0 0 0 1px var(--border, rgba(127,127,127,.2)); }
+.fl-edit label { display: grid; gap: 3px; font-size: 12px; color: var(--muted); }
+.fl-edit input { font: inherit; font-size: 15px; color: var(--text, inherit); padding: 6px 8px; border-radius: 10px; }
+.fl-edit-dir, .fl-edit-actions { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+.fl-edit-dir button { flex: 1; }
+.fl-edit-dir button.active { font-weight: 700; }
+.fl-edit-line { grid-column: 1 / -1; margin: 0; font-size: 11px; overflow-wrap: anywhere; }
+:where(html[data-theme="neu"]) .fl-edit { background: var(--bg); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .fl-edit-dir button.active { box-shadow: var(--neu-in-sm); }
+
+/* Phone tool bar, edit mode: every tool lifted and jiggling; drag one to move it. */
+@keyframes tool-jiggle {
+  0% { rotate: -2.6deg; }
+  50% { rotate: 2.6deg; }
+  100% { rotate: -2.6deg; }
+}
+.keyboard-bar .tool.jiggle {
+  animation: tool-jiggle 0.32s ease-in-out infinite;
+  animation-delay: var(--jiggle-delay, 0ms);
+  transform: translateY(-2px) scale(1.04);
+  box-shadow: 0 6px 14px -6px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -2px 0 rgba(0, 0, 0, 0.12);
+  touch-action: none;
+  transition: transform 0.18s var(--spring, ease);
+}
+.keyboard-bar .tool.jiggle.lifted {
+  animation: none;
+  transform: translateY(-6px) scale(1.18);
+  box-shadow: 0 12px 22px -8px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  z-index: 2;
+}
+/* While arranging, every row shows at once (growing upward), so a tool can go to any row. */
+.keyboard-bar:has(.tool.jiggle) { height: auto; max-height: 55vh; scroll-snap-type: none; padding-top: 4px; }
+.keyboard-bar .tool-jiggle-done { font-weight: 700; padding-inline: 8px; grid-column: span 2; white-space: nowrap; font-size: 16px; }
+:where(html[data-theme="neu"]) .keyboard-bar .tool.jiggle { box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .keyboard-bar .tool.jiggle.lifted { box-shadow: var(--neu-out); }
+@media (prefers-reduced-motion: reduce) {
+  .keyboard-bar .tool.jiggle { animation: none; }
+}
+.entries-head h2 { margin-right: auto; }
+.entries-copy { font-size: 12px; padding: 4px 10px; border-radius: 999px; }
+.entries-copy.copied { color: #16a34a; }
+.entries-body-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.entry-popup footer { gap: 8px; }
+.editor-modes .copied { color: #16a34a; }
+
+/* Start-up: never a blank page (index.html's splash, and the guard when drawing fails). */
+.app-guard { position: fixed; inset: 0; display: grid; place-content: center; gap: 10px; padding: 24px; text-align: center; background: var(--bg, #f3f4f8); color: var(--text, #222); font: 15px system-ui, sans-serif; }
+.app-guard pre { max-width: 90vw; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; opacity: 0.7; }
+.app-guard button { justify-self: center; padding: 8px 18px; border-radius: 999px; }
+
+/* The menu's sections: fold on the header, ✎ Edit menu to rename, move and hide them. */
+.menu-sections { display: grid; gap: 4px; }
+.menu-sections-bar { display: flex; justify-content: flex-end; gap: 6px; }
+.menu-edit { font-size: 12px; padding: 3px 10px; border-radius: 999px; }
+.menu-section-head { display: flex; align-items: center; gap: 4px; }
+.menu-section-toggle { display: flex; align-items: center; gap: 6px; width: 100%; border: none; background: transparent; box-shadow: none; padding: 0; text-align: left; }
+.menu-section-toggle h2 { margin: 10px 2px 6px !important; }
+.menu-caret { width: 12px; font-size: 11px; color: var(--muted); }
+.menu-section.collapsed .menu-section-toggle h2 { opacity: 0.75; }
+.menu-sections.editing .menu-section { padding: 6px; border-radius: 12px; outline: 1px dashed color-mix(in srgb, var(--muted) 45%, transparent); }
+.menu-sections.editing .menu-section.hidden-section { opacity: 0.55; }
+.menu-rename { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 8px; }
+.menu-section-head > button:not(.menu-section-toggle) { padding: 3px 8px; font-size: 13px; }
+.menu-projects-edit { display: grid; gap: 6px; padding: 6px 4px 2px; font-size: 13px; }
+.menu-projects-edit input[type="number"] { width: 3.5em; margin: 0 6px; }
+.menu-sections:not(.editing) .project-hide { display: none; }
+.project-row { display: flex; align-items: center; gap: 4px; }
+.project-row > button:first-child { flex: 1; min-width: 0; }
+.project-hide { flex: none; padding: 2px 8px; font-size: 12px; }
+.project-list .project-tasks { list-style: none; margin: 2px 0 8px 22px !important; padding: 0; display: grid; gap: 2px !important; }
+.project-list .project-tasks label { display: flex; align-items: flex-start; gap: 6px; font-size: 13px; line-height: 1.3; cursor: pointer; }
+.project-list .project-tasks input { margin: 2px 0 0; flex: none; }
+.project-list .project-tasks span { min-width: 0; overflow-wrap: anywhere; }
+.project-tasks-more { border: none !important; background: transparent !important; box-shadow: none !important; padding: 2px 0 !important; font-size: 12px; color: var(--muted); }
+.days-sort { display: flex; gap: 4px; align-items: center; margin: 0 0 6px; }
+.days-sort button { font-size: 12px; padding: 3px 10px; border-radius: 999px; }
+.days-sort button.active { font-weight: 700; }
+.days-count { margin-left: auto; font-size: 11px; color: var(--muted); }
+.days-more { width: 100%; font-size: 12px; margin: 4px 0 10px; }
+.money-glance { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; width: 100%; text-align: left; padding: 8px 12px; border-radius: 14px; }
+.money-glance-nums { display: flex; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+.money-glance-nums .came { color: #16a34a; }
+.money-glance-go { font-size: 12px; color: var(--muted); align-self: center; }
+.money-glance-hint { grid-column: 1 / -1; font-size: 11px; margin: 0; }
+:where(html[data-theme="neu"]) .money-glance, :where(html[data-theme="neu"]) .days-sort button.active { box-shadow: var(--neu-in-sm); }
+@media (pointer: fine) { .money-glance-hint { display: none; } }
+.project-list .project-hide, .project-list .project-tasks-more { width: auto; }
+.entries-table tr.sky td.entries-when { background: var(--row-sky); color: var(--row-fg, inherit); font-weight: 650; }

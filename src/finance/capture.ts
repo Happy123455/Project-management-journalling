@@ -1,7 +1,7 @@
 import type { JSONContent } from "@tiptap/react";
 import type { DayPage, JournalStore } from "../store";
 import { addDays, dayKey } from "../lib/timestamp";
-import { alreadyHave, FINANCE_BOX, parseMessage, txnLine, txnsIn, type Txn } from "../lib/finance";
+import { alreadyHave, FINANCE_BOX, IGNORED, parseMessage, txnLine, txnsIn, type Txn } from "../lib/finance";
 import { withLogLine } from "../lib/routine";
 import { insertLogLinePM, openDayEditor } from "../editor/noteEdit";
 import { changeDay, currentDoc } from "../routine/routineData";
@@ -215,5 +215,6 @@ export async function loadTxns(store: JournalStore, today = dayKey(new Date())):
     if (stamp) parsed.set(day, { stamp, txns });
     out.push(...txns);
   }
-  return out.sort((a, b) => a.at - b.at);
+  // "Not a payment" lines stay in the notes (so they aren't brought in again) but don't count.
+  return out.filter((t) => t.category !== IGNORED).sort((a, b) => a.at - b.at);
 }

@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { showToast } from "../lib/toast";
+import { plainText } from "../lib/plainText";
 import { applyTyping, REMOTE, sendTyping, TYPING_EVENT, type TypingMsg } from "../sync/liveTyping";
 import { EditorContent, useEditor, useEditorState, type Editor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -38,6 +40,7 @@ import { SmartPaste } from "./SmartPaste";
 import { Timestamp } from "./timestamp";
 import { TimestampChip } from "./timestampChip";
 import { EditStamp } from "./editStamp";
+import { BlockBorn } from "./blockBorn";
 import { GifIcon, insertQuickLog, openQuickLogSetup, useQuickLogs } from "../projects/quickLog";
 
 interface Props {
@@ -146,10 +149,27 @@ export function unfoldAround(editor: Editor, pos: number) {
   if (tr.docChanged) editor.view.dispatch(tr.setMeta("addToHistory", false));
 }
 
+/** A short haptic on the phone (MainActivity's glass ticks), or a tiny vibration elsewhere. */
+function haptic(kind: "tap" | "tick" | "press" | "edge", strength: number) {
+  try {
+    if (window.JournalHaptics) window.JournalHaptics.play(kind, strength);
+    else navigator.vibrate?.(kind === "press" ? 12 : 6);
+  } catch {
+    // No vibration here.
+  }
+}
+
 /** Formatting buttons, shared by the top toolbar (Mac) and the bar above the phone keyboard. */
 function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () => void; phone?: boolean }) {
   const [layout, setLayout] = useState(loadToolLayout);
   const [arranging, setArranging] = useState(false);
+  // Edit mode (phone): the bar's tools jiggle, lifted, and are dragged into a new order.
+  const [jiggle, setJiggle] = useState(false);
+  const [dragKey, setDragKey] = useState<string | null>(null);
+  const drag = useRef<{ key: string; id: number } | null>(null);
+  const hold = useRef<{ timer: number; fired: boolean } | null>(null);
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
   const quick = useQuickLogs();
   const active = useEditorState({
     editor,
@@ -246,33 +266,108 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
   const setupTool: Tool = { key: "quicklog", label: "⚡", title: "Quick log buttons", run: openQuickLogSetup };
   const allTools = [...tools, setupTool];
   const arranged = arrangeTools(allTools, layout).filter((t) => quick.length || t.key !== "quicklog");
-  const shown = phone
-    ? [...quickTools, ...(quick.length ? [] : [setupTool]), ...arranged, { key: "arrange", label: "⚙︎", title: "Arrange tools", run: () => setArranging(true) }]
+  const startJiggle = () => {
+    haptic("press", 0.7);
+    setJiggle(true);
+    // The bar opens to every row; start at the first one.
+    window.requestAnimationFrame(() => document.querySelector(".keyboard-bar")?.scrollTo({ top: 0 }));
+  };
+  const stopJiggle = () => {
+    haptic("edge", 0.6);
+    setJiggle(false);
+    setDragKey(null);
+    drag.current = null;
+  };
+  const shown: Tool[] = phone
+    ? jiggle
+      ? [...arranged, { key: "jiggle-more", label: "⋯", title: "Show or hide tools, layout", run: () => setArranging(true) }, { key: "jiggle-done", label: "✓ Done", title: "Done arranging", run: stopJiggle }]
+      : [...quickTools, ...(quick.length ? [] : [setupTool]), ...arranged, { key: "arrange", label: "⚙︎", title: "Arrange tools (or hold any tool)", run: startJiggle }]
     : [...quickTools, ...allTools.filter((t) => !PHONE_ONLY.has(t.key))];
   const update = (next: ToolLayout) => {
     setLayout(next);
     saveToolLayout(next);
   };
+  const movable = (k: string) => arranged.some((t) => t.key === k);
+  // Dragging in edit mode: the tool under the finger makes room (the order changes as it moves).
+  const onDragMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d || d.id !== e.pointerId) return;
+    // By each tool's box (not elementFromPoint): the bar is moved and scrolled, and the lifted
+    // tool under the finger would otherwise hide what it's over.
+    const bar = (e.currentTarget as HTMLElement).parentElement;
+    let over: string | null = null;
+    for (const el of bar ? Array.from(bar.querySelectorAll<HTMLElement>("[data-tool]")) : []) {
+      const r = el.getBoundingClientRect();
+      if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) over = el.getAttribute("data-tool");
+    }
+    if (!over || over === d.key || !movable(over)) return;
+    const keys = arrangeTools(allTools, layoutRef.current, true).map((t) => t.key);
+    const from = keys.indexOf(d.key);
+    const to = keys.indexOf(over);
+    if (from < 0 || to < 0) return;
+    keys.splice(from, 1);
+    keys.splice(to, 0, d.key);
+    const next = { ...layoutRef.current, order: keys };
+    layoutRef.current = next;
+    setLayout(next);
+    haptic("tick", 0.5);
+  };
+  const onDragEnd = (e: React.PointerEvent) => {
+    if (!drag.current || drag.current.id !== e.pointerId) return;
+    drag.current = null;
+    setDragKey(null);
+    saveToolLayout(layoutRef.current);
+    haptic("edge", 0.8);
+  };
 
   return (
     <>
-      {shown.map((b) => (
-        <button
-          key={b.key}
-          type="button"
-          title={b.title}
-          aria-label={b.title}
-          aria-pressed={"active" in b ? b.active : undefined}
-          disabled={"disabled" in b ? b.disabled : false}
-          className={`tool tool-${b.key}${"active" in b && b.active ? " active" : ""}`}
-          // Keep the editor focused so the phone keyboard stays open.
-          onPointerDown={(e) => e.preventDefault()}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={b.run}
-        >
-          {b.label}
-        </button>
-      ))}
+      {shown.map((b, i) => {
+        const canDrag = jiggle && movable(b.key);
+        return (
+          <button
+            key={b.key}
+            type="button"
+            title={b.title}
+            aria-label={b.title}
+            aria-pressed={!jiggle && "active" in b ? b.active : undefined}
+            disabled={!jiggle && "disabled" in b ? b.disabled : false}
+            data-tool={canDrag ? b.key : undefined}
+            className={`tool tool-${b.key}${!jiggle && "active" in b && b.active ? " active" : ""}${canDrag ? " jiggle" : ""}${dragKey === b.key ? " lifted" : ""}`}
+            style={canDrag ? ({ "--jiggle-delay": `${-((i * 97) % 300)}ms` } as React.CSSProperties) : undefined}
+            // Keep the editor focused so the phone keyboard stays open.
+            onPointerDown={(e) => {
+              e.preventDefault();
+              if (canDrag) {
+                (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+                drag.current = { key: b.key, id: e.pointerId };
+                setDragKey(b.key);
+                haptic("press", 0.6);
+                return;
+              }
+              // Phone: holding any tool starts edit mode, like a home screen.
+              if (phone && !jiggle && e.pointerType === "touch") {
+                const h = { timer: 0, fired: false };
+                h.timer = window.setTimeout(() => ((h.fired = true), startJiggle()), 550);
+                hold.current = h;
+              }
+            }}
+            onPointerMove={canDrag ? onDragMove : (e) => hold.current && (Math.abs(e.movementX) + Math.abs(e.movementY) > 8) && window.clearTimeout(hold.current.timer)}
+            onPointerUp={canDrag ? onDragEnd : () => hold.current && window.clearTimeout(hold.current.timer)}
+            onPointerCancel={canDrag ? onDragEnd : () => hold.current && window.clearTimeout(hold.current.timer)}
+            onMouseDown={(e) => e.preventDefault()}
+            onContextMenu={(e) => phone && e.preventDefault()}
+            onClick={() => {
+              if (hold.current?.fired) return void (hold.current = null);
+              hold.current = null;
+              if (canDrag) return;
+              b.run();
+            }}
+          >
+            {b.label}
+          </button>
+        );
+      })}
       {arranging && createPortal(
         <div className="arrange-tools" role="dialog" aria-label="Arrange tools" onPointerDown={(e) => e.stopPropagation()}>
           <div className="arrange-head">
@@ -337,7 +432,22 @@ const MODES: { mode: ViewMode; icon: string; label: string }[] = [
 ];
 
 /** Live / Source / Reading, and the outline: always in reach above the note. */
-function ModePill({ mode }: { mode: ViewMode }) {
+function ModePill({ mode, editor }: { mode: ViewMode; editor: Editor | null }) {
+  const [copied, setCopied] = useState(false);
+  // The whole note in one tap, as plain text (each block's ⧉ still copies just that block).
+  const copyAll = async () => {
+    if (!editor) return;
+    const { copyText } = await import("./codeBlock");
+    const text = plainText((editor.getJSON().content ?? []) as JSONContent[]);
+    if (!text.trim()) return showToast("Nothing to copy yet");
+    try {
+      await copyText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch (e) {
+      showToast(`Couldn't copy: ${e instanceof Error ? e.message : String(e)}`, "error");
+    }
+  };
   return (
     <div className="editor-modes" role="toolbar" aria-label="How the note is shown" onPointerDown={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()}>
       {MODES.map((m) => (
@@ -347,6 +457,9 @@ function ModePill({ mode }: { mode: ViewMode }) {
       ))}
       <button type="button" title="Outline" onClick={openOutline}>
         <span aria-hidden>☰</span> <span className="mode-label">Outline</span>
+      </button>
+      <button type="button" title="Copy the whole note as plain text" className={copied ? "copied" : ""} onClick={() => void copyAll()}>
+        <span aria-hidden>{copied ? "✓" : "⧉"}</span> <span className="mode-label">{copied ? "Copied" : "Copy all"}</span>
       </button>
     </div>
   );
@@ -408,6 +521,7 @@ export function JournalEditor({
       FindHighlight,
       LogBlock,
       BlockInfoExtension,
+      BlockBorn,
       Blocks,
       AutoPairs,
       MathAuto,
@@ -654,7 +768,7 @@ export function JournalEditor({
 
   return (
     <div className={`editor mode-${mode}`}>
-      <ModePill mode={mode} />
+      <ModePill mode={mode} editor={editor} />
       {editor && mode === "source" && source.current && <SourceEditor value={source.current.text} onChange={onSource} touch={touch} autofocus={autofocus} />}
       {editor && outlineOpen && (
         <OutlinePanel

@@ -1,25 +1,9 @@
 import React, { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { fileKind } from "../lib/files";
-import { dayTitle } from "../lib/timestamp";
 import { openFile, showPdf, showPhoto, useFileUrl } from "../editor/attachments";
 import type { ExtractedLinks } from "../lib/links";
 import type { FileRecord, JournalStore } from "../store";
-
-/** Every day with a page, newest first, today on top. */
-export function DaysList({ days, day, today, onPick }: { days: string[]; day: string; today: string; onPick: (d: string) => void }) {
-  return (
-    <ul className="day-list">
-      {[...new Set([today, ...days])].map((d) => (
-        <li key={d}>
-          <button type="button" className={d === day ? "active" : ""} onClick={() => onPick(d)}>
-            {d === today ? "Today" : dayTitle(d).replace(/^\w+, /, "")}
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 /** Put stored files back into the open note: at a point on screen (a drop), or at the cursor. */
 export type InsertMedia = (files: FileRecord[], at?: { x: number; y: number }) => void;

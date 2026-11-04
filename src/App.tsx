@@ -11,8 +11,10 @@ import { startHealthSync } from "./routine/health";
 import { FinancePanel } from "./finance/FinancePanel";
 import { startMoneySync } from "./finance/capture";
 import { noteLines, reminderLine, timeEdit, timeSpans, type Alarm } from "./lib/reminders";
-import { BacklinkList, PageView, TagView, type LinkHandlers } from "./pages/LinkViews";
-import { DaysList, Drawer, InfoTabs, MEDIA_DRAG, type InsertMedia } from "./panels/Panels";
+import { BacklinkList, BacklinksFooter, PageView, TagView, type LinkHandlers } from "./pages/LinkViews";
+import { isDayTarget, splitTarget } from "./lib/noteLinks";
+import { Drawer, InfoTabs, MEDIA_DRAG, type InsertMedia } from "./panels/Panels";
+import { DaysList, MenuSections, MoneyGlance, ProjectList } from "./panels/Menu";
 import { RestoreButton } from "./panels/Restore";
 import { SyncStatus } from "./sync/SyncStatus";
 import { useSync } from "./sync/useSync";
@@ -36,7 +38,6 @@ import { RelativeTime } from "./calendar/RelativeTime";
 import { NexusView, type NexusTarget } from "./NexusView";
 import { openVoiceRecorder, VoiceRecorder } from "./editor/VoiceRecorder";
 import { MemeKit } from "./editor/MemeKit";
-import { ProjectList } from "./projects/ProjectPanel";
 import { searchTerms } from "./lib/search";
 import { fileKind } from "./lib/files";
 import { mediaIdsIn } from "./lib/media";
@@ -186,6 +187,7 @@ function App() {
     pending.current = null;
     try {
       await store.saveDay(next);
+      window.dispatchEvent(new Event("journal:saved"));
       setStatus("Saved");
       sync.afterSaved();
       setDays(await store.listDays());
@@ -510,8 +512,21 @@ function App() {
     },
     onOpenLink: async (title) => {
       if (!store || !title.trim()) return;
+      // [[2026-11-03]] is a day; [[Note#Part]] goes to that part of the note (lit up for a moment).
+      const { note, section } = splitTarget(title);
       await flush();
-      setRoute({ kind: "page", page: await store.ensurePage(title) });
+      const light = (where: string) => {
+        if (!section) return;
+        setFind({ where, terms: [section.toLowerCase()], index: 0, count: 0 });
+        window.setTimeout(() => setFind((f) => (f?.where === where ? null : f)), 3000);
+      };
+      if (isDayTarget(note)) {
+        light(note);
+        return void goTo(note, !!section);
+      }
+      const page = await store.ensurePage(note);
+      setRoute({ kind: "page", page });
+      light(`page:${page.title}`);
     },
     onOpenTag: async (tag) => {
       await flush();
@@ -689,7 +704,13 @@ function App() {
     const fast = Math.abs(dx) / Math.max(1, e.timeStamp - start.t) > 0.5;
     if ((Math.abs(dx) < 70 && !(fast && Math.abs(dx) > 30)) || Math.abs(dx) < Math.abs(dy) * 1.5) return;
     if (!drawerOpen && dx > 0 && start.x < 28 && !start.onBar) return setDrawerOpen(true);
-    if (drawerOpen) return dx < 0 && setDrawerOpen(false);
+    // The open menu: left closes it, right opens 💰 Money.
+    if (drawerOpen) {
+      if (dx < 0) return setDrawerOpen(false);
+      setDrawerOpen(false);
+      window.JournalHaptics?.play("edge", 0.6);
+      return setMoneyOpen(true);
+    }
     // The week strip: right opens the menu, left the year (fixed). The note: as set in Settings.
     if (start.onBar) return dx > 0 ? setDrawerOpen(true) : route.kind === "day" ? openYear() : undefined;
     if (route.kind === "day") runCanvas(loadGestures()[dx > 0 ? "right" : "left"]);
@@ -746,6 +767,14 @@ function App() {
     if (pos == null) editor.chain().focus().insertContent(nodes).run();
     else editor.chain().focus().insertContentAt(pos, nodes).run();
   };
+  // Links tapped inside an embedded note (or anywhere outside an editor).
+  const openLinkRef = useRef(handlers.onOpenLink);
+  openLinkRef.current = handlers.onOpenLink;
+  useEffect(() => {
+    const on = (e: Event) => void openLinkRef.current(String((e as CustomEvent).detail ?? ""));
+    window.addEventListener("journal:open-link", on);
+    return () => window.removeEventListener("journal:open-link", on);
+  }, []);
   useEffect(() => {
     const close = () => setDrawerOpen(false);
     window.addEventListener("journal:close-drawer", close);
@@ -798,7 +827,7 @@ function App() {
   );
   const menuFooter = (
     <div className="menu-footer">
-      <SyncStatus status={sync.status} live={sync.live} direct={sync.direct} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} />
+      <SyncStatus status={sync.status} live={sync.live} direct={sync.direct} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} onConnect={sync.connect} />
       <div className="menu-footer-row">
         <button type="button" onClick={() => (setDrawerOpen(false), void backUpNow())} title="Back up now">💾 Back up</button>
         <RestoreButton store={store} onBeforeRestore={flush} />
@@ -811,10 +840,16 @@ function App() {
     <div className="app" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
       <aside className="sidebar">
         {menuRibbon}
-        {store && <ProjectList store={store} refreshKey={`${syncTick}:${days.length}:${route.kind}`} onOpen={(t) => void handlers.onOpenLink(t)} />}
-        <h2>Days</h2>
-        <DaysList days={days} day={day} today={today} onPick={goTo} />
-{menuFooter}
+        {store && (
+          <MenuSections
+            sections={{
+              money: <MoneyGlance store={store} refreshKey={syncTick} onOpen={() => setMoneyOpen(true)} />,
+              projects: <ProjectList store={store} refreshKey={`${syncTick}:${days.length}:${route.kind}`} onOpen={(t) => void handlers.onOpenLink(t)} />,
+              days: <DaysList store={store} days={days} day={day} today={today} refreshKey={syncTick} onPick={goTo} />,
+            }}
+          />
+        )}
+        {menuFooter}
       </aside>
 
       <main className="page" inert={overlayOpen || undefined}>
@@ -848,9 +883,6 @@ function App() {
               <span className="status">{status}</span>
               <button type="button" className="routine-button" onClick={() => setRoutineOpen(true)} title="Routine and habits" aria-label="Routine">
                 🧭
-              </button>
-              <button type="button" className="routine-button money-button" onClick={() => setMoneyOpen(true)} title="Money" aria-label="Money">
-                💰
               </button>
               <button type="button" className="chat-button" onClick={async () => (await flush(), setChatOpen(true))} title="Chat view" aria-label="Chat view">
                 💬
@@ -893,7 +925,6 @@ function App() {
                   <button type="button" onClick={() => setDrawerOpen(true)} aria-label="Open menu">☰</button>
                   <button type="button" onClick={() => setSearchOpen(true)} aria-label="Search">🔍</button>
                   <button type="button" onClick={() => setRoutineOpen(true)} aria-label="Routine">🧭</button>
-                  <button type="button" onClick={() => setMoneyOpen(true)} aria-label="Money">💰</button>
                   <button type="button" onClick={async () => (await flush(), setChatOpen(true))} aria-label="Chat view">💬</button>
                 </>
               }
@@ -958,6 +989,9 @@ function App() {
                 />
               </div>
             )}
+            {store && loadedDay === day && (
+              <BacklinksFooter store={store} target={day} exclude={dayBlockId(day)} handlers={handlers} refreshKey={`${syncTick}:${days.length}`} />
+            )}
           </>
         )}
       </main>
@@ -966,26 +1000,36 @@ function App() {
 
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} top={menuRibbon} bottom={menuFooter}>
         {drawerShown && store && (
-          <ProjectList
-            store={store}
-            refreshKey={`${syncTick}:${days.length}:${route.kind}`}
-            onOpen={(t) => {
-              setDrawerOpen(false);
-              void handlers.onOpenLink(t);
+          <MenuSections
+            sections={{
+              money: <MoneyGlance store={store} refreshKey={syncTick} onOpen={() => (setDrawerOpen(false), setMoneyOpen(true))} />,
+              projects: (
+                <ProjectList
+                  store={store}
+                  refreshKey={`${syncTick}:${days.length}:${route.kind}`}
+                  onOpen={(t) => {
+                    setDrawerOpen(false);
+                    void handlers.onOpenLink(t);
+                  }}
+                />
+              ),
+              days: (
+                <DaysList
+                  store={store}
+                  days={days}
+                  day={day}
+                  today={today}
+                  refreshKey={syncTick}
+                  onPick={(d) => {
+                    setDrawerOpen(false);
+                    void goTo(d);
+                  }}
+                />
+              ),
+              info: infoTabs,
             }}
           />
         )}
-        {drawerShown && <><h2>Days</h2>
-        <DaysList
-          days={days}
-          day={day}
-          today={today}
-          onPick={(d) => {
-            setDrawerOpen(false);
-            void goTo(d);
-          }}
-        />
-        {infoTabs}</>}
 
       </Drawer>
 
