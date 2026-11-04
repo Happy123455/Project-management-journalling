@@ -199,12 +199,12 @@ export function logLine(at: Date, item: { icon: string; label: string }, edge: E
 }
 
 export const BOX_TITLE = "[[Routine]]";
-const isBoxTitle = (b: JSONContent) => b.type === "paragraph" && (b.content ?? []).map((c) => c.text ?? "").join("").trim().toLowerCase() === BOX_TITLE.toLowerCase();
+const isBoxTitle = (b: JSONContent, box: string) => b.type === "paragraph" && (b.content ?? []).map((c) => c.text ?? "").join("").trim().toLowerCase() === box.toLowerCase();
 
 /** The note with `line` added at the end of its [[Routine]] box (the box is made at the end if there's none). */
-export function withLogLine(doc: JSONContent | null | undefined, line: string): JSONContent {
+export function withLogLine(doc: JSONContent | null | undefined, line: string, box = BOX_TITLE): JSONContent {
   const content = [...(doc?.content ?? [])];
-  const at = content.findIndex(isBoxTitle);
+  const at = content.findIndex((b) => isBoxTitle(b, box));
   if (at >= 0) {
     const base = Number(content[at].attrs?.indent ?? 0);
     let end = at + 1;
@@ -214,7 +214,7 @@ export function withLogLine(doc: JSONContent | null | undefined, line: string): 
   }
   const last = content[content.length - 1];
   if (last?.type === "paragraph" && !last.content?.length && !last.attrs?.info) content.pop();
-  content.push({ type: "paragraph", content: [{ type: "text", text: BOX_TITLE }] }, { type: "paragraph", attrs: { indent: 1 }, content: [{ type: "text", text: line }] });
+  content.push({ type: "paragraph", content: [{ type: "text", text: box }] }, { type: "paragraph", attrs: { indent: 1 }, content: [{ type: "text", text: line }] });
   return { type: "doc", content };
 }
 

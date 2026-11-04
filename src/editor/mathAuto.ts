@@ -2,7 +2,7 @@ import { Extension } from "@tiptap/react";
 import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { ReplaceStep } from "@tiptap/pm/transform";
 import { answerFor, variablesIn } from "../lib/mathEval";
-import { latexToPlain } from "../lib/latex";
+import { blockLines } from "../lib/latex";
 import { editorPrefs } from "../lib/editorPrefs";
 
 const key = new PluginKey("mathAuto");
@@ -23,7 +23,7 @@ export function mathFollowUp(tr: Transaction, after: EditorState, on = editorPre
   // Variables defined in the lines above ("x = 5", or a math block "r = 3"), like Math Notes.
   const lines: string[] = [];
   after.doc.nodesBetween(0, $at.before(), (n) => {
-    if (n.type.name === "mathBlock") lines.push(latexToPlain(String(n.attrs.latex ?? "")));
+    if (n.type.name === "mathBlock") lines.push(...blockLines(String(n.attrs.latex ?? "")));
     else if (n.isTextblock) {
       if (n.type.name !== "codeBlock" && n.textContent.includes("=")) lines.push(n.textContent);
       return false;

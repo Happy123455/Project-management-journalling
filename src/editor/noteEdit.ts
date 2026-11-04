@@ -121,12 +121,12 @@ export function editLinePM(editor: Editor, line: string, edit: LineEdit): boolea
 }
 
 /** Adds a log line at the end of the note's [[Routine]] box (made at the end if missing), through an open editor. */
-export function insertLogLinePM(editor: Editor, line: string) {
+export function insertLogLinePM(editor: Editor, line: string, box = BOX_TITLE) {
   const { doc } = editor.state;
   let title = -1;
   for (let i = 0; i < doc.childCount; i++) {
     const n = doc.child(i);
-    if (n.type.name === "paragraph" && n.textContent.trim().toLowerCase() === BOX_TITLE.toLowerCase()) {
+    if (n.type.name === "paragraph" && n.textContent.trim().toLowerCase() === box.toLowerCase()) {
       title = i;
       break;
     }
@@ -150,7 +150,7 @@ export function insertLogLinePM(editor: Editor, line: string) {
     const last = doc.lastChild;
     const blank = last && last.type.name === "paragraph" && last.content.size === 0 && !last.attrs.info;
     const at = blank ? doc.content.size - last!.nodeSize : doc.content.size;
-    tr.replaceWith(at, doc.content.size, [para(BOX_TITLE, 0), para(line, 1)]);
+    tr.replaceWith(at, doc.content.size, [para(box, 0), para(line, 1)]);
   }
   editor.view.dispatch(tr);
 }

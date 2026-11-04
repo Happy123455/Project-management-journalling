@@ -15,6 +15,7 @@ import { BlockHandle } from "./BlockHandle";
 import { blockIndexAt, blockPos, Blocks, foldRange, indentBlock, moveBlock } from "./blocks";
 import { AutoPairs } from "./autoPairs";
 import { MathAuto } from "./mathAuto";
+import { MathInline } from "./mathInline";
 import { BlockInfoPanel } from "./BlockInfoPanel";
 import { readAloud } from "../lib/readAloud";
 import { isLoneUrl, LinkCard } from "./linkCard";
@@ -410,6 +411,7 @@ export function JournalEditor({
       Blocks,
       AutoPairs,
       MathAuto,
+      MathInline,
       SlashMenu.configure({ onReminder: () => onReminder?.() }),
     ],
     content: initialContent ?? "",

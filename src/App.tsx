@@ -8,6 +8,8 @@ import { RoutinePanel } from "./routine/RoutinePanel";
 import { TodayAgenda } from "./routine/TodayAgenda";
 import { editDayLine, ROUTINE_EVENT, useRoutine } from "./routine/routineData";
 import { startHealthSync } from "./routine/health";
+import { FinancePanel } from "./finance/FinancePanel";
+import { startMoneySync } from "./finance/capture";
 import { noteLines, reminderLine, timeEdit, timeSpans, type Alarm } from "./lib/reminders";
 import { BacklinkList, PageView, TagView, type LinkHandlers } from "./pages/LinkViews";
 import { DaysList, Drawer, InfoTabs, MEDIA_DRAG, type InsertMedia } from "./panels/Panels";
@@ -75,6 +77,7 @@ function App() {
   const [yearOpen, setYearOpen] = useState(false);
   const [upcomingOpen, setUpcomingOpen] = useState(false);
   const [routineOpen, setRoutineOpen] = useState(false);
+  const [moneyOpen, setMoneyOpen] = useState(false);
   const [yearShown, setYearShown] = useState(() => new Date().getFullYear());
   // What the main area shows: today's/any day's page, a named page, or a tag.
   const [route, setRoute] = useState<{ kind: "day" } | { kind: "page"; page: NamedPage } | { kind: "tag"; tag: string }>({ kind: "day" });
@@ -409,6 +412,7 @@ function App() {
     return () => window.removeEventListener(ROUTINE_EVENT, on);
   }, [store, loadReminders]);
   useEffect(() => (store ? startHealthSync(store) : undefined), [store]);
+  useEffect(() => (store ? startMoneySync(store) : undefined), [store]);
   const { view: routine } = useRoutine(store);
   // Today's own note: its ⏰ lines ring too (a reminder page already rings for every timed line).
   const [todayDoc, setTodayDoc] = useState<JSONContent | null>(null);
@@ -845,6 +849,9 @@ function App() {
               <button type="button" className="routine-button" onClick={() => setRoutineOpen(true)} title="Routine and habits" aria-label="Routine">
                 🧭
               </button>
+              <button type="button" className="routine-button money-button" onClick={() => setMoneyOpen(true)} title="Money" aria-label="Money">
+                💰
+              </button>
               <button type="button" className="chat-button" onClick={async () => (await flush(), setChatOpen(true))} title="Chat view" aria-label="Chat view">
                 💬
               </button>
@@ -886,6 +893,7 @@ function App() {
                   <button type="button" onClick={() => setDrawerOpen(true)} aria-label="Open menu">☰</button>
                   <button type="button" onClick={() => setSearchOpen(true)} aria-label="Search">🔍</button>
                   <button type="button" onClick={() => setRoutineOpen(true)} aria-label="Routine">🧭</button>
+                  <button type="button" onClick={() => setMoneyOpen(true)} aria-label="Money">💰</button>
                   <button type="button" onClick={async () => (await flush(), setChatOpen(true))} aria-label="Chat view">💬</button>
                 </>
               }
@@ -1053,6 +1061,7 @@ function App() {
       />
       {dayPicker && <DayPickerSheet title={dayPicker.title} from={dayPicker.from} withTime={dayPicker.withTime} onPick={dayPicker.onPick} onClose={() => setDayPicker(null)} />}
       {routineOpen && store && <RoutinePanel store={store} onClose={() => setRoutineOpen(false)} />}
+      {moneyOpen && store && <FinancePanel store={store} onClose={() => setMoneyOpen(false)} onOpenDay={(d) => void goTo(d)} />}
       <UpcomingPanel
         open={upcomingOpen}
         pages={upcoming}

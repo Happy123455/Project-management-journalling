@@ -6,7 +6,7 @@ export const STEP_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4
 export const stepColor = (index: number) => (index >= 0 && index < STEP_COLORS.length ? STEP_COLORS[index] : "#8a8a85");
 
 /** Catmull-Rom through the points, as a smooth SVG path. */
-function smoothPath(pts: [number, number][]): string {
+export function smoothPath(pts: [number, number][]): string {
   if (!pts.length) return "";
   let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
   for (let i = 0; i < pts.length - 1; i++) {

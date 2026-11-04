@@ -152,6 +152,26 @@ class MainActivity : TauriActivity() {
     }
   }
 
+  private val askSms = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    webView?.post { webView?.evaluateJavascript("window.dispatchEvent(new CustomEvent('journal:finance-access', { detail: ${if (granted) "true" else "false"} }))", null) }
+  }
+
+  /** Bank SMS and payment notifications for the money tracker. Page: src/finance/capture.ts. */
+  inner class FinanceBridge {
+    @JavascriptInterface fun smsStatus(): String = try { Finance.smsStatus(this@MainActivity) } catch (e: Exception) { "unavailable" }
+    @JavascriptInterface fun askSms() = runOnUiThread { try { askSms.launch(android.Manifest.permission.READ_SMS) } catch (e: Exception) { } }
+    @JavascriptInterface fun readSms(id: String, from: Long) = Finance.readSms(this@MainActivity, from) { json ->
+      val js = "window.__journalFinance && window.__journalFinance(${JSONObject.quote(id)}, ${JSONObject.quote(json)})"
+      webView?.post { webView?.evaluateJavascript(js, null) }
+    }
+    @JavascriptInterface fun notifyStatus(): String = try { Finance.notifyStatus(this@MainActivity) } catch (e: Exception) { "unavailable" }
+    @JavascriptInterface fun openNotifyAccess() = runOnUiThread {
+      try { startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) } catch (e: Exception) { }
+    }
+    @JavascriptInterface fun notifications(): String = try { Finance.peek(this@MainActivity) } catch (e: Exception) { "[]" }
+    @JavascriptInterface fun clearNotifications(upTo: Long) = try { Finance.clear(this@MainActivity, upTo) } catch (e: Exception) { }
+  }
+
   /** What was shared in (or a quick-note request), waiting for the page to take it. */
   @Volatile private var pendingShare: String? = null
 
@@ -240,6 +260,7 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(ReminderBridge(), "JournalReminders")
     webView.addJavascriptInterface(PowerBridge(), "JournalPower")
     webView.addJavascriptInterface(HealthBridge(), "JournalHealth")
+    webView.addJavascriptInterface(FinanceBridge(), "JournalFinance")
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->
       val split = payload.partition { it.uri != null }

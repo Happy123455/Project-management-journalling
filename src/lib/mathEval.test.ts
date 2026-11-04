@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerFor, evaluate, formatAnswer } from "./mathEval";
+import { answerFor, evaluate, formatAnswer, definitionsIn, conflictsIn, namesIn } from "./mathEval";
 
 describe("auto math", () => {
   it("solves sums typed before =", () => {
@@ -49,5 +49,33 @@ describe("variables, like Math Notes", () => {
     expect(answerFor("2 pi", vars)).toBe("6.2831853072");
     expect(answerFor("z + 1", vars)).toBe(null);
     expect(answerFor("3x4", new Map([["y", 1]]))).toBe("12");
+  });
+});
+
+describe("variables written in sentences", () => {
+  it("reads a name in brackets before or inside the definition", () => {
+    const defs = definitionsIn(["this is a friction coefficient(F)=1.2", "and the normal force (N = 50 newton)"]);
+    expect(defs).toEqual([
+      { name: "F", value: 1.2, line: 0, label: "friction coefficient" },
+      { name: "N", value: 50, line: 1, label: "normal force" },
+    ]);
+    expect(definitionsIn(["this is a friction coefficient(F=1.2)"])[0]).toMatchObject({ name: "F", value: 1.2 });
+  });
+  it("reads 'the mass m = 5 kg' but not a long word in a sentence", () => {
+    expect(definitionsIn(["the mass m = 5 kg"])).toEqual([{ name: "m", value: 5, line: 0, label: "mass" }]);
+    expect(definitionsIn(["so the total = 5"])).toEqual([]);
+  });
+  it("uses earlier variables and the written answer", () => {
+    const v = variablesIn(["m = 5", "g = 9.8", "weight W = m*g", "y = m*2 = 10"]);
+    expect(v.get("W")).toBeCloseTo(49);
+    expect(v.get("y")).toBe(10);
+  });
+  it("warns when one name gets different values", () => {
+    const c = conflictsIn(definitionsIn(["F = 1.2", "x = 3", "coefficient(F)=1.5", "x = 3"]));
+    expect([...c.keys()]).toEqual(["F"]);
+    expect(c.get("F")!.map((d) => d.value)).toEqual([1.2, 1.5]);
+  });
+  it("lists the names an expression uses", () => {
+    expect(namesIn("2x + sqrt(m*g) - pi")).toEqual(["x", "m", "g"]);
   });
 });

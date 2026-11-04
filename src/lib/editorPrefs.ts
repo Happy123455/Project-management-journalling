@@ -8,10 +8,12 @@ export interface EditorPrefs {
   relativeTime: boolean;
   /** Typing "=" after a sum ("12+12=") writes the answer. */
   autoMath: boolean;
+  /** Plain maths in the text ("(a+b)/2", "x^2") is drawn as a formula (the text stays as typed). */
+  prettyMath: boolean;
 }
 
 const KEY = "journal.editor";
-const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true };
+const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true, prettyMath: true };
 
 export function editorPrefs(): EditorPrefs {
   try {

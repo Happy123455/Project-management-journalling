@@ -39,3 +39,11 @@ export function cleanLatex(text: string): string {
     .replace(/^\\\[([\s\S]*)\\\]$/, "$1")
     .trim();
 }
+
+/** A math block's lines as plain maths: one per written line (or LaTeX "\\" line break). */
+export function blockLines(src: string): string[] {
+  return src
+    .split(/\n|\\\\/)
+    .map((l) => latexToPlain(l))
+    .filter(Boolean);
+}

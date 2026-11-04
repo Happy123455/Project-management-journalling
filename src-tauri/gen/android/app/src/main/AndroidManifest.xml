@@ -23,6 +23,8 @@
     <!-- Routine: read exercise and sleep that Samsung Health shares into Health Connect -->
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <!-- Money tracker: bank and card SMS alerts (asked when turned on in the Money panel). -->
+    <uses-permission android:name="android.permission.READ_SMS" />
 
     <!-- Read aloud: see the installed text-to-speech engines -->
     <queries>
@@ -96,6 +98,17 @@
                 <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
             </intent-filter>
         </activity-alias>
+
+        <!-- Money tracker: payment app notifications (Google Pay, PhonePe…), only once allowed in Android's settings. -->
+        <service
+            android:name=".FinanceNotifications"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <service
             android:name=".QuickNoteTileService"

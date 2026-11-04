@@ -312,6 +312,7 @@ function EditorSettings() {
       {row("editStamps", "Stamp edits on older days", "Writing in a past day adds a small “edited” chip with when")}
       {row("relativeTime", "Show how long ago a day is", "Under the date: years, months and days from today")}
       {row("autoMath", "Solve math as you type", "Type = after a sum and the answer appears: 12+12= becomes 12+12=24 (undo takes it back)")}
+      {row("prettyMath", "Draw formulas", "Plain maths like (a+b+c+d)/2 or x^2 shows as a proper formula; the line you're writing in stays plain text")}
     </section>
   );
 }

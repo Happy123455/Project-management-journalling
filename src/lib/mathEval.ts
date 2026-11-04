@@ -187,25 +187,120 @@ export function answerFor(before: string, vars?: Vars): string | null {
 }
 
 const NAME = /^\s*([A-Za-z_π][A-Za-z0-9_]*)\s*$/;
+/** The name at the end of a sentence before "=": "the mass m = 5", "friction coefficient μ_k = 0.4". Short names only. */
+const TRAILING_NAME = /(?:^|\s)([A-Za-z_][A-Za-z0-9_]{0,2})\s*$/;
+/** "coefficient(F)=1.2": a name in brackets, then "=". */
+const BRACKET_NAME = /\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*=\s*/g;
+/** "coefficient(F=1.2)" or "(F = 1.2 N)": a whole definition in brackets. */
+const BRACKET_DEF = /\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^()=]+?)\s*\)/g;
+
+export const isFunctionName = (w: string) => w in FUNCS || w in CONSTS;
+
+/** One variable definition found in the note. */
+export interface Definition {
+  name: string;
+  value: number;
+  /** Which line (0-based, in the lines given). */
+  line: number;
+  /** The words before it, when written in a sentence ("friction coefficient"). */
+  label?: string;
+}
 
 /**
- * Variables defined in lines, in order, like Apple's Math Notes: "x = 5", "rate = 12/60",
- * "total = x * rate" (each may use the ones above it). A line with a written answer
- * ("y = x*2 = 10") takes the answer.
+ * The value at the start of `text`: the longest run of words that works out ("1.2 N" → 1.2,
+ * "x*2 = 10" → x*2), or null.
  */
-export function variablesIn(lines: string[], vars: Vars = new Map()): Vars {
-  for (const line of lines) {
-    const parts = line.split("=");
-    if (parts.length < 2) continue;
-    const name = NAME.exec(parts[0]);
-    if (!name || name[1] in FUNCS || name[1] in CONSTS) continue;
-    for (const part of [parts[parts.length - 1], parts[1]]) {
-      const v = evaluate(part, vars) ?? (/^\s*-?[\d.,]+\s*$/.test(part) ? Number(part.replace(/[\s,]/g, "")) : null);
-      if (v !== null && Number.isFinite(v)) {
-        vars.set(name[1], v);
-        break;
-      }
-    }
+function leadingValue(text: string, vars: Vars): number | null {
+  const words = text.trim().split(/\s+/);
+  for (let n = words.length; n > 0; n--) {
+    const part = words.slice(0, n).join(" ");
+    const v = evaluate(part, vars) ?? (/^-?[\d.,]+$/.test(part) && /\d/.test(part) ? Number(part.replace(/,/g, "")) : null);
+    if (v !== null && Number.isFinite(v)) return v;
   }
+  return null;
+}
+
+/** "this is a friction coefficient" → "friction coefficient" (the last few words, small words dropped). */
+function labelOf(text: string): string | undefined {
+  const words = text.replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).filter(Boolean);
+  const SMALL = new Set(["this", "is", "a", "an", "the", "of", "my", "our", "and", "it", "its", "that", "which", "let", "be", "for", "with", "where", "so"]);
+  while (words.length && SMALL.has(words[0].toLowerCase())) words.shift();
+  const out = words.slice(-4).join(" ");
+  return out || undefined;
+}
+
+/**
+ * Every definition in the lines, in order. Understood, like Apple's Math Notes and in a sentence:
+ * "x = 5", "rate = 12/60", "total = x * rate", "y = x*2 = 10" (the written answer),
+ * "the mass m = 5 kg", "this is a friction coefficient(F)=1.2", "a friction coefficient(F=1.2)".
+ * Each may use the ones before it.
+ */
+export function definitionsIn(lines: string[], start: Vars = new Map()): Definition[] {
+  const vars = new Map(start);
+  const out: Definition[] = [];
+  const add = (name: string, value: number | null, line: number, label?: string) => {
+    if (value === null || !Number.isFinite(value) || name in FUNCS || name in CONSTS) return;
+    vars.set(name, value);
+    out.push({ name, value, line, ...(label ? { label } : {}) });
+  };
+  lines.forEach((line, i) => {
+    if (!line.includes("=")) return;
+    const found = new Set<string>();
+    // In brackets: "coefficient(F=1.2)".
+    for (const m of line.matchAll(BRACKET_DEF)) {
+      if (found.has(m[1])) continue;
+      const v = leadingValue(m[2], vars);
+      if (v === null) continue;
+      add(m[1], v, i, labelOf(line.slice(0, m.index)));
+      found.add(m[1]);
+    }
+    // A bracketed name then "=": "coefficient(F)=1.2".
+    for (const m of line.matchAll(BRACKET_NAME)) {
+      if (found.has(m[1])) continue;
+      const v = leadingValue(line.slice(m.index + m[0].length).split("=")[0], vars);
+      if (v === null) continue;
+      add(m[1], v, i, labelOf(line.slice(0, m.index)));
+      found.add(m[1]);
+    }
+    if (found.size) return;
+    const parts = line.split("=");
+    const whole = NAME.exec(parts[0]);
+    const name = whole?.[1] ?? TRAILING_NAME.exec(parts[0])?.[1];
+    if (!name) return;
+    // A sentence before the name must end in a short name ("mass m"), not just any word ("total").
+    if (!whole && /^[A-Za-z]{2,}$/.test(name)) return;
+    // The written answer ("y = x*2 = 10") wins over the sum before it.
+    const last = parts.length > 2 ? leadingValue(parts[parts.length - 1], vars) : null;
+    add(name, last ?? leadingValue(parts[1], vars), i, whole ? undefined : labelOf(parts[0].trimEnd().slice(0, parts[0].trimEnd().length - name.length)));
+  });
+  return out;
+}
+
+/** Variables defined in the lines, by name (a later definition replaces an earlier one). */
+export function variablesIn(lines: string[], vars: Vars = new Map()): Vars {
+  for (const d of definitionsIn(lines, vars)) vars.set(d.name, d.value);
   return vars;
+}
+
+/** Names given different values in the lines (a likely mistake): name → its definitions. */
+export function conflictsIn(defs: Definition[]): Map<string, Definition[]> {
+  const by = new Map<string, Definition[]>();
+  for (const d of defs) by.set(d.name, [...(by.get(d.name) ?? []), d]);
+  const out = new Map<string, Definition[]>();
+  for (const [name, list] of by) {
+    const values = new Set(list.map((d) => formatAnswer(d.value)));
+    if (values.size > 1) out.set(name, list);
+  }
+  return out;
+}
+
+/** The names an expression uses (not functions or constants): "2x + sqrt(m*g)" → ["x", "m", "g"]. */
+export function namesIn(expr: string): string[] {
+  const out: string[] = [];
+  for (const m of expr.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
+    const w = m[0];
+    if (w in FUNCS || w in CONSTS || out.includes(w)) continue;
+    out.push(w);
+  }
+  return out;
 }

@@ -389,3 +389,94 @@ html[data-theme="neu"] .ambience-rain { opacity: 0.7; }
   .theme-preview.neu .tp-button { background: #2a2d34; box-shadow: 4px 4px 9px rgba(0, 0, 0, 0.5), -4px -4px 9px rgba(255, 255, 255, 0.07); }
   .theme-preview.neu .tp-well { background: #2a2d34; box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.5), inset -3px -3px 6px rgba(255, 255, 255, 0.07); }
 }
+
+/* ── Routine, habits, money and the math block: the same soft language (raised controls, pressed-in
+   wells and inputs, no hairline borders or glass blur) ── */
+:where(html[data-theme="neu"]) .routine-panel header { border-bottom-color: transparent; box-shadow: 0 6px 10px -8px var(--neu-dark); }
+:where(html[data-theme="neu"]) .routine-panel header nav,
+:where(html[data-theme="neu"]) .trend-picks,
+:where(html[data-theme="neu"]) .trend-range,
+:where(html[data-theme="neu"]) .math-control-kinds { background: var(--bg); box-shadow: var(--neu-in-sm); border-radius: 999px; padding: 3px; }
+:where(html[data-theme="neu"]) .trend-picks,
+:where(html[data-theme="neu"]) .math-control-kinds { border-radius: 16px; }
+:where(html[data-theme="neu"]) .routine-panel header nav button,
+:where(html[data-theme="neu"]) .trend-picks button,
+:where(html[data-theme="neu"]) .trend-range button,
+:where(html[data-theme="neu"]) .math-control-kinds button { box-shadow: none; background: transparent; border-color: transparent; }
+:where(html[data-theme="neu"]) .routine-panel header nav button.active,
+:where(html[data-theme="neu"]) .trend-picks button.active,
+:where(html[data-theme="neu"]) .trend-range button.active,
+:where(html[data-theme="neu"]) .math-control-kinds button.on { background: var(--bg); box-shadow: var(--neu-out-xs); color: var(--accent); border-color: transparent; }
+:where(html[data-theme="neu"]) .routine-panel header > button,
+:where(html[data-theme="neu"]) .phase-list button { box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .routine-care { background: color-mix(in srgb, #1baf7a 10%, var(--bg)); border-color: transparent; box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .habit-tap { border-radius: 18px; box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .habit-tap:active { box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .routine-steps li { background: var(--bg); box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .routine-steps li.going { background: var(--bg); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .routine-steps li.going .step-label { color: var(--accent); font-weight: 600; }
+:where(html[data-theme="neu"]) .trend-stats div { background: var(--bg); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .day-timeline::before { background: var(--bg); box-shadow: var(--neu-in-xs); width: 4px; left: 49px; border-radius: 2px; }
+:where(html[data-theme="neu"]) .day-timeline .tl-icon { background: var(--bg); box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .day-timeline .tl-now .tl-now-line { box-shadow: none; }
+:where(html[data-theme="neu"]) .agenda-next { border-top: 0; box-shadow: 0 -1px 0 var(--neu-light), 0 -2px 0 color-mix(in srgb, var(--neu-dark) 40%, transparent); }
+:where(html[data-theme="neu"]) .phase-table th,
+:where(html[data-theme="neu"]) .phase-table td { border-bottom-color: color-mix(in srgb, var(--neu-dark) 35%, transparent); }
+:where(html[data-theme="neu"]) .setup-list li { background: var(--bg); box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .setup-save { background: var(--bg); margin: 12px -14px 0; padding: 8px 14px; box-shadow: 0 -6px 10px -8px var(--neu-dark); z-index: 2; }
+:where(html[data-theme="neu"]) .trend-chart .ahead-dot { fill: var(--bg); }
+:where(html[data-theme="neu"]) .fc-bar { background: var(--bg); box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .finance-list button:active { background: var(--bg); box-shadow: var(--neu-in-xs); }
+
+/* Inputs in these panels and the math block: pressed into the surface. */
+:where(html[data-theme="neu"]) .routine-panel input:not([type="checkbox"]):not([type="range"]),
+:where(html[data-theme="neu"]) .routine-panel select,
+:where(html[data-theme="neu"]) .routine-panel textarea,
+:where(html[data-theme="neu"]) .math-edit textarea,
+:where(html[data-theme="neu"]) .math-ask textarea,
+:where(html[data-theme="neu"]) .math-library-search,
+:where(html[data-theme="neu"]) .mc-value,
+:where(html[data-theme="neu"]) .reminder-menu-row input {
+  background: var(--bg);
+  border-color: transparent;
+  box-shadow: var(--neu-in-sm);
+  color: var(--text);
+}
+/* Checkboxes: a small pressed-in well, filled when ticked. */
+:where(html[data-theme="neu"]) .routine-panel input[type="checkbox"],
+:where(html[data-theme="neu"]) .confirm-card input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; width: 20px; height: 20px; flex: none; margin: 1px 0 0; border-radius: 6px;
+  background: var(--bg); box-shadow: var(--neu-in-sm); display: inline-grid; place-content: center; cursor: pointer;
+}
+:where(html[data-theme="neu"]) .routine-panel input[type="checkbox"]:checked,
+:where(html[data-theme="neu"]) .confirm-card input[type="checkbox"]:checked { background: rgb(var(--heat-rgb)); box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.3); }
+:where(html[data-theme="neu"]) .routine-panel input[type="checkbox"]:checked::after,
+:where(html[data-theme="neu"]) .confirm-card input[type="checkbox"]:checked::after { content: "✓"; color: #fff; font-size: 13px; font-weight: 700; line-height: 1; }
+:where(html[data-theme="neu"]) .routine-panel input[type="checkbox"]:disabled { opacity: 0.5; cursor: default; }
+
+/* Sliders everywhere: a pressed-in groove and a raised round knob. */
+:where(html[data-theme="neu"]) input[type="range"] { -webkit-appearance: none; appearance: none; height: 22px; background: transparent; }
+:where(html[data-theme="neu"]) input[type="range"]::-webkit-slider-runnable-track { height: 8px; border-radius: 4px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, var(--bg)) var(--fill, 0%), var(--bg) var(--fill, 0%)); box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; margin-top: -7px; border-radius: 50%; background: var(--neu-knob); box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) input[type="range"]:active::-webkit-slider-thumb { box-shadow: var(--neu-out-xs); transform: scale(0.96); }
+:where(html[data-theme="neu"]) input[type="range"]::-moz-range-track { height: 8px; border-radius: 4px; background: var(--bg); box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; border: 0; border-radius: 50%; background: var(--neu-knob); box-shadow: var(--neu-out-sm); }
+
+/* The math block: a raised card; its parts pressed in or raised like everything else. */
+:where(html[data-theme="neu"]) .math-block { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-sm); border-radius: 18px; padding: 8px 12px; }
+:where(html[data-theme="neu"]) .math-block.selected { outline: 2px solid var(--accent); }
+:where(html[data-theme="neu"]) .math-var { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .math-var.missing { box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .math-var.clash { box-shadow: var(--neu-in-xs), 0 0 0 1.5px var(--reminder); }
+:where(html[data-theme="neu"]) .math-bar button { box-shadow: none; background: transparent; }
+:where(html[data-theme="neu"]) .math-bar button:hover { box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .math-bar button.on { background: var(--bg); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .math-copy { background: var(--bg); border-color: transparent; box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .mc-wheel { background: var(--bg); border-color: transparent; box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .mc-dial { background: var(--bg); border-color: transparent; box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .mc-digit { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .mc-digit:active { box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .math-library-item { background: var(--bg); box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .math-library-item:active { box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .handwriting-canvas { border-color: transparent; box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .math-plot .mp-dot { stroke: var(--bg); }
