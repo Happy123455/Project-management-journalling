@@ -140,7 +140,7 @@ const shortDay = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString
 
 /** One reminder. Memoised: scrolling only re-renders the rows whose squeeze changed. */
 /** What can be done to a reminder from its row: move it to another day, or make it repeat. */
-export type ReminderAction = { kind: "snooze"; to: string } | { kind: "pick" } | { kind: "repeat"; repeat: Repeat | null };
+export type ReminderAction = { kind: "snooze"; to: string } | { kind: "pick" } | { kind: "repeat"; repeat: Repeat | null } | { kind: "time"; hour: number; minute: number };
 /** A Coming up row; a repeating reminder's row stands for its next day (`repeatOf`: the day it was written on). */
 export type UpcomingPage = DayPage & { repeatOf?: string };
 
@@ -152,8 +152,23 @@ function RowMenu({ page, onAction, onClose }: { page: UpcomingPage; onAction: (p
     onAction(page, a);
   };
   const current = page.props.repeat ?? null;
+  const [time, setTime] = useState("");
   return (
     <div className="reminder-menu" role="menu" onClick={(e) => e.stopPropagation()}>
+      <div className="reminder-menu-row">
+        <span>⏰ Time</span>
+        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Reminder time" />
+        <button
+          type="button"
+          disabled={!time}
+          onClick={() => {
+            const [h, m] = time.split(":").map(Number);
+            act({ kind: "time", hour: h, minute: m });
+          }}
+        >
+          Set
+        </button>
+      </div>
       {!page.repeatOf && (
         <div className="reminder-menu-row">
           <span>⏰ Move to</span>

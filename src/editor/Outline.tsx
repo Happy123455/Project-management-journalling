@@ -6,6 +6,22 @@ import { TIMESTAMP_RE } from "../lib/timestamp";
 import { foldRange, indentOf } from "./blocks";
 import { setTimeRail, useStamps, useTimeRail } from "./TimeRail";
 import { formatGap } from "../lib/timeGaps";
+import { journalStore } from "./attachments";
+import { useRoutine } from "../routine/routineData";
+import { agendaAction, useTodayAgenda } from "../routine/agenda";
+import { DayTimeline } from "../routine/DayTimeline";
+
+/** Outline → 📅 Day: the day's timeline (routine, reminders, now) instead of the note's parts. */
+function DayView({ day }: { day: string }) {
+  const store = journalStore();
+  const { view } = useRoutine(store);
+  const { items } = useTodayAgenda(store);
+  if (!store) return null;
+  if (!view) return <p className="loading">Loading…</p>;
+  return <DayTimeline scrollToNow view={view} day={day} agenda={day === view.day ? items : []} onReminder={(item) => !item.done && void agendaAction(store, item, "done")} />;
+}
+
+const DAY_VIEW_KEY = "journal.outlineDay";
 
 export interface OutlineItem {
   /** Position in the note (the block's start), to jump to. */
@@ -45,6 +61,9 @@ export function outlineOf(doc: PMNode): OutlineItem[] {
       }
       case "codeBlock":
         items.push({ pos, label: text.split("\n")[0].slice(0, 60) || "Code", icon: "</>", depth: under, kind: "code", folded });
+        return;
+      case "mathBlock":
+        items.push({ pos, label: String(node.attrs.latex || "Math").slice(0, 60), icon: "∑", depth: under, kind: "code" });
         return;
       case "promptBlock":
         items.push({ pos, label: String(node.attrs.title || "Prompt"), icon: "🧩", depth: under, kind: "prompt", folded });
@@ -107,8 +126,23 @@ export function jumpTo(editor: Editor, pos: number, unfold: (editor: Editor, pos
 }
 
 /** Obsidian-style outline: a panel listing the note's parts; tap one to go there. */
-export function OutlinePanel({ editor, onJump, onClose }: { editor: Editor; onJump: (pos: number) => void; onClose: () => void }) {
+export function OutlinePanel({ editor, onJump, onClose, day }: { editor: Editor; onJump: (pos: number) => void; onClose: () => void; day?: string }) {
   const [items, setItems] = useState(() => outlineOf(editor.state.doc));
+  const [dayView, setDayViewState] = useState(() => {
+    try {
+      return !!day && localStorage.getItem(DAY_VIEW_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setDayView = (on: boolean) => {
+    setDayViewState(on);
+    try {
+      localStorage.setItem(DAY_VIEW_KEY, on ? "1" : "0");
+    } catch {
+      // This session only.
+    }
+  };
   const [filter, setFilter] = useState("");
   useEffect(() => {
     const update = () => setItems(outlineOf(editor.state.doc));
@@ -139,18 +173,28 @@ export function OutlinePanel({ editor, onJump, onClose }: { editor: Editor; onJu
         <header>
           <strong>Outline</strong>
           <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter…" aria-label="Filter the outline" />
+          {day && (
+            <button type="button" className={dayView ? "outline-time active" : "outline-time"} aria-pressed={dayView} title="Day: the day's timeline, with a now pointer" onClick={() => setDayView(!dayView)}>
+              📅
+            </button>
+          )}
           <button
             type="button"
-            className={time ? "outline-time active" : "outline-time"}
-            aria-pressed={time}
+            className={time && !dayView ? "outline-time active" : "outline-time"}
+            aria-pressed={time && !dayView}
             title="Time: only timestamps, with the time between them and a time rail on the right edge"
-            onClick={() => setTimeRail(!time)}
+            onClick={() => {
+              if (dayView) setDayView(false);
+              setTimeRail(dayView ? true : !time);
+            }}
           >
             🕒
           </button>
           <button type="button" onClick={onClose} aria-label="Close">✕</button>
         </header>
-        {time ? (
+        {dayView && day ? (
+          <DayView day={day} />
+        ) : time ? (
           <>
             {stamps.length > 1 && <p className="outline-span">{formatGap(span)} from the first to the last timestamp</p>}
             {shownStamps.length === 0 && <p className="hint">No timestamps in this note yet.</p>}

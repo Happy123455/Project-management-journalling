@@ -4,6 +4,11 @@ import { MonthCalendar, YearPanel } from "./calendar/Calendar";
 import { Upcoming, UpcomingPanel, type ReminderAction, type UpcomingPage } from "./calendar/Upcoming";
 import { DayPickerSheet } from "./calendar/ReminderSheet";
 import { publishReminders, startInAppNudges, upcomingFrom } from "./calendar/reminderBridge";
+import { RoutinePanel } from "./routine/RoutinePanel";
+import { TodayAgenda } from "./routine/TodayAgenda";
+import { editDayLine, ROUTINE_EVENT, useRoutine } from "./routine/routineData";
+import { startHealthSync } from "./routine/health";
+import { noteLines, reminderLine, timeEdit, timeSpans, type Alarm } from "./lib/reminders";
 import { BacklinkList, PageView, TagView, type LinkHandlers } from "./pages/LinkViews";
 import { DaysList, Drawer, InfoTabs, MEDIA_DRAG, type InsertMedia } from "./panels/Panels";
 import { RestoreButton } from "./panels/Restore";
@@ -69,6 +74,7 @@ function App() {
   const [calendarCompact, setCalendarCompact] = useState(false);
   const [yearOpen, setYearOpen] = useState(false);
   const [upcomingOpen, setUpcomingOpen] = useState(false);
+  const [routineOpen, setRoutineOpen] = useState(false);
   const [yearShown, setYearShown] = useState(() => new Date().getFullYear());
   // What the main area shows: today's/any day's page, a named page, or a tag.
   const [route, setRoute] = useState<{ kind: "day" } | { kind: "page"; page: NamedPage } | { kind: "tag"; tag: string }>({ kind: "day" });
@@ -392,8 +398,41 @@ function App() {
   }, [store]);
   useEffect(loadReminders, [loadReminders, days, syncTick]);
   const upcoming = useMemo(() => upcomingFrom(reminders, today), [reminders, today]);
+  // Routine taps and reminder actions: catch up the reminders and the list of days.
+  useEffect(() => {
+    if (!store) return;
+    const on = () => {
+      loadReminders();
+      void store.listDays().then(setDays);
+    };
+    window.addEventListener(ROUTINE_EVENT, on);
+    return () => window.removeEventListener(ROUTINE_EVENT, on);
+  }, [store, loadReminders]);
+  useEffect(() => (store ? startHealthSync(store) : undefined), [store]);
+  const { view: routine } = useRoutine(store);
+  // Today's own note: its ⏰ lines ring too (a reminder page already rings for every timed line).
+  const [todayDoc, setTodayDoc] = useState<JSONContent | null>(null);
+  useEffect(() => {
+    if (!store) return;
+    if (day === today && content) setTodayDoc(content);
+    else void store.getDay(today).then((p) => setTodayDoc(p?.content ?? null));
+  }, [store, day, today, content, syncTick]);
+  // Soft nudges (Routine → Setup): a quiet notification when a step usually starts.
+  const nudges = useMemo<Alarm[]>(() => {
+    if (!routine?.config.nudges) return [];
+    return routine.plan
+      .filter((p) => p.start > Date.now() + 5 * 60_000)
+      .slice(0, 8)
+      .flatMap((p) => {
+        const s = routine.config.steps.find((x) => x.id === p.id);
+        return s ? [{ id: `routine|${routine.day}|${p.id}`, at: p.start, title: `🧭 ${s.icon} ${s.label}`, body: "Usually about now. At your own pace.", day: today }] : [];
+      });
+  }, [routine, today]);
   // The phone's notifications and home-screen widget follow the reminders.
-  useEffect(() => publishReminders(reminders, today), [reminders, today]);
+  useEffect(() => {
+    const own = todayDoc && !reminders.some((r) => r.day === today) ? [{ day: today, content: todayDoc, marked: true }] : [];
+    publishReminders(reminders, today, own, nudges);
+  }, [reminders, today, todayDoc, nudges]);
   useEffect(() => startInAppNudges((d) => void goTo(d)), []);
   // A tapped notification or widget row opens its day.
   useEffect(() => {
@@ -497,12 +536,16 @@ function App() {
 
   // The "/" Reminder tile: pick a future day (native date picker), then open it to write there.
   // (It used to open a hidden date field that was never on the page, so the tile did nothing.)
-  const [dayPicker, setDayPicker] = useState<{ title: string; from?: string; onPick: (day: string) => void } | null>(null);
+  const [dayPicker, setDayPicker] = useState<{ title: string; from?: string; onPick: (day: string, time?: string) => void; withTime?: boolean } | null>(null);
+  /** Text to put at the end of the next day opened, cursor after it (a reminder's "⏰ 15:00 "). */
+  const pendingInsert = useRef<string | null>(null);
   const pickReminderDay = () =>
     setDayPicker({
       title: "🔔 Remind me on…",
-      onPick: (d) => {
+      withTime: true,
+      onPick: (d, time) => {
         setDayPicker(null);
+        pendingInsert.current = time ? `⏰ ${time} ` : null;
         void goTo(d);
       },
     });
@@ -540,6 +583,18 @@ function App() {
           void moveReminder(origin, d).catch((e) => showError("Couldn't move the reminder", e));
         },
       });
+    else if (a.kind === "time")
+      void (async () => {
+        await flush();
+        const src = await store.getDay(origin);
+        const lines = noteLines(src?.content, true);
+        const line = lines.find((l) => timeSpans(l).length && reminderLine(l, true)) ?? lines[0];
+        if (!line) return;
+        const ok = await editDayLine(store, origin, line, timeEdit(line, a.hour, a.minute));
+        if (ok && day === origin) setPageVersion((n) => n + 1);
+        loadReminders();
+        if (ok) showToast(`⏰ ${String(a.hour).padStart(2, "0")}:${String(a.minute).padStart(2, "0")} on ${dayTitle(origin)}`);
+      })().catch((e) => showError("Couldn't set the time", e));
     else
       void store
         .setDayProps(origin, { repeat: a.repeat ?? undefined })
@@ -787,6 +842,9 @@ function App() {
                 <button type="button" className="today" onClick={() => goTo(today)}>Today</button>
               )}
               <span className="status">{status}</span>
+              <button type="button" className="routine-button" onClick={() => setRoutineOpen(true)} title="Routine and habits" aria-label="Routine">
+                🧭
+              </button>
               <button type="button" className="chat-button" onClick={async () => (await flush(), setChatOpen(true))} title="Chat view" aria-label="Chat view">
                 💬
               </button>
@@ -817,11 +875,17 @@ function App() {
               }}
               onPick={goTo}
               onOpenYear={openYear}
-              below={<Upcoming inMonth pages={upcoming.filter((r) => r.day !== day)} onPick={goTo} onAction={onReminderAction} />}
+              below={
+                <>
+                  {store && <TodayAgenda store={store} view={routine} onOpenRoutine={() => setRoutineOpen(true)} />}
+                  <Upcoming inMonth pages={upcoming.filter((r) => r.day !== day)} onPick={goTo} onAction={onReminderAction} />
+                </>
+              }
               actions={
                 <>
                   <button type="button" onClick={() => setDrawerOpen(true)} aria-label="Open menu">☰</button>
                   <button type="button" onClick={() => setSearchOpen(true)} aria-label="Search">🔍</button>
+                  <button type="button" onClick={() => setRoutineOpen(true)} aria-label="Routine">🧭</button>
                   <button type="button" onClick={async () => (await flush(), setChatOpen(true))} aria-label="Chat view">💬</button>
                 </>
               }
@@ -849,6 +913,19 @@ function App() {
                     if (previewNext.current) {
                       previewNext.current = false;
                       requestAnimationFrame(() => window.scrollTo({ top: document.documentElement.scrollHeight }));
+                    }
+                    // A new reminder with a time: "⏰ 15:00 " at the end, the cursor after it.
+                    const insert = pendingInsert.current;
+                    if (insert) {
+                      pendingInsert.current = null;
+                      requestAnimationFrame(() => {
+                        const editor = document.querySelector<HTMLElement & { editor?: Editor }>(".tiptap")?.editor;
+                        if (!editor) return;
+                        const last = editor.state.doc.lastChild;
+                        const chain = editor.chain().focus("end");
+                        (last && last.isTextblock && last.content.size === 0 ? chain : chain.splitBlock()).insertContent(insert).run();
+                        window.JournalShare?.showKeyboard();
+                      });
                     }
                     // A quick note: put the cursor at the end and bring up the keyboard.
                     if (quickNote.current) {
@@ -974,7 +1051,8 @@ function App() {
         onYear={setYearShown}
         onUpcoming={() => setUpcomingOpen(true)}
       />
-      {dayPicker && <DayPickerSheet title={dayPicker.title} from={dayPicker.from} onPick={dayPicker.onPick} onClose={() => setDayPicker(null)} />}
+      {dayPicker && <DayPickerSheet title={dayPicker.title} from={dayPicker.from} withTime={dayPicker.withTime} onPick={dayPicker.onPick} onClose={() => setDayPicker(null)} />}
+      {routineOpen && store && <RoutinePanel store={store} onClose={() => setRoutineOpen(false)} />}
       <UpcomingPanel
         open={upcomingOpen}
         pages={upcoming}

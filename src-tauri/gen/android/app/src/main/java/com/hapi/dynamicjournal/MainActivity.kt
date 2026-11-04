@@ -129,6 +129,29 @@ class MainActivity : TauriActivity() {
     }
   }
 
+  /** Samsung Health (through Health Connect): asks for read access to exercise and sleep. */
+  private val askHealth = registerForActivityResult(androidx.health.connect.client.PermissionController.createRequestPermissionResultContract()) { }
+
+  /** Exercise and sleep for the routine. Page: src/routine/health.ts. */
+  inner class HealthBridge {
+    @JavascriptInterface fun status(): String = try { Health.status(this@MainActivity) } catch (e: Exception) { "unavailable" }
+    @JavascriptInterface fun askAccess() = runOnUiThread {
+      try {
+        when (androidx.health.connect.client.HealthConnectClient.getSdkStatus(this@MainActivity)) {
+          androidx.health.connect.client.HealthConnectClient.SDK_AVAILABLE -> askHealth.launch(Health.PERMISSIONS)
+          androidx.health.connect.client.HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED ->
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.google.android.apps.healthdata&url=healthconnect%3A%2F%2Fonboarding")))
+          else -> {}
+        }
+      } catch (e: Exception) {
+      }
+    }
+    @JavascriptInterface fun read(id: String, from: Long, to: Long) = Health.read(this@MainActivity, from, to) { json ->
+      val js = "window.__journalHealth && window.__journalHealth(${JSONObject.quote(id)}, ${JSONObject.quote(json)})"
+      webView?.post { webView?.evaluateJavascript(js, null) }
+    }
+  }
+
   /** What was shared in (or a quick-note request), waiting for the page to take it. */
   @Volatile private var pendingShare: String? = null
 
@@ -216,6 +239,7 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(LocationBridge(), "JournalLocation")
     webView.addJavascriptInterface(ReminderBridge(), "JournalReminders")
     webView.addJavascriptInterface(PowerBridge(), "JournalPower")
+    webView.addJavascriptInterface(HealthBridge(), "JournalHealth")
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->
       val split = payload.partition { it.uri != null }

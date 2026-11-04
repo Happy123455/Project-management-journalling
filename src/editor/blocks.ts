@@ -15,7 +15,7 @@ import { docToSource } from "../lib/source";
 
 export const BLOCK_TYPES = [
   "paragraph", "heading", "bulletList", "orderedList", "taskList", "blockquote", "codeBlock",
-  "horizontalRule", "attachmentFile", "linkCard", "promptBlock",
+  "horizontalRule", "attachmentFile", "linkCard", "promptBlock", "mathBlock",
 ];
 export const MAX_INDENT = 8;
 

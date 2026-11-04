@@ -1,5 +1,5 @@
 export type SlashId =
-  | "heading" | "task" | "bullet" | "numbered" | "quote" | "code"
+  | "heading" | "task" | "bullet" | "numbered" | "quote" | "code" | "math"
   | "divider" | "timestamp" | "link" | "tag" | "reminder"
   | "attach" | "capture" | "project" | "voice" | "meme" | "sound" | "prompt" | "logproject";
 
@@ -19,6 +19,7 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: "numbered", label: "Numbers", icon: "1.", keywords: ["list", "ordered"] },
   { id: "quote", label: "Quote", icon: "❝", keywords: ["blockquote", "cite"] },
   { id: "code", label: "Code", icon: "</>", keywords: ["codeblock", "snippet"] },
+  { id: "math", label: "Math", icon: "∑", keywords: ["equation", "latex", "formula", "handwriting", "calculate", "variable"] },
   { id: "divider", label: "Divider", icon: "—", keywords: ["line", "hr", "separator"] },
   { id: "timestamp", label: "Log / Time", icon: "🕒", keywords: ["timestamp", "stamp", "time", "now", "clock", "log", "entries", "diary"] },
   { id: "link", label: "Link page", icon: "[[ ]]", keywords: ["wikilink", "page", "person"] },

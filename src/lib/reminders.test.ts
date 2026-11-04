@@ -39,3 +39,40 @@ describe("reminders", () => {
     ]);
   });
 });
+
+import { reminderLine, timeEdit, timeSpans, todayAgenda } from "./reminders";
+
+describe("timed reminders today", () => {
+  it("finds where a time is, to change it", () => {
+    expect(timeSpans("call 3pm")[0]).toMatchObject({ index: 5, length: 3 });
+    expect(timeSpans("27,October,2026 Tuesday (22:04:26) gym 18:30")[0]).toMatchObject({ hour: 18, minute: 30, index: 39 });
+    expect(timeEdit("dentist 15:30", 16, 5)).toEqual({ index: 8, del: 5, ins: "16:05" });
+    expect(timeEdit("pay rent", 9, 0)).toEqual({ index: 0, del: 0, ins: "⏰ 09:00 " });
+    expect(timeSpans("meet at 4")[0]).toMatchObject({ index: 8, length: 1 });
+  });
+
+  it("today's own note: only ⏰ lines; a reminder: timed lines without a timestamp", () => {
+    expect(reminderLine("27,October,2026 Tuesday (07:04:26) woke at 7:30", true)).toBe(false);
+    expect(reminderLine("dentist 15:30", true)).toBe(true);
+    expect(reminderLine("dentist 15:30", false)).toBe(false);
+    expect(reminderLine("⏰ 15:30 dentist", false)).toBe(true);
+  });
+
+  it("lists today's times in order, with done ones marked, and repeats that fall today", () => {
+    const today = "2026-11-04";
+    const items = todayAgenda(
+      { content: { type: "doc", content: [...doc("⏰ 18:00 gym", "✅ ⏰ 09:00 call").content, { type: "taskList", content: [{ type: "taskItem", attrs: { checked: true }, content: doc("⏰ 12:00 lunch with Ravi").content }] }] } },
+      [{ day: "2026-10-28", content: doc("standup 10:00"), repeat: "weekly" }, { day: "2026-10-29", content: doc("other 11:00"), repeat: "weekly", doneDays: [] }],
+      today,
+    );
+    expect(items.map((i) => [i.text, i.done])).toEqual([["⏰ 09:00 call", true], ["standup 10:00", false], ["⏰ 12:00 lunch with Ravi", true], ["⏰ 18:00 gym", false]]);
+    const done = todayAgenda(null, [{ day: "2026-10-28", content: doc("standup 10:00"), repeat: "weekly", doneDays: [today] }], today);
+    expect(done[0].done).toBe(true);
+  });
+
+  it("today's own note rings only for ⏰ lines", () => {
+    const now = new Date(2026, 10, 4, 8, 0);
+    const alarms = buildAlarms([{ day: "2026-11-04", content: doc("woke 7:30, gym 18:00", "⏰ 17:00 call", "✅ ⏰ 16:00 done one"), marked: true }], now);
+    expect(alarms.map((a) => a.body)).toEqual(["⏰ 17:00 call"]);
+  });
+});

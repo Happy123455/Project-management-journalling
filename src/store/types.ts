@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/react";
 import type { BlockMeta, LocalState, MergePlan, SyncRecord } from "../sync/merge";
 import type { ProjectInfo } from "../lib/projects";
+import type { RoutineConfig } from "../lib/routine";
 
 /** Flags kept in a day block's `props`. */
 export interface DayProps {
@@ -10,6 +11,8 @@ export interface DayProps {
   reminderDone?: boolean;
   /** The reminder comes back (Coming up shows its next day; the phone notifies each time). */
   repeat?: "daily" | "weekly" | "monthly" | "yearly";
+  /** Days a repeating reminder was ticked off on (it still comes back on the next one). */
+  doneDays?: string[];
 }
 
 /** A daily page. Pages are blocks of type "day"; child blocks come later. */
@@ -33,6 +36,8 @@ export interface NamedPage {
 
 export interface PageProps {
   project?: ProjectInfo;
+  /** On the "Routine" page: the routine steps, habits and life phases (src/lib/routine.ts). */
+  routine?: RoutineConfig;
 }
 
 export type LinkKind = "wikilink" | "tag";

@@ -72,6 +72,8 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       chain.run();
       openMemeKit(editor, "sounds");
       return true;
+    case "math":
+      return chain.insertContent({ type: "mathBlock" }).run();
     case "prompt":
       return chain.insertContent({ type: "promptBlock" }).run();
     case "logproject":

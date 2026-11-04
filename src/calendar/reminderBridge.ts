@@ -1,4 +1,4 @@
-import { buildAlarms, nextOccurrence, type Alarm } from "../lib/reminders";
+import { buildAlarms, nextOccurrence, type Alarm, type ReminderSource } from "../lib/reminders";
 import { addDays } from "../lib/timestamp";
 import { docText } from "../lib/words";
 import { showToast } from "../lib/toast";
@@ -34,8 +34,10 @@ let lastAlarms: Alarm[] = [];
 let lastSent = "";
 
 /** Hands the notifications and the widget's rows to the phone (and remembers them for the Mac's in-app nudges). */
-export function publishReminders(reminders: DayPage[], today: string) {
-  const alarms = buildAlarms(reminders.map((r) => ({ day: r.day, content: r.content, repeat: r.props.repeat })), new Date());
+export function publishReminders(reminders: DayPage[], today: string, extra: ReminderSource[] = [], more: Alarm[] = []) {
+  const alarms = [...buildAlarms([...reminders.map((r) => ({ day: r.day, content: r.content, repeat: r.props.repeat, doneDays: r.props.doneDays })), ...extra], new Date()), ...more]
+    .sort((a, b) => a.at - b.at)
+    .slice(0, 200);
   lastAlarms = alarms;
   const rows = upcomingFrom(reminders, today).slice(0, 6).map((p) => ({
     day: p.repeatOf ?? p.day,

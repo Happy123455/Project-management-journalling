@@ -24,6 +24,8 @@ export interface AiRequest {
   /** JSON Schema the answer must follow; the answer is then parsed and returned. */
   schema?: Record<string, unknown>;
   maxTokens?: number;
+  /** Needs a cloud model (reading a picture): the local text model is skipped for Gemini when there's a key. */
+  cloud?: boolean;
 }
 
 export interface AiAnswer<T = unknown> {
@@ -172,6 +174,7 @@ export async function askAi<T = unknown>(req: AiRequest): Promise<AiAnswer<T>> {
   let settings = loadAiSettings();
   if (!settings.enabled) throw new AiUnavailableError("off");
   // The local model when it's running; otherwise Gemini (if it has a key) takes over.
+  if (settings.provider === "local" && req.cloud && (await getKey("gemini"))) settings = { ...settings, provider: "gemini" };
   if (settings.provider === "local" && !(await localAvailable())) {
     if (!(await getKey("gemini"))) throw new Error("The local model (Ollama) isn't running, and there's no Gemini key to fall back on.");
     settings = { ...settings, provider: "gemini" };

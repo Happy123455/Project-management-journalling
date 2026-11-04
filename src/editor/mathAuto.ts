@@ -1,7 +1,8 @@
 import { Extension } from "@tiptap/react";
 import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { ReplaceStep } from "@tiptap/pm/transform";
-import { answerFor } from "../lib/mathEval";
+import { answerFor, variablesIn } from "../lib/mathEval";
+import { latexToPlain } from "../lib/latex";
 import { editorPrefs } from "../lib/editorPrefs";
 
 const key = new PluginKey("mathAuto");
@@ -19,7 +20,17 @@ export function mathFollowUp(tr: Transaction, after: EditorState, on = editorPre
   const $at = after.doc.resolve(from);
   if ($at.parent.type.name === "codeBlock" || !$at.parent.isTextblock) return null;
   const before = $at.parent.textBetween(0, $at.parentOffset, undefined, "￼");
-  const answer = answerFor(before);
+  // Variables defined in the lines above ("x = 5", or a math block "r = 3"), like Math Notes.
+  const lines: string[] = [];
+  after.doc.nodesBetween(0, $at.before(), (n) => {
+    if (n.type.name === "mathBlock") lines.push(latexToPlain(String(n.attrs.latex ?? "")));
+    else if (n.isTextblock) {
+      if (n.type.name !== "codeBlock" && n.textContent.includes("=")) lines.push(n.textContent);
+      return false;
+    }
+    return true;
+  });
+  const answer = answerFor(before, lines.length ? variablesIn(lines) : undefined);
   if (answer === null) return null;
   const text = (before.endsWith(" ") ? " " : "") + answer;
   const next = after.tr.insertText(text, from + 1).setMeta(key, true);

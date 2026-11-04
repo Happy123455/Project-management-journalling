@@ -20,7 +20,7 @@ android {
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "com.hapi.dynamicjournal"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 37
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
@@ -84,6 +84,9 @@ dependencies {
     // Read aloud with Kokoro: sherpa-onnx (fetched by scripts/fetch-sherpa-onnx.sh) and .tar.bz2 unpacking.
     implementation(files("libs/sherpa-onnx-1.13.8.aar"))
     implementation("org.apache.commons:commons-compress:1.27.1")
+    // Routine: exercise and sleep from Samsung Health, through Health Connect (read only).
+    implementation("androidx.health.connect:connect-client:1.1.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")

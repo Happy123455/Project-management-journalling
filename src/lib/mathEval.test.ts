@@ -32,3 +32,22 @@ describe("auto math", () => {
     expect(formatAnswer(1 / 3)).toBe("0.3333333333");
   });
 });
+
+import { variablesIn } from "./mathEval";
+
+describe("variables, like Math Notes", () => {
+  const vars = variablesIn(["x = 5", "rate = 12/60", "total = x * rate", "y = x*2 =10", "a = b", "note: nothing here"]);
+  it("defines names from lines above, each using the ones before", () => {
+    expect([...vars]).toEqual([["x", 5], ["rate", 0.2], ["total", 1], ["y", 10]]);
+  });
+  it("uses them, with functions and side-by-side times", () => {
+    expect(answerFor("2x + 1", vars)).toBe("11");
+    expect(answerFor("total cost x*rate*100", vars)).toBe("100");
+    expect(answerFor("sqrt(x*5)", vars)).toBe("5");
+    expect(answerFor("y", vars)).toBeNull(); // "y =" starts a new definition
+    expect(answerFor("so y", vars)).toBe("10");
+    expect(answerFor("2 pi", vars)).toBe("6.2831853072");
+    expect(answerFor("z + 1", vars)).toBe(null);
+    expect(answerFor("3x4", new Map([["y", 1]]))).toBe("12");
+  });
+});

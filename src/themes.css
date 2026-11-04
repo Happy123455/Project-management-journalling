@@ -205,6 +205,7 @@ html[data-theme="neu"] .ambience-rain { opacity: 0.7; }
 :where(html[data-theme="neu"]) .confirm-card,
 :where(html[data-theme="neu"]) .block-menu,
 :where(html[data-theme="neu"]) .outline-panel,
+:where(html[data-theme="neu"]) .routine-panel,
 :where(html[data-theme="neu"]) .arrange-tools,
 :where(html[data-theme="neu"]) .entry-popup,
 :where(html[data-theme="neu"]) .meme-kit,

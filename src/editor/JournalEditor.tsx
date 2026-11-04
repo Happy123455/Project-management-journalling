@@ -19,6 +19,7 @@ import { BlockInfoPanel } from "./BlockInfoPanel";
 import { readAloud } from "../lib/readAloud";
 import { isLoneUrl, LinkCard } from "./linkCard";
 import { PromptBlock } from "./promptBlock";
+import { MathBlock } from "./mathBlock";
 import { YoutubeEmbed, youtubeEmbedFrom } from "./youtubeEmbed";
 import { FindHighlight, findKey } from "./findHighlight";
 import { LogBlock } from "./logBlock";
@@ -29,6 +30,7 @@ import { openOutline, setViewMode, useViewMode, type ViewMode } from "./viewMode
 import { SourceEditor } from "./SourceEditor";
 import { jumpTo, OutlinePanel } from "./Outline";
 import { TimeRail, useTimeRail } from "./TimeRail";
+import { registerOpenNote } from "./noteEdit";
 import { docToSource, sourceMemory, sourceToDoc, type SourceMemory } from "../lib/source";
 import { docText } from "../lib/words";
 import { SmartPaste } from "./SmartPaste";
@@ -396,6 +398,7 @@ export function JournalEditor({
       LinkCard,
       YoutubeEmbed,
       PromptBlock,
+      MathBlock,
       LinkHighlight.configure({ onOpenLink: (t) => onOpenLink?.(t), onOpenTag: (t) => onOpenTag?.(t) }),
       LinkSuggest.configure({ pageNames: () => pageNames?.() ?? Promise.resolve([]) }),
       Timestamp,
@@ -482,6 +485,9 @@ export function JournalEditor({
   }, []);
 
   editorRef.current = editor;
+
+  // Routine taps and reminder actions change this note through its editor while it's open.
+  useEffect(() => (editor && liveKey ? registerOpenNote(liveKey, editor) : undefined), [editor, liveKey]);
 
   // The other device's typing in this same note, put in place as it happens.
   useEffect(() => {
@@ -651,6 +657,7 @@ export function JournalEditor({
       {editor && outlineOpen && (
         <OutlinePanel
           editor={editor}
+          day={liveKey?.startsWith("day:") ? liveKey.slice(4) : undefined}
           onClose={() => setOutlineOpen(false)}
           onJump={(pos) => {
             if (mode === "source") setViewMode("live");
