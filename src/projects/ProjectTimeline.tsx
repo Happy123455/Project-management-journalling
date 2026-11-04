@@ -2,7 +2,7 @@ import React, { Fragment, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MediaPeek, mediaItemsIn } from "../editor/MediaPeek";
 import { dayColor, entryFor, gapDays, numberEntries, type ProjectEntry } from "../lib/projectDays";
-import { skyFor } from "../lib/sky";
+import { skyAt } from "../lib/sky";
 import { dayTitle, TIMESTAMP_RE } from "../lib/timestamp";
 import { DocView } from "../pages/DocView";
 import { Marquee } from "../ui/Marquee";
@@ -203,7 +203,7 @@ function TableMode({ entries, onOpenDay, ...links }: ViewProps) {
         <tbody>
           {entries.map((e) => {
             const t = entryTime(e);
-            const sky = t ? skyFor(t.hour) : null;
+            const sky = t ? skyAt(t.date) : null;
             return (
               <tr
                 key={e.day}
@@ -259,7 +259,7 @@ function EntryPopup({ entry, from, onClose, onOpenDay, ...links }: { entry: Entr
         onClick={(e) => e.stopPropagation()}
         style={{ "--from-x": `${originX}px`, "--from-y": `${originY}px`, "--from-s": Math.min(1, from.width / Math.min(vw - 24, 560)) } as React.CSSProperties}
       >
-        <header style={sky ? ({ "--row-sky": skyFor(sky.hour).bg, "--row-fg": skyFor(sky.hour).fg } as React.CSSProperties) : undefined}>
+        <header style={sky ? ({ "--row-sky": skyAt(sky.date).bg, "--row-fg": skyAt(sky.date).fg } as React.CSSProperties) : undefined}>
           <strong>Day {entry.n}</strong>
           <span>{timeLabel(entry)}</span>
           <button type="button" onClick={close} aria-label="Close">✕</button>

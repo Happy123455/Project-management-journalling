@@ -2,15 +2,16 @@ import { Extension } from "@tiptap/react";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import { skyFor } from "../lib/sky";
+import { skyForStamp } from "../lib/sky";
 import { TIMESTAMP_RE } from "../lib/timestamp";
 
 /** Marks a timestamp the app added because an older day was edited. */
 export const EDIT_MARK = "✎ ";
 
 /** The pill shown in place of a timestamp: sky colour, icon and "10:55"; hover or a tap shows it in full. */
-function chip(full: string, hour: string, minute: string, edit?: { day: string; month: string }): HTMLElement {
-  const sky = skyFor(Number(hour));
+function chip(full: string, date: { day: string; month: string; year: string }, hour: string, minute: string, edit?: { day: string; month: string }): HTMLElement {
+  // The sky of that day and minute where the journal is (real sunrise/sunset, so it follows the seasons).
+  const sky = skyForStamp(date.day, date.month, date.year, hour, minute);
   const el = document.createElement("span");
   el.className = edit ? `ts-chip ts-edit ts-${sky.phase}` : `ts-chip ts-${sky.phase}`;
   el.contentEditable = "false";
@@ -51,14 +52,14 @@ function chipsIn(node: PMNode, start: number, out: Decoration[]) {
   node.descendants((child, pos) => {
     if (!child.isText || !child.text) return;
     for (const m of child.text.matchAll(TIMESTAMP_RE)) {
-      const [full, day, month, , , hour, minute] = m;
+      const [full, day, month, year, , hour, minute] = m;
       // "✎ " right before it: an automatic stamp from editing an older day.
       const edit = child.text.slice(Math.max(0, m.index - EDIT_MARK.length), m.index) === EDIT_MARK;
       const from = start + pos + m.index - (edit ? EDIT_MARK.length : 0);
       const length = full.length + (edit ? EDIT_MARK.length : 0);
       out.push(
         // The chip handles its own touches: the editor doesn't move the cursor or open the keyboard.
-        Decoration.widget(from, () => chip(full, hour, minute, edit ? { day, month } : undefined), { side: -1, key: `ts:${edit ? "e" : ""}${full}`, ignoreSelection: true, stopEvent: () => true }),
+        Decoration.widget(from, () => chip(full, { day, month, year }, hour, minute, edit ? { day, month } : undefined), { side: -1, key: `ts:${edit ? "e" : ""}${full}`, ignoreSelection: true, stopEvent: () => true }),
         Decoration.inline(from, from + length, { class: "ts-raw" }),
       );
     }

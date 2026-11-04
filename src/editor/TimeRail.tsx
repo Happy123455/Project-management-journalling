@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { formatGap, railPlaces, stampsIn, type Stamp } from "../lib/timeGaps";
-import { skyFor } from "../lib/sky";
+import { skyAt } from "../lib/sky";
 
 /**
  * Time rail: Outline → 🕒 Time puts a thin line on the right edge of the note, like a scroll bar,
@@ -163,7 +163,7 @@ export function TimeRail({ editor, onJump }: { editor: Editor; onJump: (pos: num
           <span
             key={`seg-${prev.pos}-${s.pos}`}
             className="time-rail-seg"
-            style={{ top: `${prev.at * 100}%`, height: `${h}%`, background: `linear-gradient(${skyFor(new Date(prev.time).getHours()).bg}, ${skyFor(new Date(s.time).getHours()).bg})` }}
+            style={{ top: `${prev.at * 100}%`, height: `${h}%`, background: `linear-gradient(${skyAt(prev.time).bg}, ${skyAt(s.time).bg})` }}
           >
             {h >= 7 && <em>{formatGap(s.time - prev.time)}</em>}
           </span>
@@ -174,7 +174,7 @@ export function TimeRail({ editor, onJump }: { editor: Editor; onJump: (pos: num
           type="button"
           key={`dot-${s.pos}`}
           className={s.i === active ? "time-rail-dot active" : "time-rail-dot"}
-          style={{ top: `${s.at * 100}%`, background: skyFor(new Date(s.time).getHours()).bg }}
+          style={{ top: `${s.at * 100}%`, background: skyAt(s.time).bg }}
           title={`${clock(s.time)} ${s.label}`}
           aria-label={`${clock(s.time)} ${s.label}`}
           // Touch and mouse already went there on press; this is for the keyboard.

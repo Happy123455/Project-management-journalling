@@ -8,6 +8,7 @@
  */
 
 import { softLightAt, type ToneMode } from "./softLight";
+import { COORDS_KEY, homeCoords, sunElevation, sunForDay } from "./solar";
 
 const softTheme = () => document.documentElement.dataset.theme === "neu";
 
@@ -50,11 +51,12 @@ export function weatherFromCode(code: number): Weather {
   return "rain";
 }
 
-/** 0 at night, 1 at midday, smooth in between (sunrise ~6:00, sunset ~19:00). */
+/** 0 at night, 1 at midday, from the sun's real height where the device is (Rajkot until it's known). */
 export function daylightAt(date: Date): number {
-  const h = date.getHours() + date.getMinutes() / 60;
-  if (h < 5 || h > 20.5) return 0;
-  return Math.max(0, Math.sin(((h - 5) / 15.5) * Math.PI));
+  const elev = sunElevation(date.getTime(), homeCoords());
+  const noon = sunForDay(date, homeCoords()).noonElevation;
+  // Starts brightening in civil twilight (-6°), full by the day's highest sun.
+  return Math.max(0, Math.min(1, Math.sin((Math.max(0, elev + 6) / (noon + 6)) * (Math.PI / 2))));
 }
 
 let weather: Weather = null;
@@ -67,7 +69,6 @@ declare global {
   }
 }
 
-const COORDS_KEY = "dynamic-journal.weather-place";
 
 /**
  * Where this device is, roughly: the phone asks for its location once (coarse, a few seconds, then
@@ -114,32 +115,16 @@ async function deviceCoords(): Promise<{ lat: number; lon: number } | null> {
   return coords;
 }
 
-/** Today's sunrise and sunset where the device is (ms), so the sky knows night from day. */
-let sun: { rise: number; set: number } | null = null;
-
-/** Is the sun up now? Real sunrise/sunset when known; otherwise 6:00–19:00. */
-export function sunIsUp(now: Date, times: { rise: number; set: number } | null = sun): boolean {
-  if (times && now.getTime() - times.rise < 36 * 3600_000 && times.rise - now.getTime() < 36 * 3600_000) {
-    // Times are for one day; shift them to today's date (sunrise moves only minutes a day).
-    const day = (t: number) => {
-      const d = new Date(t);
-      return new Date(now.getFullYear(), now.getMonth(), now.getDate(), d.getHours(), d.getMinutes()).getTime();
-    };
-    return now.getTime() >= day(times.rise) && now.getTime() < day(times.set);
-  }
-  const h = now.getHours();
-  return h >= 6 && h < 19;
+/** Is the sun up now? Worked out for the place and day, so it follows the seasons. */
+export function sunIsUp(now: Date): boolean {
+  const { rise, set } = todaySun(now);
+  return now.getTime() >= rise && now.getTime() < set;
 }
 
-/** Today's sunrise and sunset (ms): the real ones when known, otherwise 6:00 and 19:00. */
-export function todaySun(now: Date, times: { rise: number; set: number } | null = sun): { rise: number; set: number } {
-  const at = (h: number, m: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m).getTime();
-  if (times) {
-    const r = new Date(times.rise);
-    const s = new Date(times.set);
-    return { rise: at(r.getHours(), r.getMinutes()), set: at(s.getHours(), s.getMinutes()) };
-  }
-  return { rise: at(6, 0), set: at(19, 0) };
+/** Today's sunrise and sunset (ms) where the device is (Rajkot until it's known), plus how long the glow lasts. */
+export function todaySun(now: Date): { rise: number; set: number; twilight: number } {
+  const t = sunForDay(now, homeCoords());
+  return { rise: t.rise, set: t.set, twilight: Math.max(20 * 60_000, t.nightStart - t.set) };
 }
 
 /** Colours for the two tones the soft surface moves between (contrast checked at the dimmest and
@@ -206,8 +191,8 @@ function applySoftLight() {
   }
   lightApplied = true;
   const now = new Date();
-  const { rise, set } = todaySun(now);
-  const l = softLightAt(now.getTime(), rise, set, s.weather ? weather : null, s.tone);
+  const { rise, set, twilight } = todaySun(now);
+  const l = softLightAt(now.getTime(), rise, set, s.weather ? weather : null, s.tone, twilight);
   const set1 = (k: string, v: string) => root.style.setProperty(k, v);
   set1("--neu-x", `${l.x}px`);
   set1("--neu-y", `${l.y}px`);
@@ -234,13 +219,9 @@ async function fetchWeather(): Promise<Weather> {
   try {
     const at = await deviceCoords();
     if (!at) return (weather = null);
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${at.lat.toFixed(3)}&longitude=${at.lon.toFixed(3)}&current=weather_code,is_day&daily=sunrise,sunset&timezone=auto&forecast_days=1`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${at.lat.toFixed(3)}&longitude=${at.lon.toFixed(3)}&current=weather_code&timezone=auto&forecast_days=1`;
     const now = await (await fetch(url)).json();
     weather = weatherFromCode(Number(now.current?.weather_code ?? 0));
-    // "2026-10-31T06:42" in the place's own time, which is the device's time too.
-    const rise = Date.parse(now.daily?.sunrise?.[0] ?? "");
-    const set = Date.parse(now.daily?.sunset?.[0] ?? "");
-    sun = Number.isFinite(rise) && Number.isFinite(set) ? { rise, set } : null;
   } catch {
     weather = null;
   }

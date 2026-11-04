@@ -291,8 +291,37 @@ export function buildDays(entries: Entry[], config: RoutineConfig, durations: Ma
   // A start still open: it runs until now (today), or is left as a moment (an older day).
   const today = routineDay(now);
   for (const { day, s } of openAt.values()) s.end = day === today ? Math.max(s.start, Math.min(now, s.start + 16 * 3_600_000)) : s.start;
-  for (const d of days.values()) for (const list of d.steps.values()) list.sort((a, b) => a.start - b.start);
+  const workout = new Set(config.steps.filter((s) => s.health === "exercise").map((s) => s.id));
+  for (const d of days.values())
+    for (const [id, list] of d.steps) {
+      list.sort((a, b) => a.start - b.start);
+      // One workout with short rests is one session, also for parts written before this was merged.
+      if (workout.has(id)) d.steps.set(id, mergeSessions(list));
+    }
   return days;
+}
+
+/** Rests up to this long inside a workout don't split it (the health app records ~2 min breaks as new sessions). */
+export const WORKOUT_GAP_MS = 3 * MIN;
+
+/**
+ * Joins sessions that overlap or follow each other within `gap` into one, in time order (a workout
+ * with short rests between sets). The joined one keeps the earliest start and the latest end.
+ */
+export function mergeSessions<T extends { start: number; end: number; open?: boolean; startGuessed?: boolean }>(list: T[], gap = WORKOUT_GAP_MS): T[] {
+  const out: T[] = [];
+  for (const s of [...list].sort((a, b) => a.start - b.start)) {
+    const last = out[out.length - 1];
+    if (last && s.start - last.end <= gap) {
+      const merged = { ...last, end: Math.max(last.end, s.end) };
+      if (s.open) merged.open = true;
+      else if (s.end >= last.end) delete merged.open;
+      // A guessed start that falls inside a real one isn't a guess any more.
+      if (!last.startGuessed) delete merged.startGuessed;
+      out[out.length - 1] = merged;
+    } else out.push({ ...s });
+  }
+  return out;
 }
 
 // ───── Phases and stats ─────

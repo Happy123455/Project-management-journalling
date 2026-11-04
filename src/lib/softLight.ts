@@ -35,7 +35,8 @@ export interface SoftLight {
 
 const BASE = 7; // px: the theme's resting shadow offset
 const BLUR = 16;
-const TWILIGHT = 45 * 60_000; // ms after sunset / before sunrise that still glows
+/** ms after sunset / before sunrise that still glows (the real length, sunset to nautical dusk, is passed in). */
+const TWILIGHT_MS = 45 * 60_000;
 
 type RGB = [number, number, number];
 const NOON: RGB = [255, 248, 236];
@@ -74,7 +75,7 @@ const r1 = (n: number) => Math.round(n * 10) / 10;
  * Light at `now` (ms) for a day whose sun rises at `rise` and sets at `set` (ms, same day).
  * Weather null = unknown, treated as clear.
  */
-export function softLightAt(now: number, rise: number, set: number, weather: Weather, mode: ToneMode = "both"): SoftLight {
+export function softLightAt(now: number, rise: number, set: number, weather: Weather, mode: ToneMode = "both", TWILIGHT = TWILIGHT_MS): SoftLight {
   const DAY = 24 * 3600_000;
   let p: number; // 0 → 1 across the arc of the sun (day) or moon (night)
   let phase: SoftLight["phase"];

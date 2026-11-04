@@ -3,7 +3,7 @@ import type { JSONContent } from "@tiptap/react";
 import { useFileUrl, showPhoto, openFile } from "../editor/attachments";
 import { AudioPill } from "../editor/MediaBits";
 import { EDIT_MARK } from "../editor/timestampChip";
-import { skyFor } from "../lib/sky";
+import { skyForStamp } from "../lib/sky";
 import { TIMESTAMP_RE } from "../lib/timestamp";
 import { TAG_RE, WIKILINK_RE } from "../lib/links";
 
@@ -157,9 +157,9 @@ function textPieces(text: string, ctx: Ctx, raw: boolean): ReactNode {
     });
   }
   for (const m of text.matchAll(TIMESTAMP_RE)) {
-    const [full, day, month, , , hour, minute] = m;
+    const [full, day, month, year, , hour, minute] = m;
     const edit = text.slice(Math.max(0, m.index! - EDIT_MARK.length), m.index!) === EDIT_MARK;
-    const sky = skyFor(Number(hour));
+    const sky = skyForStamp(day, month, year, hour, minute);
     const at = m.index! - (edit ? EDIT_MARK.length : 0);
     hits.push({
       at,

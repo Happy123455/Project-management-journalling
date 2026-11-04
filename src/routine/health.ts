@@ -1,6 +1,6 @@
 import type { JournalStore } from "../store";
 import { dayKey } from "../lib/timestamp";
-import { entriesIn, type RoutineConfig } from "../lib/routine";
+import { entriesIn, mergeSessions, WORKOUT_GAP_MS, type RoutineConfig } from "../lib/routine";
 import { currentDoc, loadConfig, writeLog } from "./routineData";
 
 /**
@@ -84,7 +84,10 @@ export async function importHealth(store: JournalStore, config: RoutineConfig): 
   if (!sessions?.length) return 0;
   const step = (h: "exercise" | "sleep" | "wake") => config.steps.find((s) => s.health === h);
   const lines: { at: number; item: { icon: string; label: string; id: string }; edge: "start" | "end" | "point" }[] = [];
-  for (const s of sessions) {
+  // A workout with ~2 minute rests arrives as several sessions: join them into one.
+  const exercise = mergeSessions(sessions.filter((s) => s.kind === "exercise"));
+  const merged = [...exercise, ...sessions.filter((s) => s.kind !== "exercise")];
+  for (const s of merged) {
     if (s.kind === "exercise") {
       const ex = step("exercise");
       if (!ex) continue;
@@ -105,6 +108,8 @@ export async function importHealth(store: JournalStore, config: RoutineConfig): 
     const have = entriesIn(await currentDoc(store, day), config);
     // Already there (written before, or logged by hand within a few minutes): leave it.
     if (have.some((e) => e.kind === "step" && e.id === l.item.id && e.edge === l.edge && Math.abs(e.time - l.at) < 5 * 60_000)) continue;
+    // A workout's start that only continues one already written (a rest under WORKOUT_GAP_MS): no new start.
+    if (l.edge === "start" && have.some((e) => e.kind === "step" && e.id === l.item.id && e.edge === "end" && l.at - e.time >= 0 && l.at - e.time <= WORKOUT_GAP_MS)) continue;
     await writeLog(store, l.item, l.edge, new Date(l.at), { note: "Samsung Health", actor: "Samsung Health" });
     added++;
   }

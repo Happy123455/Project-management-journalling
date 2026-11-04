@@ -3,7 +3,7 @@ import { formatTimestamp } from "./timestamp";
 import {
   buildDays, dayMinute, DEFAULT_ROUTINE, entriesIn, fillDay, freeMinutes, logLine, matchEntry, phaseSummaries, planRest,
   predict, restCheck, routineDay, routineStats, smooth, usualMinutes, withLogLine, deviation, minuteClock, clockMinute,
-  habitSeries, buckets, weekStart, type Entry, type RoutineConfig,
+  habitSeries, buckets, weekStart, mergeSessions, type Entry, type RoutineConfig,
 } from "./routine";
 
 const C = DEFAULT_ROUTINE;
@@ -181,5 +181,29 @@ describe("open and ticked-off steps", () => {
   it("a ticked-off step isn't 'going on'", () => {
     const d = buildDays([{ kind: "step", id: "breakfast", edge: "end", time: at("2026-11-04", "09:00") }], C, new Map([["breakfast", 20]]));
     expect(d.get("2026-11-04")!.steps.get("breakfast")![0]).toEqual({ start: at("2026-11-04", "08:40"), end: at("2026-11-04", "09:00"), startGuessed: true });
+  });
+});
+
+describe("workouts with short rests", () => {
+  const M = 60_000;
+  it("joins parts with rests up to ~3 minutes, keeps longer breaks apart", () => {
+    const parts = [
+      { start: 0, end: 10 * M },
+      { start: 12 * M, end: 20 * M },
+      { start: 22.5 * M, end: 30 * M },
+      { start: 60 * M, end: 70 * M },
+    ];
+    expect(mergeSessions(parts)).toEqual([{ start: 0, end: 30 * M }, { start: 60 * M, end: 70 * M }]);
+  });
+  it("buildDays shows already-written fragments as one session", () => {
+    const at = (h: number, m: number) => new Date(2026, 10, 4, h, m).getTime();
+    const entries = [
+      { kind: "step" as const, id: "exercise", edge: "start" as const, time: at(7, 0), health: true },
+      { kind: "step" as const, id: "exercise", edge: "end" as const, time: at(7, 15), health: true },
+      { kind: "step" as const, id: "exercise", edge: "start" as const, time: at(7, 17), health: true },
+      { kind: "step" as const, id: "exercise", edge: "end" as const, time: at(7, 40), health: true },
+    ];
+    const days = buildDays(entries, DEFAULT_ROUTINE, new Map(), at(12, 0));
+    expect(days.get("2026-11-04")!.steps.get("exercise")).toEqual([{ start: at(7, 0), end: at(7, 40), health: true }]);
   });
 });
