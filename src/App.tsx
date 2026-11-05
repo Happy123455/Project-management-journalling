@@ -45,7 +45,8 @@ import { autoBackup, exportBackup } from "./backup";
 import { fileUrl, mediaNode, openFile, setAttachmentStore, showPdf, showPhoto } from "./editor/attachments";
 import { flushPendingEdits, hasPendingEdits, JournalEditor } from "./editor/JournalEditor";
 import { useTouchDevice } from "./editor/KeyboardBar";
-import { NavIsland, TabSwitcher, TitleSearch, type MenuAction } from "./nav/NavIsland";
+import { MacTabBar, NavIsland, TabSwitcher, TitleSearch, type MenuAction } from "./nav/NavIsland";
+import { PanelResizer, usePanelWidths } from "./nav/PanelResizer";
 import { activeTab, closeTab, currentLoc, go, loadTabs, locKey, openTab, saveTabs, switchTab, visit, type Loc, type TabsState } from "./nav/tabs";
 import { receiveTyping } from "./sync/liveTyping";
 import { CaptureHost } from "./editor/CaptureHost";
@@ -112,6 +113,7 @@ function App() {
   const [tabs, setTabs] = useState<TabsState>(() => loadTabs({ kind: "day", day: dayKey(new Date()) }));
   const [titleSearchOpen, setTitleSearchOpen] = useState(false);
   const [tabsOpen, setTabsOpen] = useState(false);
+  usePanelWidths();
   // The next day opens to read, not to type (after a swipe between days).
   const previewNext = useRef(false);
   const pending = useRef<{ day: string; content: JSONContent; plainText: string } | null>(null);
@@ -1058,6 +1060,8 @@ function App() {
       </main>
 
       <aside className="links-panel">{infoTabs}</aside>
+      {!touch && <PanelResizer side="left" />}
+      {!touch && <PanelResizer side="right" />}
 
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} top={menuRibbon} bottom={menuFooter}>
         {drawerShown && store && (
@@ -1164,6 +1168,30 @@ function App() {
           onSearch={() => setTitleSearchOpen(true)}
           onTabs={() => setTabsOpen(true)}
           actions={islandActions}
+        />
+      )}
+      {!touch && (
+        <MacTabBar
+          tabs={tabs}
+          today={today}
+          canBack={activeTab(tabs).index > 0}
+          canForward={activeTab(tabs).index < activeTab(tabs).history.length - 1}
+          onBack={() => step(-1)}
+          onForward={() => step(1)}
+          onSwitch={(id) => {
+            const next = switchTab(tabs, id);
+            setTabs(next);
+            openLoc(currentLoc(activeTab(next)));
+          }}
+          onClose={(id) => {
+            const next = closeTab(tabs, id);
+            setTabs(next);
+            if (id === tabs.active) openLoc(currentLoc(activeTab(next)));
+          }}
+          onNew={() => {
+            setTabs((t) => openTab(t, { kind: "day", day: today }));
+            void goTo(today);
+          }}
         />
       )}
       {titleSearchOpen && (

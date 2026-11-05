@@ -281,3 +281,58 @@ export function TabSwitcher({ tabs, today, onSwitch, onClose: onCloseTab, onNew,
     document.body,
   );
 }
+
+/**
+ * Mac: tabs like Obsidian's, as a compact bar pinned to the bottom of the note column. Back and
+ * forward for the active tab, every tab as a pill (click to switch, ✕ or middle-click to close), + for a new one.
+ */
+export function MacTabBar({ tabs, today, canBack, canForward, onBack, onForward, onSwitch, onClose, onNew }: {
+  tabs: TabsState;
+  today: string;
+  canBack: boolean;
+  canForward: boolean;
+  onBack: () => void;
+  onForward: () => void;
+  onSwitch: (id: string) => void;
+  onClose: (id: string) => void;
+  onNew: () => void;
+}) {
+  return (
+    <nav className="mac-tabbar" aria-label="Tabs">
+      <button type="button" className="mac-tab-nav" disabled={!canBack} onClick={onBack} aria-label="Back" title="Back">
+        <Icon d={BACK} size={16} />
+      </button>
+      <button type="button" className="mac-tab-nav" disabled={!canForward} onClick={onForward} aria-label="Forward" title="Forward">
+        <Icon d={FORWARD} size={16} />
+      </button>
+      <div className="mac-tabs" role="tablist">
+        {tabs.tabs.map((t) => {
+          const l = currentLoc(t);
+          const label = locLabel(l, today);
+          const active = t.id === tabs.active;
+          return (
+            <div key={t.id} className={`mac-tab${active ? " active" : ""}`} role="tab" aria-selected={active} title={label}>
+              <button
+                type="button"
+                className="mac-tab-open"
+                onClick={() => onSwitch(t.id)}
+                onAuxClick={(e) => e.button === 1 && tabs.tabs.length > 1 && onClose(t.id)}
+              >
+                <span aria-hidden>{l.kind === "day" ? "📅" : l.kind === "page" ? "📄" : "#"}</span>
+                <span className="mac-tab-title">{label}</span>
+              </button>
+              {tabs.tabs.length > 1 && (
+                <button type="button" className="mac-tab-close" onClick={() => onClose(t.id)} aria-label={`Close ${label}`}>
+                  ✕
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <button type="button" className="mac-tab-nav mac-tab-new" onClick={onNew} aria-label="New tab" title="New tab (today)">
+        ＋
+      </button>
+    </nav>
+  );
+}

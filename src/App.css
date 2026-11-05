@@ -2867,3 +2867,89 @@ html.typing-hot .tiptap, html.typing-hot .source-text { caret-color: #ff3b30; }
 :where(html[data-theme="neu"]) .rdl-dot { box-shadow: 0 0 0 2px var(--bg), var(--neu-out-xs); }
 .rdl-point.done { opacity: 0.45; }
 .today-agenda .reminder-dayline { margin: 2px 0 10px; }
+
+/* ───────────── Mac: resizable side panels and the bottom tab bar ───────────── */
+@media (min-width: 761px) {
+  .app { grid-template-columns: var(--left-w, 260px) minmax(0, 1fr) var(--right-w, 260px); }
+  .sidebar, .links-panel { min-width: 0; }
+}
+.panel-resizer { display: none; }
+@media (min-width: 761px) and (pointer: fine) {
+  .panel-resizer {
+    display: block;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: 8px;
+    z-index: 7;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  .panel-resizer.left { left: calc(var(--left-w, 260px) - 4px); }
+  .panel-resizer.right { right: calc(var(--right-w, 260px) - 4px); }
+  .panel-resizer::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 3px;
+    width: 2px;
+    border-radius: 1px;
+    background: rgb(var(--heat-rgb));
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .panel-resizer:hover::after, html.panel-resizing .panel-resizer::after { opacity: 0.6; }
+  html.panel-resizing, html.panel-resizing * { cursor: col-resize !important; user-select: none; }
+}
+
+.mac-tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 8;
+  height: 34px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  backdrop-filter: blur(16px) saturate(1.3);
+  border-top: 1px solid var(--border);
+}
+@media (min-width: 761px) {
+  .mac-tabbar { left: var(--left-w, 260px); right: var(--right-w, 260px); }
+}
+html:has(.mac-tabbar) .page { padding-bottom: 46px; }
+.mac-tabbar button { box-shadow: none; }
+.mac-tab-nav { flex: none; width: 26px; height: 26px; padding: 0; display: grid; place-items: center; border-radius: 8px; border: none; background: transparent; color: var(--text); }
+.mac-tab-nav:hover:not(:disabled) { background: color-mix(in srgb, var(--muted) 16%, transparent); }
+.mac-tab-nav:disabled { opacity: 0.3; }
+.mac-tab-new { font-size: 15px; }
+.mac-tabs { flex: 1; min-width: 0; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.mac-tabs::-webkit-scrollbar { display: none; }
+.mac-tab {
+  flex: 0 1 180px;
+  min-width: 70px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  color: var(--muted);
+}
+.mac-tab:hover { background: color-mix(in srgb, var(--muted) 12%, transparent); }
+.mac-tab.active { color: var(--text); background: var(--bg); border-color: var(--border); }
+.mac-tab-open { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 5px; padding: 0 4px 0 8px; border: none; background: transparent; color: inherit; font-size: 12px; text-align: left; }
+.mac-tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mac-tab-close { flex: none; width: 20px; height: 20px; margin-right: 3px; padding: 0; border: none; border-radius: 5px; background: transparent; color: inherit; font-size: 10px; opacity: 0; }
+.mac-tab:hover .mac-tab-close, .mac-tab.active .mac-tab-close { opacity: 0.7; }
+.mac-tab-close:hover { opacity: 1; background: color-mix(in srgb, var(--muted) 20%, transparent); }
+@media (min-width: 761px) and (pointer: fine) {
+  /* The day title stays on one line however narrow the note column gets. */
+  .page-header h1 { min-width: 0; flex: 0 1 auto; overflow: hidden; }
+  .page-header h1 > :first-child, .page-header h1 { white-space: nowrap; text-overflow: ellipsis; }
+}
