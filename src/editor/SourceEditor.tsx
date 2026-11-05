@@ -179,7 +179,17 @@ export function SourceEditor({ value, onChange, touch, autofocus }: { value: str
   );
 }
 
-/** The phone's tool row, pinned above the keyboard. */
+/** The note bar's row setting (Arrange tools), so Source mode's bar is laid out the same way. */
+function barLayoutClass(): string {
+  try {
+    const v = JSON.parse(localStorage.getItem("dynamic-journal.toolbar") ?? "{}");
+    return `${v.rows === 2 ? " rows-2" : ""}${v.big ? " big" : ""}`;
+  } catch {
+    return "";
+  }
+}
+
+/** The phone's tool rows, pinned above the keyboard (up and down like the note's bar, never sideways). */
 function SourceKeyboardBar({ children }: { children: React.ReactNode }) {
   useBarShown(true);
   const [bottom, setBottom] = useState(() => (window.visualViewport ? window.visualViewport.offsetTop + window.visualViewport.height : window.innerHeight));
@@ -195,7 +205,7 @@ function SourceKeyboardBar({ children }: { children: React.ReactNode }) {
     };
   }, []);
   return (
-    <div className="keyboard-bar source-bar" style={{ top: `${bottom}px` }}>
+    <div className={`keyboard-bar source-bar${barLayoutClass()}`} style={{ top: `${bottom}px` }}>
       {children}
     </div>
   );

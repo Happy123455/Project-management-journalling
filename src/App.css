@@ -2973,3 +2973,132 @@ html:has(.mac-tabbar) .page { padding-bottom: 46px; }
 }
 .sidebar-edge { display: none; }
 @media (min-width: 761px) and (pointer: fine) { .sidebar-edge { display: block; } }
+
+/* ═════════════ Batch 14 ═════════════ */
+/* Week strip pulled down: the month follows the finger (max-height set inline while pulling). */
+.month-calendar.collapsed { touch-action: pan-x pan-up; }
+.month-calendar.pulling { overflow: hidden; }
+.month-calendar.pulling .month-grid { animation: none; }
+/* Holding the month name: a joystick for months. */
+.cal-bar .cal-title { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.month-calendar.scrubbing .cal-title { color: rgb(var(--heat-rgb)); transform: scale(1.06); transition: transform 0.2s var(--spring); }
+.scrub-arrow { display: inline-block; margin: 0 6px; font-size: 0.7em; opacity: 0.7; animation: scrub-nudge 0.9s ease-in-out infinite alternate; }
+@keyframes scrub-nudge { to { opacity: 0.25; } }
+
+/* Year view: twelve months in a 2 × 6 grid that fits one screen, days drawn like the month's. */
+.year-panel { display: flex; flex-direction: column; }
+.year-grid { flex: 1; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(6, auto); gap: 8px 14px; align-content: start; }
+.year-month h3 { margin: 0 0 3px; font-size: 13px; font-weight: 650; }
+.year-panel .month-grid.mini { gap: 2px; --yd: max(12px, calc((100dvh - env(safe-area-inset-top, 0px) - 300px) / 36)); }
+.year-panel .month-grid.mini .weekday { font-size: 8px; line-height: 1.1; }
+.year-panel .month-grid.mini .cal-day { aspect-ratio: auto; height: var(--yd); font-size: 8.5px; line-height: 1; border-radius: 4px; border-width: 1px; }
+.year-panel .month-grid.mini .cal-day.today { border-color: rgb(var(--heat-rgb)); border-width: 1.5px; }
+.year-panel .month-grid.mini .cal-day.selected { outline: 1.5px solid var(--text); outline-offset: 0; }
+
+/* Money slides in from the left (it opens from the menu, which is on the left). */
+.routine-panel.finance-panel { right: auto; left: 8px; animation-name: finance-in; }
+@keyframes finance-in { from { transform: translateX(calc(-100% - 16px)); opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) { .routine-panel.finance-panel { animation: none; } }
+
+/* Home button: purple. */
+.nav-home { background: radial-gradient(circle at 35% 30%, #a77bff, #7c3aed 72%); box-shadow: 0 6px 18px rgba(124, 58, 237, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+
+/* Source mode's phone bar: the same rows as the note's bar (swipe up for more), never a sideways strip. */
+.keyboard-bar.source-bar { display: grid; height: 44px; overflow-y: auto; overflow-x: hidden; }
+.keyboard-bar.source-bar .source-tools { display: contents; }
+.keyboard-bar.source-bar .tool { flex: initial; height: 40px; min-width: 0; font-size: 17px; padding: 0; }
+.keyboard-bar.source-bar.rows-2 { height: 88px; }
+.keyboard-bar.source-bar.big { height: 52px; }
+.keyboard-bar.source-bar.big.rows-2 { height: 104px; }
+.keyboard-bar.source-bar.big .tool { height: 48px; }
+.settings-slider { display: flex; align-items: center; gap: 10px; }
+.settings-slider input[type="range"] { flex: 1; accent-color: rgb(var(--heat-rgb)); }
+.settings-slider output { min-width: 2.5em; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+/* Starting up: nothing slides or fades in while the first screen draws (no flicker). */
+html.booting *, html.booting *::before, html.booting *::after { transition: none !important; animation-duration: 0s !important; animation-delay: 0s !important; }
+
+/* Navigation island gestures (NavIsland.tsx): swipes, the Home joystick, the held pickers. */
+.nav-island { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.nav-home { transform: translateY(var(--joy, 0px)); }
+.nav-island.joying .nav-home { transition: transform 0.08s linear; box-shadow: 0 0 0 6px rgba(124, 58, 237, 0.25), 0 8px 26px rgba(124, 58, 237, 0.55); }
+.nav-joy-arrows { display: grid; place-items: center; gap: 2px; font-size: 11px; line-height: 1; color: #fff; }
+.nav-joy-arrows i { width: 10px; height: 10px; border-radius: 50%; background: #fff; box-shadow: 0 0 8px rgba(255, 255, 255, 0.8); }
+.nav-pick-backdrop { position: fixed; inset: 0; z-index: 46; background: rgba(0, 0, 0, 0.18); animation: fade-in 0.15s ease; }
+.nav-quick { position: fixed; z-index: 47; right: calc(50vw - min(calc(50vw - 12px), 215px) + 34px); bottom: calc(env(safe-area-inset-bottom, 0px) + 60px); width: 0; height: 0; }
+.nav-quick button {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 74px;
+  height: 64px;
+  margin: -32px 0 0 -37px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 2px;
+  padding: 0;
+  border-radius: 22px;
+  font-size: 12px;
+  font-weight: 650;
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  /* Fanned out on an arc above and left of the menu button. */
+  --a: calc(92deg + var(--i) * 27deg);
+  transform: translate(calc(cos(var(--a)) * 130px), calc(sin(var(--a)) * -130px));
+  animation: quick-out 0.32s var(--spring) both;
+  animation-delay: calc(var(--i) * 25ms);
+}
+.nav-quick button span { font-size: 22px; line-height: 1; }
+.nav-quick button.current { color: rgb(var(--heat-rgb)); }
+.nav-quick button.hover { color: #fff; background: #7c3aed; transform: translate(calc(cos(var(--a)) * 138px), calc(sin(var(--a)) * -138px)) scale(1.14); }
+@keyframes quick-out { from { transform: translate(0, 0) scale(0.3); opacity: 0; } }
+.nav-previews {
+  position: fixed;
+  z-index: 47;
+  right: calc(50vw - min(calc(50vw - 12px), 215px) + 8px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 80px);
+  width: min(70vw, 280px);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+}
+.nav-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  text-align: left;
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  transform-origin: 100% 100%;
+  animation: preview-up 0.34s var(--spring) both;
+  animation-delay: calc(var(--i, 0) * 30ms);
+  transition: transform 0.18s var(--spring), background-color 0.15s;
+}
+.nav-preview.new { justify-content: center; font-weight: 650; color: var(--muted); }
+.nav-preview.active { box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.55), 0 8px 24px rgba(0, 0, 0, 0.28); }
+.nav-preview.hover { transform: scale(1.06) translateX(-8px); color: #fff; background: #7c3aed; }
+.nav-preview-kind { font-size: 18px; }
+.nav-preview-title { flex: 1; min-width: 0; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-preview-steps { font-size: 11px; opacity: 0.7; }
+@keyframes preview-up { from { transform: translateY(40px) scale(0.6); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .nav-quick button, .nav-preview { animation: none; } }
+/* The note's block handles (⋮⋮) never show through the pinned calendar. */
+.month-calendar:not(.floating) { z-index: 6; }
+/* Today's rows under the day line: an arrow up to each one's point on the line instead of its time
+   again, and the text opens that line in the note. */
+.today-agenda .agenda-row { position: relative; flex-wrap: wrap; row-gap: 0; padding-top: 0; }
+.agenda-pointer { flex: 0 0 100%; position: relative; height: 9px; }
+.agenda-pointer i { position: absolute; left: var(--p); top: 0; width: 0; height: 0; margin-left: -5px; border: 5px solid transparent; border-top: 0; border-bottom: 8px solid color-mix(in srgb, rgb(var(--heat-rgb)) 80%, var(--text)); margin-left: -6px; border-width: 0 6px 8px; }
+.agenda-pointer::before { content: ""; position: absolute; left: min(var(--p), calc(100% - 2px)); top: 6px; height: 1px; width: 0; }
+.agenda-row.past .agenda-pointer i, .agenda-row.done .agenda-pointer i { opacity: 0.4; }
+.today-agenda .agenda-text { all: unset; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; padding: 3px 0 3px 8px; border-left: 2px solid color-mix(in srgb, rgb(var(--heat-rgb)) 55%, transparent); border-radius: 2px; }
+.today-agenda .agenda-text:active { color: rgb(var(--heat-rgb)); }
+.rdl-point { cursor: pointer; }
+/* ✎ Edit menu: drag a list's bottom edge to show more or fewer rows. */
+.count-edge { margin-top: 6px; display: grid; justify-items: center; gap: 2px; padding: 6px 0 8px; cursor: ns-resize; touch-action: none; -webkit-user-select: none; user-select: none; border-radius: 12px; }
+.count-edge-grip { width: 44px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--muted) 60%, transparent); }
+.count-edge-label { font-size: 11px; color: var(--muted); }
+.count-edge.dragging { background: color-mix(in srgb, rgb(var(--heat-rgb)) 14%, transparent); }
+.count-edge.dragging .count-edge-grip { background: rgb(var(--heat-rgb)); width: 60px; }

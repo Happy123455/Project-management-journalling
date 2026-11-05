@@ -317,18 +317,18 @@ function EditorSettings() {
       {e.typingGuide && (
         <label className="settings-number">
           <span>Most characters per second</span>
-          <input
-            type="number"
-            inputMode="decimal"
-            min={1}
-            max={30}
-            step={0.5}
-            value={e.maxCps}
-            onChange={(ev) => {
-              const v = Number(ev.target.value);
-              if (Number.isFinite(v) && v > 0) setE(setEditorPrefs({ maxCps: Math.min(30, Math.max(1, v)) }));
-            }}
-          />
+          <span className="settings-slider">
+            <input
+              type="range"
+              min={1}
+              max={15}
+              step={0.5}
+              value={e.maxCps}
+              onChange={(ev) => setE(setEditorPrefs({ maxCps: Math.min(15, Math.max(1, Number(ev.target.value))) }))}
+              aria-label="Most characters per second"
+            />
+            <output>{e.maxCps}</output>
+          </span>
           <small>About {Math.round(e.maxCps * 12)} words a minute. 5 is calm handwriting pace, 8 is quick typing.</small>
         </label>
       )}

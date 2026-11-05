@@ -18,8 +18,10 @@ export function HotCaret({ editor }: { editor: Editor }) {
       if (!tr.docChanged || !editor.isFocused) return;
       const ui = tr.getMeta("uiEvent");
       if (ui === "paste" || ui === "drop" || tr.getMeta("addToHistory") === false) return;
+      // What the keys put in: each step's inserted text minus what it replaced. Auto-correct and
+      // suggestions swap a whole word at once (a big jump), which the guide leaves out.
       const added = tr.doc.content.size - tr.before.content.size;
-      if (added > 0) noteTyped(added);
+      if (added > 0 && tr.steps.length <= 2) noteTyped(added);
     };
     editor.on("transaction", onTr);
     return () => {

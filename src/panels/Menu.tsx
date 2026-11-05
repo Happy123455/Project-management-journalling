@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { haptic } from "../lib/haptic";
 import { dayTitle } from "../lib/timestamp";
 import { notSpending, rupees } from "../lib/finance";
 import { loadTxns } from "../finance/capture";
@@ -28,6 +29,8 @@ export interface MenuPrefs {
   projectLimit: number;
   /** Show each project's open tasks under its name. */
   projectTasks: boolean;
+  /** How many days the Days list shows (the rest behind "Show all"). */
+  daysLimit: number;
 }
 
 export type DaysSort = "new" | "old" | "past";
@@ -53,6 +56,7 @@ export function loadMenuPrefs(): MenuPrefs {
     hiddenProjects: Array.isArray(v.hiddenProjects) ? v.hiddenProjects.filter((x) => typeof x === "string") : [],
     projectLimit: Number.isFinite(v.projectLimit) && v.projectLimit! > 0 ? Math.min(30, Math.round(v.projectLimit!)) : 6,
     projectTasks: v.projectTasks !== false,
+    daysLimit: Number.isFinite(v.daysLimit) && v.daysLimit! > 0 ? Math.min(400, Math.round(v.daysLimit!)) : 60,
   };
 }
 
@@ -133,6 +137,7 @@ export function MenuSections({ sections }: { sections: Partial<Record<MenuKey, R
             </header>
             {!collapsed && !hidden && <div className="menu-section-body">{sections[k]}</div>}
             {editing && k === "projects" && <ProjectsEdit />}
+            {editing && k === "days" && <DaysEdit />}
           </section>
         );
       })}
@@ -140,16 +145,86 @@ export function MenuSections({ sections }: { sections: Partial<Record<MenuKey, R
   );
 }
 
+/**
+ * ✎ Edit: the bottom edge of a list, dragged down or up to show more or fewer rows (one row per row
+ * height moved, a tick for each), as well as typing the number.
+ */
+function CountEdge({ value, min, max, onChange, rows }: { value: number; min: number; max: number; onChange: (n: number) => void; rows: string }) {
+  const drag = useRef<{ id: number; y: number; from: number; row: number } | null>(null);
+  const [live, setLive] = useState<number | null>(null);
+  const clamp = (n: number) => Math.max(min, Math.min(max, n));
+  return (
+    <div
+      className={`count-edge${live != null ? " dragging" : ""}`}
+      role="slider"
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={value}
+      aria-label="Drag to show more or fewer"
+      onPointerDown={(e) => {
+        const section = (e.currentTarget as HTMLElement).closest(".menu-section");
+        const row = section?.querySelector<HTMLElement>(rows)?.offsetHeight || 34;
+        drag.current = { id: e.pointerId, y: e.clientY, from: value, row };
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        setLive(value);
+        haptic("press", 0.6);
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d || d.id !== e.pointerId) return;
+        const n = clamp(d.from + Math.round((e.clientY - d.y) / d.row));
+        setLive((was) => {
+          if (was !== n) {
+            haptic("tick", 0.5);
+            onChange(n);
+          }
+          return n;
+        });
+      }}
+      onPointerUp={() => {
+        drag.current = null;
+        setLive(null);
+        haptic("edge", 0.6);
+      }}
+      onPointerCancel={() => {
+        drag.current = null;
+        setLive(null);
+      }}
+    >
+      <span className="count-edge-grip" aria-hidden />
+      <span className="count-edge-label">{live ?? value} shown · drag</span>
+    </div>
+  );
+}
+
+/** ✎ Edit, Days: how many days the list shows. */
+function DaysEdit() {
+  const [prefs, setPrefs] = useMenuPrefs();
+  const set = (n: number) => setPrefs({ daysLimit: Math.max(1, Math.min(400, n)) });
+  return (
+    <div className="menu-projects-edit">
+      <label>
+        Show
+        <input type="number" inputMode="numeric" min={1} max={400} value={prefs.daysLimit} onChange={(e) => set(Number(e.target.value) || 1)} />
+        days
+      </label>
+      <CountEdge value={prefs.daysLimit} min={1} max={400} onChange={set} rows=".day-list li" />
+    </div>
+  );
+}
+
 /** ✎ Edit, Projects: how many show, and whether their tasks show under them. */
 function ProjectsEdit() {
   const [prefs, setPrefs] = useMenuPrefs();
+  const set = (n: number) => setPrefs({ projectLimit: Math.max(1, Math.min(30, n)) });
   return (
     <div className="menu-projects-edit">
       <label>
         Show up to
-        <input type="number" min={1} max={30} value={prefs.projectLimit} onChange={(e) => setPrefs({ projectLimit: Math.max(1, Math.min(30, Number(e.target.value) || 1)) })} />
+        <input type="number" inputMode="numeric" min={1} max={30} value={prefs.projectLimit} onChange={(e) => set(Number(e.target.value) || 1)} />
         projects
       </label>
+      <CountEdge value={prefs.projectLimit} min={1} max={30} onChange={set} rows=".project-list > li, .project-list li" />
       <label>
         <input type="checkbox" checked={prefs.projectTasks} onChange={(e) => setPrefs({ projectTasks: e.target.checked })} /> Show their tasks under each one
       </label>
@@ -203,7 +278,7 @@ export function DaysList({ store, days, day, today, refreshKey, onPick }: {
     };
   }, [store, days.length, refreshKey]);
   const list = daysShown([...days], { today, day, written, sort: prefs.daysSort });
-  const LIMIT = 60;
+  const LIMIT = prefs.daysLimit;
   const shown = showAll ? list : list.slice(0, LIMIT);
   return (
     <>

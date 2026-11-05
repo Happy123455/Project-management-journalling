@@ -8,8 +8,15 @@ import { editorPrefs } from "../lib/editorPrefs";
  */
 const WINDOW_MS = 2000;
 const BUZZ_EVERY_MS = 1500;
-/** More than this at once is a paste, a suggestion tapped in or a template, not typing. */
-const MAX_BURST = 12;
+/**
+ * One key adds one character (two at most: a letter and the space the keyboard adds after a word).
+ * More at once is the keyboard replacing a word (auto-correct, a tapped suggestion, swipe typing), a
+ * paste or a template: done for you, not typed, so it doesn't count.
+ */
+const MAX_PER_KEY = 2;
+/** Changes closer together than this are one replacement arriving in pieces, not two keys. */
+const SAME_KEY_MS = 30;
+let lastKeyAt = 0;
 
 let typed: { at: number; n: number }[] = [];
 let hot = false;
@@ -45,7 +52,11 @@ function buzz() {
 
 /** Call with how many characters were just typed. */
 export function noteTyped(n: number) {
-  if (n <= 0 || n > MAX_BURST) return;
+  if (n <= 0 || n > MAX_PER_KEY) return;
+  const at = performance.now();
+  const instant = at - lastKeyAt < SAME_KEY_MS;
+  lastKeyAt = at;
+  if (instant) return;
   const prefs = editorPrefs();
   if (!prefs.typingGuide || !(prefs.maxCps > 0)) return setHot(false);
   const now = Date.now();

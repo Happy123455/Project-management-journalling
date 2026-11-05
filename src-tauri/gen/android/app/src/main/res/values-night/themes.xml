@@ -1,6 +1,7 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.dynamic_journal" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <!-- The window before the page draws: the app's own soft colour, never a white flash. -->
+        <item name="android:windowBackground">#FF16171C</item>
     </style>
 </resources>

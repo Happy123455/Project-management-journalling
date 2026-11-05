@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import React, { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { dayTitle } from "../lib/timestamp";
 import { openOutline, setViewMode, useViewMode, type ViewMode } from "../editor/viewMode";
 import { matchTitles, type TitleHit } from "./titleMatch";
 import { currentLoc, type Loc, type TabsState } from "./tabs";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
+import { haptic } from "../lib/haptic";
 
 /** Line icons, drawn like the phone's own (thin, rounded). */
 const Icon = ({ d, size = 22 }: { d: ReactNode; size?: number }) => (
@@ -46,12 +47,38 @@ export interface MenuAction {
   run: () => void;
 }
 
+type Gesture = {
+  id: number;
+  x0: number;
+  y0: number;
+  x: number;
+  y: number;
+  t0: number;
+  zone: string;
+  mode: "idle" | "swipe" | "up" | "joy" | "quick" | "previews";
+  timer: number;
+  /** The finger moved after a long press opened the picker (else the picker stays for a tap). */
+  movedAfter: boolean;
+};
+
+const QUICK: { key: ViewMode | "outline"; icon: string; label: string }[] = [
+  { key: "reading", icon: "📖", label: "View" },
+  { key: "live", icon: "✎", label: "Edit" },
+  { key: "source", icon: "</>", label: "Source" },
+  { key: "outline", icon: "🗂", label: "Outline" },
+];
+
 /**
  * Phone: the floating island at the bottom while not typing (it gives way to the formatting bar
  * as the keyboard comes up). Back / forward, search by note title, a big Home for today's note,
- * tabs and the mode + menu switcher.
+ * tabs and the mode + menu switcher. Gestures on it:
+ * - swipe left → right goes forward, right → left goes back; swipe up opens the menu;
+ * - hold Home: a joystick that scrolls the note (lean further for faster, a tick as it goes);
+ *   double-tap Home: the end of today's note, ready to write;
+ * - swipe up from (or hold) the tabs: tab previews float up, slide onto one and let go to open it;
+ * - hold the menu: View / Edit / Source / Outline fan out, slide onto one and let go.
  */
-export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onForward, onHome, onSearch, onTabs, actions }: {
+export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onForward, onHome, onHomeDouble, onSearch, onTabs, onSwitchTab, onNewTab, actions }: {
   /** A panel or sheet covers the page: the island tucks away. */
   away: boolean;
   tabs: TabsState;
@@ -61,23 +88,185 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   onBack: () => void;
   onForward: () => void;
   onHome: () => void;
+  onHomeDouble: () => void;
   onSearch: () => void;
   onTabs: () => void;
+  onSwitchTab: (id: string) => void;
+  onNewTab: () => void;
   actions: MenuAction[];
 }) {
   const mode = useViewMode();
   const [menu, setMenu] = useState(false);
+  const [picker, setPicker] = useState<null | "quick" | "previews">(null);
+  const [hover, setHover] = useState<string | null>(null);
+  const [joy, setJoy] = useState<number | null>(null);
+  const g = useRef<Gesture | null>(null);
+  const quietClick = useRef(0);
+  const lastHome = useRef(0);
+  const joyRun = useRef<{ frame: number; at: number; off: number; travel: number; edge: boolean } | null>(null);
   const atToday = (() => {
     const l = currentLoc(tabs.tabs.find((t) => t.id === tabs.active) ?? tabs.tabs[0]);
     return l.kind === "day" && l.day === today;
   })();
   const press = (fn: () => void) => () => {
-    window.JournalHaptics?.play("tap", 0.5);
+    if (Date.now() - quietClick.current < 450) return;
+    haptic("tap", 0.5);
     fn();
   };
+
+  const stopJoy = () => {
+    const j = joyRun.current;
+    joyRun.current = null;
+    if (j) cancelAnimationFrame(j.frame);
+    setJoy(null);
+  };
+  const startJoy = () => {
+    haptic("press", 0.9);
+    setJoy(0);
+    const j = { frame: 0, at: performance.now(), off: 0, travel: 0, edge: false };
+    joyRun.current = j;
+    const loop = (now: number) => {
+      const dt = Math.min(0.05, (now - j.at) / 1000);
+      j.at = now;
+      const lean = Math.abs(j.off) - 8;
+      if (lean > 0) {
+        // Fine near the middle, quick at full lean (about a screen a second at 80px).
+        const v = Math.sign(j.off) * Math.pow(Math.min(lean, 90) / 82, 1.6) * 2600;
+        const before = window.scrollY;
+        window.scrollBy(0, v * dt);
+        const moved = Math.abs(window.scrollY - before);
+        j.travel += moved;
+        if (moved < 0.5 && Math.abs(v * dt) > 1) {
+          if (!j.edge) haptic("edge", 1);
+          j.edge = true;
+        } else j.edge = false;
+        // A detent every so often, stronger the faster it runs.
+        if (j.travel > 140) {
+          j.travel = 0;
+          haptic("tick", Math.min(1, 0.3 + lean / 110));
+        }
+      }
+      j.frame = requestAnimationFrame(loop);
+    };
+    j.frame = requestAnimationFrame(loop);
+  };
+
+  const pickAt = (x: number, y: number) => {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    const key = el?.closest<HTMLElement>("[data-pick]")?.dataset.pick ?? null;
+    setHover((h) => {
+      if (h !== key && key) haptic("tick", 0.6);
+      return key;
+    });
+    return key;
+  };
+  const runPick = (kind: "quick" | "previews", key: string) => {
+    haptic("edge", 0.8);
+    if (kind === "previews") return key === "+" ? onNewTab() : onSwitchTab(key);
+    if (key === "outline") return openOutline();
+    setViewMode(key as ViewMode);
+  };
+  const closePicker = () => {
+    setPicker(null);
+    setHover(null);
+  };
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === "mouse" || g.current) return;
+    const zone = (e.target as HTMLElement).closest<HTMLElement>("[data-zone]")?.dataset.zone ?? "bar";
+    const gesture: Gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: e.timeStamp, zone, mode: "idle", timer: 0, movedAfter: false };
+    if (zone === "home" || zone === "tabs" || zone === "menu")
+      gesture.timer = window.setTimeout(() => {
+        if (g.current !== gesture || gesture.mode !== "idle") return;
+        if (zone === "home") {
+          gesture.mode = "joy";
+          startJoy();
+        } else {
+          gesture.mode = zone === "tabs" ? "previews" : "quick";
+          haptic("press", 0.8);
+          setPicker(gesture.mode);
+        }
+      }, 380);
+    g.current = gesture;
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const s = g.current;
+    if (!s || s.id !== e.pointerId) return;
+    s.x = e.clientX;
+    s.y = e.clientY;
+    const dx = s.x - s.x0;
+    const dy = s.y - s.y0;
+    if (s.mode === "idle") {
+      if (Math.hypot(dx, dy) < 12) return;
+      window.clearTimeout(s.timer);
+      if (s.zone === "tabs" && dy < -14 && -dy > Math.abs(dx)) {
+        s.mode = "previews";
+        s.movedAfter = true;
+        haptic("press", 0.7);
+        setPicker("previews");
+      } else if (Math.abs(dx) > Math.abs(dy)) s.mode = "swipe";
+      else if (dy < 0) s.mode = "up";
+      else s.mode = "swipe";
+      return;
+    }
+    if (s.mode === "joy") {
+      const j = joyRun.current;
+      if (j) j.off = Math.max(-100, Math.min(100, dy));
+      setJoy(Math.max(-40, Math.min(40, dy * 0.4)));
+    } else if (s.mode === "quick" || s.mode === "previews") {
+      if (Math.hypot(dx, dy) > 14) s.movedAfter = true;
+      pickAt(e.clientX, e.clientY);
+    }
+  };
+  const onPointerUp = (e: React.PointerEvent, cancel = false) => {
+    const s = g.current;
+    if (!s || s.id !== e.pointerId) return;
+    g.current = null;
+    window.clearTimeout(s.timer);
+    const dx = s.x - s.x0;
+    const dy = s.y - s.y0;
+    if (s.mode !== "idle") quietClick.current = Date.now();
+    if (cancel) {
+      stopJoy();
+      if (s.movedAfter) closePicker();
+      return;
+    }
+    if (s.mode === "joy") return stopJoy();
+    if (s.mode === "quick" || s.mode === "previews") {
+      const key = pickAt(e.clientX, e.clientY);
+      if (key) {
+        closePicker();
+        return runPick(s.mode, key);
+      }
+      // Opened by holding and let go in place: it stays, to be tapped. Slid off: it closes.
+      if (s.movedAfter) closePicker();
+      return;
+    }
+    const fast = Math.abs(dx) / Math.max(1, e.timeStamp - s.t0) > 0.4;
+    if (s.mode === "swipe" && (Math.abs(dx) > 50 || (fast && Math.abs(dx) > 24))) {
+      haptic("edge", 0.7);
+      // Left → right is forward, right → left is back.
+      if (dx > 0) canForward && onForward();
+      else canBack && onBack();
+    } else if (s.mode === "up" && dy < -24) {
+      haptic("edge", 0.7);
+      setMenu(true);
+    }
+  };
+  useEffect(() => () => stopJoy(), []);
+
   return (
     <>
-      <nav className={`nav-island${away || menu ? " away" : ""}`} aria-label="Navigation" inert={away || undefined}>
+      <nav
+        className={`nav-island${away || menu ? " away" : ""}${joy != null ? " joying" : ""}`}
+        aria-label="Navigation"
+        inert={away || undefined}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={(e) => onPointerUp(e)}
+        onPointerCancel={(e) => onPointerUp(e, true)}
+        onContextMenu={(e) => e.preventDefault()}
+      >
         <div className="nav-side">
           <button type="button" className="nav-btn" disabled={!canBack} onClick={press(onBack)} aria-label="Back">
             <Icon d={BACK} />
@@ -89,14 +278,29 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
             <Icon d={SEARCH} />
           </button>
         </div>
-        <button type="button" className={`nav-home${atToday ? " at-today" : ""}`} onClick={press(onHome)} aria-label="Today's note">
-          <Icon d={HOME} size={28} />
+        <button
+          type="button"
+          data-zone="home"
+          className={`nav-home${atToday ? " at-today" : ""}`}
+          style={joy != null ? ({ "--joy": `${joy}px` } as React.CSSProperties) : undefined}
+          onClick={press(() => {
+            const now = Date.now();
+            if (now - lastHome.current < 320) {
+              lastHome.current = 0;
+              return onHomeDouble();
+            }
+            lastHome.current = now;
+            onHome();
+          })}
+          aria-label="Today's note (double-tap: write at its end; hold: scroll)"
+        >
+          {joy != null ? <span className="nav-joy-arrows" aria-hidden>▲<i />▼</span> : <Icon d={HOME} size={28} />}
         </button>
         <div className="nav-side">
-          <button type="button" className="nav-btn nav-tabs" onClick={press(onTabs)} aria-label={`${tabs.tabs.length} tabs`}>
+          <button type="button" data-zone="tabs" className="nav-btn nav-tabs" onClick={press(onTabs)} aria-label={`${tabs.tabs.length} tabs`}>
             <span className="nav-tab-count">{tabs.tabs.length}</span>
           </button>
-          <button type="button" className={`nav-btn nav-mode${menu ? " open" : ""}`} onClick={press(() => setMenu(!menu))} aria-label="Mode and menu" aria-expanded={menu}>
+          <button type="button" data-zone="menu" className={`nav-btn nav-mode${menu ? " open" : ""}`} onClick={press(() => setMenu(!menu))} aria-label="Mode and menu" aria-expanded={menu}>
             <span className="nav-mode-icon">{MODE_ICON[mode]}</span>
             <span className="nav-burger" aria-hidden>
               <i />
@@ -107,7 +311,70 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
         </div>
       </nav>
       {menu && <ModeMenu mode={mode} actions={actions} onClose={() => setMenu(false)} />}
+      {picker === "quick" && <QuickPicker mode={mode} hover={hover} onPick={(k) => (closePicker(), runPick("quick", k))} onClose={closePicker} />}
+      {picker === "previews" && <TabPreviews tabs={tabs} today={today} hover={hover} onPick={(k) => (closePicker(), runPick("previews", k))} onClose={closePicker} />}
     </>
+  );
+}
+
+/** Held menu: four choices fanned out above it; slide onto one and let go (or tap one). */
+function QuickPicker({ mode, hover, onPick, onClose }: { mode: ViewMode; hover: string | null; onPick: (k: string) => void; onClose: () => void }) {
+  useEscapeToClose(onClose);
+  return createPortal(
+    <>
+      <div className="nav-pick-backdrop" onClick={onClose} />
+      <div className="nav-quick" role="menu" aria-label="Mode">
+        {QUICK.map((q, i) => (
+          <button
+            key={q.key}
+            type="button"
+            role="menuitem"
+            data-pick={q.key}
+            className={`${hover === q.key ? "hover" : ""}${mode === q.key ? " current" : ""}`}
+            style={{ "--i": i } as React.CSSProperties}
+            onClick={() => onPick(q.key)}
+          >
+            <span aria-hidden>{q.icon}</span>
+            {q.label}
+          </button>
+        ))}
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+/** Tabs as floating cards above the tab button: slide onto one and let go (or tap one). */
+function TabPreviews({ tabs, today, hover, onPick, onClose }: { tabs: TabsState; today: string; hover: string | null; onPick: (k: string) => void; onClose: () => void }) {
+  useEscapeToClose(onClose);
+  const list = [...tabs.tabs].reverse().slice(0, 8);
+  return createPortal(
+    <>
+      <div className="nav-pick-backdrop" onClick={onClose} />
+      <div className="nav-previews" role="menu" aria-label="Tabs">
+        <button type="button" data-pick="+" className={`nav-preview new${hover === "+" ? " hover" : ""}`} onClick={() => onPick("+")}>
+          ＋ New tab
+        </button>
+        {list.map((t, i) => {
+          const l = currentLoc(t);
+          return (
+            <button
+              key={t.id}
+              type="button"
+              data-pick={t.id}
+              className={`nav-preview${hover === t.id ? " hover" : ""}${t.id === tabs.active ? " active" : ""}`}
+              style={{ "--i": i } as React.CSSProperties}
+              onClick={() => onPick(t.id)}
+            >
+              <span className="nav-preview-kind" aria-hidden>{l.kind === "day" ? "📅" : l.kind === "page" ? "📄" : "#"}</span>
+              <span className="nav-preview-title">{locLabel(l, today)}</span>
+              {t.history.length > 1 && <span className="nav-preview-steps">{t.index + 1}/{t.history.length}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </>,
+    document.body,
   );
 }
 

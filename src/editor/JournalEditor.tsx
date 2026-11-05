@@ -32,6 +32,8 @@ import { LinkSuggest } from "./linkSuggest";
 import { insertLogOrTime, SlashMenu } from "./slashMenu";
 import { openOutline, setViewMode, useViewMode, type ViewMode } from "./viewMode";
 import { SourceEditor } from "./SourceEditor";
+import { openVoiceRecorder } from "./VoiceRecorder";
+import { dayKey } from "../lib/timestamp";
 import { jumpTo, OutlinePanel } from "./Outline";
 import { TimeRail, useTimeRail } from "./TimeRail";
 import { registerOpenNote } from "./noteEdit";
@@ -91,7 +93,7 @@ const EMIT_DELAY_MS = 250;
 
 const TOOLS_KEY = "dynamic-journal.toolbar";
 /** Tools the Mac's toolbar leaves out (the mode pill and the keyboard cover them there). */
-const PHONE_ONLY = new Set(["hidekb", "lineup", "linedown", "outline", "source", "reading"]);
+const PHONE_ONLY = new Set(["hidekb", "lineup", "linedown", "outline", "source", "reading", "left", "right", "selectline", "selectall", "copyline", "paste", "date", "voice", "clearfmt"]);
 /** The phone bar's tool order and hidden tools, kept on this device. */
 export interface ToolLayout {
   order: string[];
@@ -102,20 +104,26 @@ export interface ToolLayout {
   style?: "rows" | "strip";
   /** Bigger buttons. */
   big?: boolean;
+  /** The newer tools (EXTRA_TOOLS) have been offered: they start hidden, ticked on in Arrange tools. */
+  extras?: boolean;
 }
+/** Tools added later: hidden until picked in Arrange tools, so nobody's bar suddenly fills up. */
+const EXTRA_TOOLS = ["left", "right", "selectline", "copyline", "paste", "date", "voice", "clearfmt", "selectall"];
 export const TOOL_LAYOUT_EVENT = "journal:toolbar-layout";
 export function loadToolLayout(): ToolLayout {
   try {
     const v = JSON.parse(localStorage.getItem(TOOLS_KEY) ?? "{}");
+    const hidden: string[] = Array.isArray(v.hidden) ? v.hidden : [];
     return {
       order: Array.isArray(v.order) ? v.order : [],
-      hidden: Array.isArray(v.hidden) ? v.hidden : [],
+      hidden: v.extras ? hidden : [...hidden, ...EXTRA_TOOLS.filter((k) => !hidden.includes(k))],
+      extras: true,
       rows: v.rows === 2 ? 2 : 1,
       style: v.style === "strip" ? "strip" : "rows",
       big: !!v.big,
     };
   } catch {
-    return { order: [], hidden: [], rows: 1, style: "rows" };
+    return { order: [], hidden: [...EXTRA_TOOLS], rows: 1, style: "rows", extras: true };
   }
 }
 function saveToolLayout(layout: ToolLayout) {
@@ -163,7 +171,6 @@ function haptic(kind: "tap" | "tick" | "press" | "edge", strength: number) {
 /** Formatting buttons, shared by the top toolbar (Mac) and the bar above the phone keyboard. */
 function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () => void; phone?: boolean }) {
   const [layout, setLayout] = useState(loadToolLayout);
-  const [arranging, setArranging] = useState(false);
   // Edit mode (phone): the bar's tools jiggle, lifted, and are dragged into a new order.
   const [jiggle, setJiggle] = useState(false);
   const [dragKey, setDragKey] = useState<string | null>(null);
@@ -171,6 +178,12 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
   const hold = useRef<{ timer: number; fired: boolean } | null>(null);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
+  // Arrange tools (its own window, kept open when the keyboard goes) changes the layout: follow it.
+  useEffect(() => {
+    const on = () => setLayout(loadToolLayout());
+    window.addEventListener(TOOL_LAYOUT_EVENT, on);
+    return () => window.removeEventListener(TOOL_LAYOUT_EVENT, on);
+  }, []);
   const quick = useQuickLogs();
   const active = useEditorState({
     editor,
@@ -252,6 +265,39 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
         window.JournalShare?.hideKeyboard?.();
       },
     },
+    { key: "left", label: "◀", title: "Cursor left", run: () => editor.chain().focus().setTextSelection(Math.max(1, editor.state.selection.from - 1)).run() },
+    { key: "right", label: "▶", title: "Cursor right", run: () => editor.chain().focus().setTextSelection(Math.min(editor.state.doc.content.size - 1, editor.state.selection.to + 1)).run() },
+    {
+      key: "selectline",
+      label: "▭",
+      title: "Select this line",
+      run: () => {
+        const { $from } = editor.state.selection;
+        editor.chain().focus().setTextSelection({ from: $from.start(), to: $from.end() }).run();
+      },
+    },
+    { key: "selectall", label: "⬚", title: "Select all", run: () => editor.chain().focus().selectAll().run() },
+    {
+      key: "copyline",
+      label: "⧉",
+      title: "Copy this line (or the selection)",
+      run: () => {
+        const { from, to, empty, $from } = editor.state.selection;
+        const text = empty ? $from.parent.textContent : editor.state.doc.textBetween(from, to, "\n", " ");
+        void navigator.clipboard?.writeText(text).then(() => showToast("Copied"), () => showToast("Couldn't copy", "error"));
+      },
+    },
+    {
+      key: "paste",
+      label: "📋",
+      title: "Paste",
+      run: () => {
+        void navigator.clipboard?.readText().then((t) => t && editor.chain().focus().insertContent(t).run(), () => showToast("Couldn't read the clipboard", "error"));
+      },
+    },
+    { key: "date", label: "📅", title: "Link today's date", run: () => editor.chain().focus().insertContent(`[[${dayKey(new Date())}]] `).run() },
+    { key: "voice", label: "🎙", title: "Voice note", run: () => openVoiceRecorder(editor, "voice") },
+    { key: "clearfmt", label: "T̸", title: "Clear formatting", run: () => editor.chain().focus().unsetAllMarks().clearNodes().run() },
     {
       key: "read",
       label: "🔊",
@@ -266,6 +312,7 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
   const quickTools: Tool[] = quick.map((q) => ({ key: `ql:${q.id}`, label: q.iconFile ? <GifIcon fileId={q.iconFile} /> : q.icon ?? "⚡", title: `Quick log: ${q.title}`, run: () => insertQuickLog(editor, q.title) }));
   const setupTool: Tool = { key: "quicklog", label: "⚡", title: "Quick log buttons", run: openQuickLogSetup };
   const allTools = [...tools, setupTool];
+  toolCatalog = allTools.map((t) => ({ key: t.key, label: t.label, title: t.title }));
   const arranged = arrangeTools(allTools, layout).filter((t) => quick.length || t.key !== "quicklog");
   const startJiggle = () => {
     haptic("press", 0.7);
@@ -281,13 +328,9 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
   };
   const shown: Tool[] = phone
     ? jiggle
-      ? [...arranged, { key: "jiggle-more", label: "⋯", title: "Show or hide tools, layout", run: () => setArranging(true) }, { key: "jiggle-done", label: "✓ Done", title: "Done arranging", run: stopJiggle }]
+      ? [...arranged, { key: "jiggle-more", label: "⋯", title: "Show or hide tools, layout", run: openArrangeTools }, { key: "jiggle-done", label: "✓ Done", title: "Done arranging", run: stopJiggle }]
       : [...quickTools, ...(quick.length ? [] : [setupTool]), ...arranged, { key: "arrange", label: "⚙︎", title: "Arrange tools (or hold any tool)", run: startJiggle }]
     : [...quickTools, ...allTools.filter((t) => !PHONE_ONLY.has(t.key))];
-  const update = (next: ToolLayout) => {
-    setLayout(next);
-    saveToolLayout(next);
-  };
   const movable = (k: string) => arranged.some((t) => t.key === k);
   // Dragging in edit mode: the tool under the finger makes room (the order changes as it moves).
   const onDragMove = (e: React.PointerEvent) => {
@@ -369,12 +412,51 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
           </button>
         );
       })}
-      {arranging && createPortal(
-        <div className="arrange-tools" role="dialog" aria-label="Arrange tools" onPointerDown={(e) => e.stopPropagation()}>
+    </>
+  );
+}
+
+
+/** What the bar offers, for Arrange tools (kept by the bar each time it draws). */
+let toolCatalog: { key: string; label: React.ReactNode; title: string }[] = [];
+const ARRANGE_EVENT = "journal:arrange-tools";
+const openArrangeTools = () => window.dispatchEvent(new Event(ARRANGE_EVENT));
+
+/**
+ * Arrange tools: tick tools on or off and move them with ↑ ↓. It lives outside the keyboard bar, so it
+ * stays open (and its arrows keep working) when the note loses focus and the bar goes away.
+ */
+function ArrangeToolsHost() {
+  const [open, setOpen] = useState(false);
+  const [layout, setLayout] = useState(loadToolLayout);
+  useEffect(() => {
+    const onOpen = () => {
+      setLayout(loadToolLayout());
+      setOpen(true);
+    };
+    const onLayout = () => setLayout(loadToolLayout());
+    window.addEventListener(ARRANGE_EVENT, onOpen);
+    window.addEventListener(TOOL_LAYOUT_EVENT, onLayout);
+    return () => {
+      window.removeEventListener(ARRANGE_EVENT, onOpen);
+      window.removeEventListener(TOOL_LAYOUT_EVENT, onLayout);
+    };
+  }, []);
+  const update = (next: ToolLayout) => {
+    setLayout(next);
+    saveToolLayout(next);
+  };
+  if (!open) return null;
+  return createPortal(
+        <div className="arrange-tools" role="dialog" aria-label="Arrange tools" onPointerDown={(e) => {
+          e.stopPropagation();
+          // Keep the note focused (the keyboard and its bar stay) unless a box or menu is being used.
+          if (!(e.target as HTMLElement).closest("select, input")) e.preventDefault();
+        }}>
           <div className="arrange-head">
             <strong>Arrange tools</strong>
-            <button type="button" onClick={() => update({ order: [], hidden: [], rows: 1, style: "rows" })}>Reset</button>
-            <button type="button" onClick={() => setArranging(false)}>Done</button>
+            <button type="button" onClick={() => update({ order: [], hidden: [...EXTRA_TOOLS], rows: 1, style: "rows", extras: true })}>Reset</button>
+            <button type="button" onClick={() => setOpen(false)}>Done</button>
           </div>
           <div className="arrange-layout">
             <label>
@@ -394,7 +476,7 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
             <p className="hint">Tick the tools you want, and move them with ↑ ↓. Quick-log buttons always come first.</p>
           </div>
           <ul>
-            {arrangeTools(allTools, layout, true).map((t, i, all) => {
+            {arrangeTools(toolCatalog, layout, true).map((t, i, all) => {
               const keys = all.map((x) => x.key);
               const swap = (j: number) => {
                 const next = [...keys];
@@ -420,9 +502,7 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
             })}
           </ul>
         </div>,
-        document.body,
-      )}
-    </>
+    document.body,
   );
 }
 
@@ -799,6 +879,7 @@ export function JournalEditor({
       {editor && mode === "live" && <SmartPaste editor={editor} />}
       {editor && mode === "live" && <HotCaret editor={editor} />}
       {editor && infoOpen && <BlockInfoPanel editor={editor} onClose={() => setInfoOpen(false)} />}
+      {touch && <ArrangeToolsHost />}
       {editor && touch && mode === "live" && (
         <KeyboardBar editor={editor} layout={toolLayout}>
           <ToolbarButtons editor={editor} onInfo={() => setInfoOpen(true)} phone />

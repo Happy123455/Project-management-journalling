@@ -5,6 +5,23 @@
     
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Dynamic Journal</title>
+    <script>
+      // The look the app had when it was last open (theme, sky tone, colours), put back before anything
+      // draws, so starting up never flashes another theme or a white page first.
+      try {
+        var boot = JSON.parse(localStorage.getItem("journal.boot") || "null");
+        var root = document.documentElement;
+        root.dataset.theme = localStorage.getItem("journal.theme") || "glass";
+        if (boot) {
+          if (boot.style) root.setAttribute("style", boot.style);
+          if (boot.light) root.dataset.light = boot.light;
+          if (boot.tone) root.dataset.tone = boot.tone;
+          if (boot.cls) root.className = boot.cls;
+          root.classList.add("neu-instant", "booting");
+          if (boot.bg) root.style.background = boot.bg;
+        }
+      } catch (e) {}
+    </script>
   </head>
 
   <body>
@@ -14,7 +31,12 @@
     </div></div>
     <script>
       try {
-        if (matchMedia("(prefers-color-scheme: dark)").matches) document.querySelector(".boot-splash").style.background = "#16171c";
+        var splash = document.querySelector(".boot-splash");
+        var saved = JSON.parse(localStorage.getItem("journal.boot") || "null");
+        if (saved && saved.bg) {
+          splash.style.background = saved.bg;
+          splash.style.color = saved.fg || "#888";
+        } else if (matchMedia("(prefers-color-scheme: dark)").matches) splash.style.background = "#16171c";
       } catch (e) {}
     </script>
     <script type="module" src="/src/main.tsx"></script>

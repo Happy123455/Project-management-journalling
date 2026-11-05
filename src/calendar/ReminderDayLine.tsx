@@ -44,7 +44,7 @@ export function ReminderTimeLeft({ day, content }: { day: string; content: JSONC
  * evening), with a point where each of today's reminders falls, sunrise, sunset and now, and how
  * long is left until the next one.
  */
-export function TodayDayLine({ day, items }: { day: string; items: { at: number; text: string; done: boolean }[] }) {
+export function TodayDayLine({ day, items, onPick }: { day: string; items: { at: number; text: string; done: boolean }[]; onPick?: (text: string) => void }) {
   const now = useNow();
   const sky = useMemo(() => {
     const coords = homeCoords();
@@ -69,13 +69,13 @@ export function TodayDayLine({ day, items }: { day: string; items: { at: number;
       <span className="rdl-left">
         {next ? (
           <>
-            ⏳ <b>{timeLeft(next.at - now)}</b> until {clock(next.at)} · {next.text}
+            ⏳ <b>{timeLeft(next.at - now)}</b> until {clock(next.at)} · {next.text.replace(/^\s*⏰?\s*\d{1,2}[:.]\d{2}\s*/, "")}
           </>
         ) : (
           <>✓ Nothing more today</>
         )}
       </span>
-      <span className="rdl-track" style={{ background: sky.gradient }} aria-hidden>
+      <span className="rdl-track" style={{ background: sky.gradient }}>
         {inDay(rise) && <i className="rdl-sun" style={{ left: `${rise}%` }} />}
         {inDay(set) && <i className="rdl-sun set" style={{ left: `${set}%` }} />}
         {inDay(nowPct) && <i className="rdl-now" style={{ left: `${nowPct}%` }} />}
@@ -84,7 +84,13 @@ export function TodayDayLine({ day, items }: { day: string; items: { at: number;
           if (!inDay(p)) return null;
           const s = skyAt(it.at);
           return (
-            <span key={i} className={`rdl-point${it === next ? " next" : ""}${it.done ? " done" : ""}`} style={{ left: `${p}%` }} title={`${clock(it.at)} ${it.text}`}>
+            <span
+              key={i}
+              className={`rdl-point${it === next ? " next" : ""}${it.done ? " done" : ""}`}
+              style={{ left: `${p}%` }}
+              title={`${clock(it.at)} ${it.text}`}
+              onClick={onPick && ((e) => (e.stopPropagation(), onPick(it.text)))}
+            >
               <span className="rdl-dot" style={{ background: s.bg }} />
               <span className="rdl-time">{s.icon} {clock(it.at)}</span>
             </span>

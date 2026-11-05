@@ -250,6 +250,9 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
+    // Same colour as the window until the page paints (no white flash at start).
+    val night = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+    webView.setBackgroundColor(if (night) 0xFF16171C.toInt() else 0xFFE6EAF0.toInt())
     // A WebView left paused by an earlier journal window (see wakePage) would never run its timers.
     webView.resumeTimers()
     webView.addJavascriptInterface(SyncBridge(), "JournalSync")

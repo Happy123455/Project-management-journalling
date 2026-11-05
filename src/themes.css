@@ -515,3 +515,24 @@ html[data-theme="neu"] .ambience-rain { opacity: 0.7; }
 :where(html[data-theme="neu"]) .mac-tabbar { background: var(--bg); border-top-color: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: 0 -6px 14px -8px var(--neu-dark); }
 :where(html[data-theme="neu"]) .mac-tabbar button { box-shadow: none; background: transparent; }
 :where(html[data-theme="neu"]) .mac-tab.active { background: var(--bg); border-color: transparent; box-shadow: var(--neu-in-xs); color: var(--accent); }
+
+/* ═══════════ Batch 14 ═══════════ */
+/* Home stays purple in Soft UI too. */
+:where(html[data-theme="neu"]) .nav-home { color: #7c3aed; box-shadow: var(--neu-out-sm), 0 0 0 1.5px rgba(124, 58, 237, 0.35); }
+:where(html[data-theme="neu"]) .nav-home.at-today { color: #fff; background: radial-gradient(circle at 35% 30%, #a77bff, #7c3aed 72%); }
+@media (prefers-color-scheme: dark) { :where(html[data-theme="neu"]) .nav-home { color: #b794ff; } }
+/* Coming up: room for the soft shadows (the scroll box cut them), the reminder colour as a slim inner
+   stripe instead of a hard border, and rounder, airier rows. */
+:where(html[data-theme="neu"]) .upcoming-box { padding: 6px 10px 12px; margin: 0 -10px; }
+:where(html[data-theme="neu"]) .reminders ul { gap: 12px; }
+:where(html[data-theme="neu"]) .reminder-open { border: 0; border-radius: 16px; padding: 8px 12px 8px 18px; box-shadow: var(--neu-out-sm); background-image: linear-gradient(var(--reminder), var(--reminder)); background-size: 3px calc(100% - 24px); background-position: 8px center; background-repeat: no-repeat; }
+:where(html[data-theme="neu"]) .reminder-open:active { box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .upcoming li.squeezed .reminder-open { border-radius: 12px; box-shadow: var(--neu-out-xs); background-size: 3px 12px; }
+:where(html[data-theme="neu"]) .reminder-more { top: 6px; right: 8px; color: var(--muted); }
+:where(html[data-theme="neu"]) .reminder-done { border-color: transparent; background: var(--bg); box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .reminders h2 { letter-spacing: 0.04em; }
+:where(html[data-theme="neu"]) .year-panel .cal-day { box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .nav-quick button,
+:where(html[data-theme="neu"]) .nav-preview { background: var(--bg); box-shadow: var(--neu-out-sm), var(--neu-overlay); }
+:where(html[data-theme="neu"]) .nav-quick button.hover,
+:where(html[data-theme="neu"]) .nav-preview.hover { background: #7c3aed; color: #fff; }

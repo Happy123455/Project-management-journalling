@@ -45,6 +45,7 @@ import { autoBackup, exportBackup } from "./backup";
 import { fileUrl, mediaNode, openFile, setAttachmentStore, showPdf, showPhoto } from "./editor/attachments";
 import { flushPendingEdits, hasPendingEdits, JournalEditor } from "./editor/JournalEditor";
 import { useTouchDevice } from "./editor/KeyboardBar";
+import { rememberScroll, recallScroll, restoreScroll, scrollKey } from "./nav/scrollMemory";
 import { MacTabBar, NavIsland, TabSwitcher, TitleSearch, type MenuAction } from "./nav/NavIsland";
 import { PanelResizer, SidebarEdge, usePanelWidths, useSidebarToggle } from "./nav/PanelResizer";
 import { activeTab, closeTab, currentLoc, go, loadTabs, locKey, openTab, saveTabs, switchTab, visit, type Loc, type TabsState } from "./nav/tabs";
@@ -566,6 +567,38 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [here]);
   useEffect(() => saveTabs(tabs), [tabs]);
+  // Each tab remembers how far down each note was; going back to it scrolls there again.
+  const restoring = useRef<number | null>(null);
+  const scrollHere = useRef("");
+  scrollHere.current = scrollKey(tabs.active, here);
+  useEffect(() => {
+    let frame = 0;
+    const onScroll = () => {
+      if (restoring.current != null) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => rememberScroll(scrollHere.current, window.scrollY));
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+  /** Before leaving for another tab / step: where to come back to there. */
+  const planRestore = (tabId: string, l: Loc) => {
+    rememberScroll(scrollHere.current, window.scrollY);
+    const y = recallScroll(scrollKey(tabId, locKey(l)));
+    restoring.current = y ?? null;
+    if (y != null) previewNext.current = false;
+  };
+  useEffect(() => {
+    const y = restoring.current;
+    if (y == null) return;
+    restoreScroll(y, () => {
+      if (restoring.current === y) restoring.current = null;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [here, tabs.active, loadedDay]);
   const openLoc = (l: Loc) => {
     if (l.kind === "day") return void goTo(l.day);
     if (l.kind === "page") return void handlers.onOpenLink(l.title);
@@ -574,8 +607,35 @@ function App() {
   const step = (by: -1 | 1) => {
     const next = go(tabs, by);
     if (!next) return;
+    planRestore(next.state.active, next.loc);
     setTabs(next.state);
     openLoc(next.loc);
+  };
+  const switchToTab = (id: string) => {
+    const next = switchTab(tabs, id);
+    planRestore(id, currentLoc(activeTab(next)));
+    setTabs(next);
+    openLoc(currentLoc(activeTab(next)));
+  };
+  const newTodayTab = () => {
+    setTabs((t) => openTab(t, { kind: "day", day: today }));
+    void goTo(today);
+  };
+  /** Double-tap Home: the end of today's note, the cursor there and the keyboard up. */
+  const writeAtEnd = () => {
+    const focusEnd = () =>
+      requestAnimationFrame(() => {
+        const editor = document.querySelector<HTMLElement & { editor?: Editor }>(".tiptap")?.editor;
+        if (!editor) return;
+        setCalendarCollapsed(true);
+        editor.commands.focus("end");
+        window.JournalShare?.showKeyboard();
+        window.scrollTo({ top: document.documentElement.scrollHeight });
+      });
+    if (route.kind === "day" && day === today) return focusEnd();
+    setFind(null);
+    quickNote.current = "note";
+    void goTo(today);
   };
   const goHome = () => {
     if (route.kind === "day" && day === today) return window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1016,7 +1076,7 @@ function App() {
                   onChange={onChange}
                   liveKey={`day:${day}`}
                   onReminder={pickReminderDay}
-                  autofocus={!previewNext.current}
+                  autofocus={!previewNext.current && restoring.current == null}
                   pastDay={day < today}
                   onReady={(t) => {
                     setText(t);
@@ -1174,8 +1234,11 @@ function App() {
           onBack={() => step(-1)}
           onForward={() => step(1)}
           onHome={goHome}
+          onHomeDouble={writeAtEnd}
           onSearch={() => setTitleSearchOpen(true)}
           onTabs={() => setTabsOpen(true)}
+          onSwitchTab={switchToTab}
+          onNewTab={newTodayTab}
           actions={islandActions}
         />
       )}
@@ -1187,11 +1250,7 @@ function App() {
           canForward={activeTab(tabs).index < activeTab(tabs).history.length - 1}
           onBack={() => step(-1)}
           onForward={() => step(1)}
-          onSwitch={(id) => {
-            const next = switchTab(tabs, id);
-            setTabs(next);
-            openLoc(currentLoc(activeTab(next)));
-          }}
+          onSwitch={switchToTab}
           onClose={(id) => {
             const next = closeTab(tabs, id);
             setTabs(next);
@@ -1224,9 +1283,7 @@ function App() {
           onDismiss={() => setTabsOpen(false)}
           onSwitch={(id) => {
             setTabsOpen(false);
-            const next = switchTab(tabs, id);
-            setTabs(next);
-            openLoc(currentLoc(activeTab(next)));
+            switchToTab(id);
           }}
           onClose={(id) => {
             const next = closeTab(tabs, id);

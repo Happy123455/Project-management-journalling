@@ -1,13 +1,31 @@
+import type React from "react";
 import type { JournalStore } from "../store";
 import { agendaAction, useTodayAgenda } from "./agenda";
 import { writeLog, type RoutineView } from "./routineData";
 import { TodayDayLine } from "../calendar/ReminderDayLine";
 import { dayKey } from "../lib/timestamp";
 
+/** The reminder's words without its "⏰ 15:00" (the day line shows the time). */
+export const withoutTime = (text: string) => text.replace(/^\s*⏰?\s*(?:\d{1,2}[:.]\d{2}\s*(?:[ap]\.?m\.?)?)?\s*[-–·:]?\s*/i, "").trim() || text;
+
 const clock = (t: number) => {
   const d = new Date(t);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
+
+/** Brings today's note line with this reminder into view and lights it up for a moment. */
+export function jumpToLine(text: string) {
+  const needle = text.trim().toLowerCase().slice(0, 60);
+  if (!needle) return;
+  const blocks = Array.from(document.querySelectorAll<HTMLElement>(".tiptap > *"));
+  const hit = blocks.find((b) => (b.textContent ?? "").toLowerCase().includes(needle));
+  if (!hit) return;
+  hit.scrollIntoView({ behavior: "smooth", block: "center" });
+  hit.classList.remove("outline-flash");
+  void hit.offsetWidth;
+  hit.classList.add("outline-flash");
+  window.setTimeout(() => hit.classList.remove("outline-flash"), 1600);
+}
 
 /**
  * Coming up → Today: today's timed reminders in order with a "now" line between what's past and
@@ -19,11 +37,19 @@ export function TodayAgenda({ store, view, onOpenRoutine }: { store: JournalStor
   const nextStep = next && view?.config.steps.find((s) => s.id === next.id);
   const open = view && view.config.steps.flatMap((s) => (view.filled.get(s.id) ?? []).filter((x) => x.open && !x.estimated && x.end >= view.now - 60_000).map(() => s))[0];
   if (!items.length && !nextStep && !open) return null;
+  const dayStart = new Date(now).setHours(0, 0, 0, 0);
+  const dayPct = (t: number) => Math.max(0, Math.min(100, ((t - dayStart) / 86_400_000) * 100));
   const nowAt = items.findIndex((i) => i.at > now);
   const rows = items.map((item) => (
-    <li key={item.id} className={item.done ? "agenda-row done" : item.at <= now ? "agenda-row past" : "agenda-row"}>
-      <span className="agenda-time">{clock(item.at)}</span>
-      <span className="agenda-text">{item.repeat ? "🔁 " : ""}{item.text}</span>
+    <li key={item.id} className={item.done ? "agenda-row done" : item.at <= now ? "agenda-row past" : "agenda-row"} style={{ "--p": `${dayPct(item.at)}%` } as React.CSSProperties}>
+      {/* An arrow up to this reminder's point on the day line above (its time is shown there). */}
+      <span className="agenda-pointer" aria-hidden>
+        <i />
+      </span>
+      <button type="button" className="agenda-text" onClick={() => jumpToLine(item.text)} title={`${clock(item.at)} · show it in the note`}>
+        {item.repeat ? "🔁 " : ""}
+        {withoutTime(item.text)}
+      </button>
       <span className="agenda-actions">
         {item.done ? (
           <button type="button" onClick={() => void agendaAction(store, item, "undo")} aria-label="Not done">↶</button>
@@ -43,7 +69,7 @@ export function TodayAgenda({ store, view, onOpenRoutine }: { store: JournalStor
   return (
     <section className="reminders today-agenda">
       <h2>Today</h2>
-      {items.length > 0 && <TodayDayLine day={dayKey(new Date(now))} items={items} />}
+      {items.length > 0 && <TodayDayLine day={dayKey(new Date(now))} items={items} onPick={jumpToLine} />}
       <ul>{rows}</ul>
       {view && (open || nextStep) && (
         <div className="agenda-next">
