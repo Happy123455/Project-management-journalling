@@ -650,6 +650,8 @@ function App() {
     setFind(null);
     void goTo(today);
   };
+  const joyBase = useRef<string | null>(null);
+  const joyShown = useRef<string | null>(null);
   const islandActions: MenuAction[] = [
     { icon: "☰", label: "Menu", run: () => setDrawerOpen(true) },
     { icon: "🔎", label: "Search text", run: () => setSearchOpen(true) },
@@ -1243,6 +1245,18 @@ function App() {
           onForward={() => step(1)}
           onHome={goHome}
           onHomeDouble={writeAtEnd}
+          onShiftDay={(n, final) => {
+            // Days from the one open when the stick was taken; the note follows, read-only until tapped.
+            joyBase.current ??= route.kind === "day" ? day : today;
+            const next = addDays(joyBase.current, n);
+            const same = next === joyShown.current && route.kind === "day";
+            joyShown.current = final ? null : next;
+            if (final) joyBase.current = null;
+            if (same) return;
+            (document.activeElement as HTMLElement | null)?.blur?.();
+            window.JournalShare?.hideKeyboard?.();
+            void goTo(next);
+          }}
           onSearch={() => setTitleSearchOpen(true)}
           onTabs={() => setTabsOpen(true)}
           onSwitchTab={switchToTab}

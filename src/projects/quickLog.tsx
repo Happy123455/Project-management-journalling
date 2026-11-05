@@ -107,13 +107,23 @@ export async function assignQuickLogIcons(store: JournalStore): Promise<number> 
 }
 
 /** The quick-log buttons for the tool bar, kept current. */
+/** The last list loaded, so a toolbar drawn again (each time the keyboard opens) starts with it. */
+let lastQuick: QuickLog[] = [];
 export function useQuickLogs(): QuickLog[] {
-  const [list, setList] = useState<QuickLog[]>([]);
+  const [list, setList] = useState<QuickLog[]>(lastQuick);
   useEffect(() => {
     let live = true;
     const load = () => {
       const store = journalStore();
-      if (store) void quickLogs(store).then((l) => live && setList(l)).catch(() => {});
+      if (store)
+        void quickLogs(store)
+          .then((l) => {
+            // Same buttons: keep the same array (the bar doesn't redraw or jump).
+            if (JSON.stringify(l) === JSON.stringify(lastQuick)) return;
+            lastQuick = l;
+            if (live) setList(l);
+          })
+          .catch(() => {});
     };
     load();
     window.addEventListener(QUICK_LOG_CHANGED, load);
@@ -146,6 +156,9 @@ export function GifIcon({ fileId, mime }: { fileId: string; mime?: string }) {
 export const openQuickLogSetup = () => window.dispatchEvent(new Event("journal:quick-log-setup"));
 
 /** Which projects get a quick-log button, and their icons (picked by hand, or by the Mac's AI). */
+const latest = new Map<string, NonNullable<NamedPage["props"]["project"]>>();
+let saving: Promise<void> = Promise.resolve();
+
 export function QuickLogSetup() {
   const [open, setOpen] = useState(false);
   const [projects, setProjects] = useState<NamedPage[]>([]);
@@ -153,7 +166,11 @@ export function QuickLogSetup() {
   const [busy, setBusy] = useState<string | null>(null);
   const [gifs, setGifs] = useState<FileRecord[] | null>(null);
   const store = journalStore();
-  const reload = () => void store?.projects().then((all) => setProjects(all.filter((p) => p.props.project?.status !== "done")));
+  const reload = () =>
+    void store?.projects().then((all) => {
+      latest.clear();
+      setProjects(all.filter((p) => p.props.project?.status !== "done"));
+    });
   useEffect(() => {
     const onOpen = () => {
       setOpen(true);
@@ -166,14 +183,23 @@ export function QuickLogSetup() {
   useEffect(() => (open ? reload() : undefined), [open]);
   if (!open || !store) return null;
 
-  const save = async (p: NamedPage, patch: Partial<NonNullable<NamedPage["props"]["project"]>>) => {
-    try {
-      await store.setPageProps(p.id, { project: { ...p.props.project!, ...patch } });
-      window.dispatchEvent(new Event(QUICK_LOG_CHANGED));
-      reload();
-    } catch (e) {
-      showError("Couldn't save the quick log", e);
-    }
+  // The switch flips at once (it used to wait for the save and the reload, and jumped back
+  // meanwhile); saves go one after another, each from the newest settings, so quick taps never undo
+  // each other.
+  const save = (p: NamedPage, patch: Partial<NonNullable<NamedPage["props"]["project"]>>) => {
+    const next = { ...(latest.get(p.id) ?? p.props.project!), ...patch };
+    latest.set(p.id, next);
+    setProjects((all) => all.map((x) => (x.id === p.id ? { ...x, props: { ...x.props, project: next } } : x)));
+    saving = saving.then(async () => {
+      try {
+        await store.setPageProps(p.id, { project: next });
+        window.dispatchEvent(new Event(QUICK_LOG_CHANGED));
+      } catch (e) {
+        showError("Couldn't save the quick log", e);
+        reload();
+      }
+    });
+    return saving;
   };
   const aiPick = async (p: NamedPage) => {
     setPicking(null);

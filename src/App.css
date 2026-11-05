@@ -3126,3 +3126,17 @@ html.booting *, html.booting *::before, html.booting *::after { transition: none
 .upcoming-scroll .upcoming li.squeezed { pointer-events: none; align-items: flex-start; }
 .upcoming-scroll .upcoming li.squeezed > * { pointer-events: auto; }
 .upcoming li .reminder-open { transition: none; }
+
+/* ▾ Network history under Drive storage. */
+.sync-history-toggle { all: unset; cursor: pointer; font-size: 12px; color: var(--muted); padding: 2px 0; }
+.sync-history-body { margin-top: 4px; max-height: 240px; overflow-y: auto; overscroll-behavior: contain; font-size: 11.5px; border: 1px solid var(--border); border-radius: 10px; padding: 6px 8px; }
+.sync-history-body ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.sync-history-body li { display: grid; grid-template-columns: 18px 42px 1fr auto; gap: 4px; align-items: baseline; }
+.sync-history-when, .sync-history-size { color: var(--muted); font-variant-numeric: tabular-nums; }
+.sync-history-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-history-sum { margin: 0 0 6px; font-weight: 600; }
+
+/* Home joystick: moves sideways too (days), with a chip saying how many days it has moved. */
+.nav-home { transform: translate(var(--joy-x, 0px), var(--joy, 0px)); position: relative; }
+.nav-joy-arrows > span { display: flex; align-items: center; gap: 3px; }
+.nav-joy-day { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; background: #7c3aed; box-shadow: 0 4px 12px rgba(124, 58, 237, 0.45); pointer-events: none; }

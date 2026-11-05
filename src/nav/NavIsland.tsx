@@ -82,7 +82,7 @@ const QUICK: { key: ViewMode | "outline"; icon: string; label: string }[] = [
  * - swipe up from (or hold) the tabs: tab previews float up, slide onto one and let go to open it;
  * - hold the menu: View / Edit / Source / Outline fan out, slide onto one and let go.
  */
-export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onForward, onHome, onHomeDouble, onSearch, onTabs, onSwitchTab, onNewTab, actions }: {
+export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onForward, onHome, onHomeDouble, onShiftDay, onSearch, onTabs, onSwitchTab, onNewTab, actions }: {
   /** A panel or sheet covers the page: the island tucks away. */
   away: boolean;
   tabs: TabsState;
@@ -93,6 +93,8 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   onForward: () => void;
   onHome: () => void;
   onHomeDouble: () => void;
+  /** Home joystick leaned sideways: `days` from the day it started on (final: let go). */
+  onShiftDay?: (days: number, final: boolean) => void;
   onSearch: () => void;
   onTabs: () => void;
   onSwitchTab: (id: string) => void;
@@ -105,10 +107,15 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   const [hover, setHover] = useState<string | null>(null);
   const [joy, setJoy] = useState<number | null>(null);
   const g = useRef<Gesture | null>(null);
+  const navRef = useRef<HTMLElement>(null);
   const quietClick = useRef(0);
   const lastHome = useRef(0);
   // armed: the button has been lifted clear of the screen's bottom edge and the stick is live.
-  const joyRun = useRef<{ frame: number; at: number; off: number; travel: number; edge: boolean; armed: boolean } | null>(null);
+  // lift: how far up (px) the button goes, to the middle of the screen's lower third. offX: sideways
+  // lean (days), off: up/down lean (scrolling). days: days moved so far, acc: progress to the next one.
+  const joyRun = useRef<{ frame: number; at: number; off: number; offX: number; travel: number; edge: boolean; armed: boolean; lift: number; days: number; acc: number; go: number } | null>(null);
+  const [joyX, setJoyX] = useState(0);
+  const [joyDays, setJoyDays] = useState(0);
   const atToday = (() => {
     const l = currentLoc(tabs.tabs.find((t) => t.id === tabs.active) ?? tabs.tabs[0]);
     return l.kind === "day" && l.day === today;
@@ -122,19 +129,49 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   const stopJoy = () => {
     const j = joyRun.current;
     joyRun.current = null;
-    if (j) cancelAnimationFrame(j.frame);
+    if (j) {
+      cancelAnimationFrame(j.frame);
+      window.clearTimeout(j.go);
+      // Let go: the day it was showing is the day that stays open.
+      if (j.days) onShiftDay?.(j.days, true);
+    }
     setJoy(null);
+    setJoyX(0);
+    setJoyDays(0);
   };
-  const startJoy = () => {
+  const startJoy = (homeEl: HTMLElement | null) => {
     haptic("press", 0.9);
     setJoy(0);
-    const j = { frame: 0, at: performance.now(), off: 0, travel: 0, edge: false, armed: false };
+    // Up to the middle of the lower third of the screen (never less than a thumb's width).
+    const r = homeEl?.getBoundingClientRect();
+    const lift = r ? Math.max(JOY_LIFT, r.top + r.height / 2 - window.innerHeight * (5 / 6)) : JOY_LIFT;
+    const j = { frame: 0, at: performance.now(), off: 0, offX: 0, travel: 0, edge: false, armed: false, lift, days: 0, acc: 0, go: 0 };
     joyRun.current = j;
     const loop = (now: number) => {
       const dt = Math.min(0.05, (now - j.at) / 1000);
       j.at = now;
+      // Whichever way it leans more wins: sideways = days, up/down = scrolling.
+      const sideways = Math.abs(j.offX) > Math.abs(j.off);
+      const leanX = Math.abs(j.offX) - 22;
+      if (j.armed && sideways && leanX > 0) {
+        // One day at a time near the middle, up to ~8 a second at full lean.
+        const rate = Math.min(8, 1.2 + Math.pow(leanX / 45, 1.7) * 3);
+        if (j.acc === 0) j.acc = 1;
+        else j.acc += rate * dt;
+        while (j.acc >= 1) {
+          j.acc -= 1;
+          j.days += j.offX > 0 ? 1 : -1;
+          haptic("tick", Math.min(1, 0.4 + leanX / 120));
+          setJoyDays(j.days);
+          // The note follows shortly after the steps pause (not one load per day while it races).
+          window.clearTimeout(j.go);
+          const n = j.days;
+          j.go = window.setTimeout(() => joyRun.current === j && onShiftDay?.(n, false), 260);
+        }
+        if (j.acc === 0) j.acc = 0.0001;
+      } else j.acc = 0;
       const lean = Math.abs(j.off) - 8;
-      if (j.armed && lean > 0) {
+      if (j.armed && !sideways && lean > 0) {
         // Fine near the middle, quick at full lean (about a screen a second at 80px).
         const v = Math.sign(j.off) * Math.pow(Math.min(lean, 90) / 82, 1.6) * 2600;
         const before = window.scrollY;
@@ -177,7 +214,21 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (e.pointerType === "mouse" || g.current) return;
+    if (e.pointerType === "mouse") return;
+    // A gesture whose finger-up never arrived must not block the island for good.
+    if (g.current) {
+      if (e.timeStamp - g.current.t0 < 15_000 && g.current.id !== e.pointerId) return;
+      window.clearTimeout(g.current.timer);
+      g.current = null;
+      stopJoy();
+    }
+    // Every later move and the finger-up come to the island, even when the touched icon is swapped
+    // out under the finger (Home's icon turns into the joystick's arrows): lost ones froze it before.
+    try {
+      navRef.current?.setPointerCapture(e.pointerId);
+    } catch {
+      // Not capturable (already up).
+    }
     const zone = (e.target as HTMLElement).closest<HTMLElement>("[data-zone]")?.dataset.zone ?? "bar";
     const gesture: Gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: e.timeStamp, zone, mode: "idle", timer: 0, movedAfter: false };
     if (zone === "home" || zone === "tabs" || zone === "menu")
@@ -185,7 +236,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
         if (g.current !== gesture || gesture.mode !== "idle") return;
         if (zone === "home") {
           gesture.mode = "joy";
-          startJoy();
+          startJoy(navRef.current?.querySelector<HTMLElement>(".nav-home") ?? null);
         } else {
           gesture.mode = zone === "tabs" ? "previews" : "quick";
           haptic("press", 0.8);
@@ -220,13 +271,18 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
       // First the button is drawn up, away from the bottom edge (nothing scrolls yet); once it is a
       // safe height up, the stick engages there, with room to lean both ways.
       if (!j.armed) {
-        if (dy > -JOY_LIFT) return setJoy(Math.min(0, dy));
+        setJoyX(Math.max(-30, Math.min(30, dx * 0.3)));
+        if (dy > -j.lift) return setJoy(Math.min(0, dy));
         j.armed = true;
+        // The stick's middle is where the finger is now.
+        s.x0 = s.x;
         haptic("edge", 0.9);
       }
-      const off = dy + JOY_LIFT;
+      const off = dy + j.lift;
       j.off = Math.max(-100, Math.min(100, off));
-      setJoy(-JOY_LIFT + Math.max(-40, Math.min(40, off * 0.4)));
+      j.offX = Math.max(-110, Math.min(110, s.x - s.x0));
+      setJoy(-j.lift + Math.max(-40, Math.min(40, off * 0.4)));
+      setJoyX(Math.max(-44, Math.min(44, j.offX * 0.4)));
     } else if (s.mode === "quick" || s.mode === "previews") {
       if (Math.hypot(dx, dy) > 14) s.movedAfter = true;
       pickAt(e.clientX, e.clientY);
@@ -272,6 +328,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   return (
     <>
       <nav
+        ref={navRef}
         className={`nav-island${away || menu ? " away" : ""}${joy != null ? " joying" : ""}`}
         aria-label="Navigation"
         inert={away || undefined}
@@ -279,6 +336,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
         onPointerMove={onPointerMove}
         onPointerUp={(e) => onPointerUp(e)}
         onPointerCancel={(e) => onPointerUp(e, true)}
+        onLostPointerCapture={(e) => g.current?.id === e.pointerId && onPointerUp(e, true)}
         onContextMenu={(e) => e.preventDefault()}
       >
         <div className="nav-side">
@@ -296,7 +354,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
           type="button"
           data-zone="home"
           className={`nav-home${atToday ? " at-today" : ""}`}
-          style={joy != null ? ({ "--joy": `${joy}px` } as React.CSSProperties) : undefined}
+          style={joy != null ? ({ "--joy": `${joy}px`, "--joy-x": `${joyX}px` } as React.CSSProperties) : undefined}
           onClick={press(() => {
             const now = Date.now();
             if (now - lastHome.current < 320) {
@@ -308,7 +366,8 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
           })}
           aria-label="Today's note (double-tap: write at its end; hold: scroll)"
         >
-          {joy != null ? <span className="nav-joy-arrows" aria-hidden>▲<i />▼</span> : <Icon d={HOME} size={28} />}
+          {joy != null ? <span className="nav-joy-arrows" aria-hidden>▲<span>◀<i />▶</span>▼</span> : <Icon d={HOME} size={28} />}
+          {joy != null && joyDays !== 0 && <span className="nav-joy-day">{joyDays > 0 ? `+${joyDays}` : joyDays} day{Math.abs(joyDays) === 1 ? "" : "s"}</span>}
         </button>
         <div className="nav-side">
           <button type="button" data-zone="tabs" className="nav-btn nav-tabs" onClick={press(onTabs)} aria-label={`${tabs.tabs.length} tabs`}>

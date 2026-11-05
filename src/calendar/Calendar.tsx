@@ -167,18 +167,64 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
   };
   // React's touch handlers can't stop the page scrolling, so a real listener does: while the strip is
   // pulled down, the finger only opens the month (the note underneath stays where it is).
+  //
+  // The pull is followed on the touched element itself, not the section: opening swaps the week row
+  // for the month, and the touched day leaves the page. Its later touch events then never reach the
+  // section (nor React), which left the month stuck half open. The element itself still gets them.
+  const pullMove = (e: TouchEvent) => {
+    const p = pull.current;
+    const el = section.current;
+    if (!p || !el) return;
+    const dy = e.touches[0].clientY - p.y;
+    const dx = e.touches[0].clientX - p.x;
+    if (e.cancelable && (p.on || (dy > 2 && dy >= Math.abs(dx)))) e.preventDefault();
+    if (!p.on) {
+      if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) return void (pull.current = null);
+      if (dy < 10 || dy < Math.abs(dx) * 1.2) return;
+      p.on = true;
+      setPulling(true);
+      el.style.transition = "none";
+      el.style.maxHeight = `${p.base}px`;
+      haptic("tap", 0.4);
+      toggle(true, true);
+    }
+    p.dy = dy;
+    cancelAnimationFrame(pullFrame.current);
+    pullFrame.current = requestAnimationFrame(() => {
+      el.style.maxHeight = `${Math.max(p.base, p.base + p.dy)}px`;
+    });
+  };
+  const pullEnd = (e: TouchEvent, cancelled: boolean) => {
+    const p = pull.current;
+    if (!p?.on) return void (pull.current = null);
+    pulledAt.current = Date.now();
+    drag.current = null;
+    endPull(cancelled ? p.dy : (e.changedTouches[0]?.clientY ?? p.y + p.dy) - p.y, cancelled ? e.timeStamp + 1000 : e.timeStamp);
+  };
+  const pullFns = useRef({ pullMove, pullEnd });
+  pullFns.current = { pullMove, pullEnd };
+  const pulledAt = useRef(0);
   useEffect(() => {
     const el = section.current;
     if (!el) return;
-    const onMove = (e: TouchEvent) => {
-      const p = pull.current;
-      if (!p || !e.cancelable) return;
-      const dy = e.touches[0].clientY - p.y;
-      const dx = e.touches[0].clientX - p.x;
-      if (p.on || (dy > 2 && dy >= Math.abs(dx))) e.preventDefault();
+    const onStart = (e: TouchEvent) => {
+      const target = e.target as Node;
+      const move = (ev: Event) => pullFns.current.pullMove(ev as TouchEvent);
+      const done = (ev: TouchEvent) => {
+        target.removeEventListener("touchmove", move);
+        target.removeEventListener("touchend", end);
+        target.removeEventListener("touchcancel", cancel);
+        pullFns.current.pullEnd(ev, ev.type === "touchcancel");
+      };
+      const end = (ev: Event) => done(ev as TouchEvent);
+      const cancel = end;
+      target.addEventListener("touchmove", move, { passive: false });
+      target.addEventListener("touchend", end);
+      target.addEventListener("touchcancel", cancel);
     };
-    el.addEventListener("touchmove", onMove, { passive: false });
-    return () => el.removeEventListener("touchmove", onMove);
+    // Runs after React's onTouchStart (which sets up `pull`): both listen on the way up.
+    el.addEventListener("touchstart", onStart, { passive: true });
+    return () => el.removeEventListener("touchstart", onStart);
   }, []);
   // Hold the month name: a joystick for months. Lean left or right, further = faster, a tick for each month.
   const [scrub, setScrub] = useState<number | null>(null);
@@ -283,37 +329,11 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
           drag.current = { y: t.clientY, x: t.clientX };
           pull.current = collapsed ? { x: t.clientX, y: t.clientY, t: e.timeStamp, base: section.current?.offsetHeight ?? 0, on: false, dy: 0 } : null;
         }}
-        onTouchMove={(e) => {
-          const p = pull.current;
-          const el = section.current;
-          if (!p || !el) return;
-          const dy = e.touches[0].clientY - p.y;
-          const dx = e.touches[0].clientX - p.x;
-          if (!p.on) {
-            if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) return void (pull.current = null);
-            if (dy < 10 || dy < Math.abs(dx) * 1.2) return;
-            p.on = true;
-            setPulling(true);
-            el.style.transition = "none";
-            el.style.maxHeight = `${p.base}px`;
-            haptic("tap", 0.4);
-            toggle(true, true);
-          }
-          p.dy = dy;
-          cancelAnimationFrame(pullFrame.current);
-          pullFrame.current = requestAnimationFrame(() => {
-            el.style.maxHeight = `${Math.max(p.base, p.base + p.dy)}px`;
-          });
-        }}
-        // Cancelled mid-pull (the system took the touch): settle by how far it got, never left half open.
-        onTouchCancel={(e) => endPull(pull.current?.dy ?? 0, e.timeStamp + 1000)}
+        // The pull itself is followed by pullMove / pullEnd (see above).
         onTouchEnd={(e) => {
           const start = drag.current;
           drag.current = null;
-          if (pull.current?.on) {
-            e.stopPropagation();
-            return void endPull(e.changedTouches[0].clientY - pull.current.y, e.timeStamp);
-          }
+          if (Date.now() - pulledAt.current < 200) return void e.stopPropagation();
           pull.current = null;
           if (!start) return;
           const dy = e.changedTouches[0].clientY - start.y;

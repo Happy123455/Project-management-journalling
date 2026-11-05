@@ -3,6 +3,7 @@ import type { SyncStatus as Status } from "./useSync";
 import type { StorageUsage } from "./engine";
 import { syncStorage } from "./folders";
 import { visibleInterval } from "../lib/power";
+import { bytes, clearTransfers, TRANSFER_EVENT, transfers, type Via } from "./transferLog";
 import type { ConnectResult } from "./direct";
 import { clipShareOn, setClipShare } from "./clipboard";
 import { showToast } from "../lib/toast";
@@ -84,6 +85,51 @@ function StorageLine() {
   );
 }
 
+/** ▾ Network history: what went across lately, over the Wi-Fi link and through Google Drive. */
+function TransferHistory() {
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState(transfers);
+  useEffect(() => {
+    if (!open) return;
+    const on = () => setList(transfers());
+    on();
+    window.addEventListener(TRANSFER_EVENT, on);
+    return () => window.removeEventListener(TRANSFER_EVENT, on);
+  }, [open]);
+  const day = Date.now() - 86_400_000;
+  const today = list.filter((t) => t.at > day);
+  const sum = (via: Via) => today.filter((t) => t.via === via).reduce((n, t) => n + t.up + t.down, 0);
+  return (
+    <div className={`sync-history${open ? " open" : ""}`}>
+      <button type="button" className="sync-history-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
+        {open ? "▴" : "▾"} Network history
+      </button>
+      {open && (
+        <div className="sync-history-body">
+          <p className="sync-history-sum">
+            Last 24 h: 📶 Wi-Fi {bytes(sum("wifi"))} · ☁︎ Drive {bytes(sum("drive"))}
+          </p>
+          {list.length ? (
+            <ul>
+              {list.map((t, i) => (
+                <li key={`${t.at}-${i}`}>
+                  <span className="sync-history-via">{t.via === "wifi" ? "📶" : "☁︎"}</span>
+                  <span className="sync-history-when">{new Date(t.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                  <span className="sync-history-what">{t.what}{t.n > 1 ? ` ×${t.n}` : ""}</span>
+                  <span className="sync-history-size">↑{bytes(t.up)} ↓{bytes(t.down)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="hint">Nothing sent or received yet on this device.</p>
+          )}
+          {list.length > 0 && <button type="button" onClick={() => (clearTransfers(), setList([]))}>Clear</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ago(date: Date, now: number): string {
   const s = Math.round((now - date.getTime()) / 1000);
   if (s < 45) return "just now";
@@ -136,6 +182,7 @@ export function SyncStatus({ status, live, direct, onSync, onChooseFolder, onCon
       {inApp() && <ClipToggle />}
       <button type="button" onClick={onSync} disabled={status.state === "syncing"}>Sync now</button>
       <StorageLine />
+      <TransferHistory />
       {status.state === "error" && window.JournalSync && (
         <button type="button" onClick={onChooseFolder}>☁︎ Sign in again…</button>
       )}

@@ -1,4 +1,5 @@
 import type { JournalStore } from "../store";
+import { logTransfer } from "./transferLog";
 import { importRecords } from "./engine";
 import type { SyncRecord } from "./merge";
 import { receiveTyping, type TypingMsg } from "./liveTyping";
@@ -111,16 +112,19 @@ async function postTo<T>(address: DirectAddress, path: string, body: unknown, ti
   const ctl = new AbortController();
   live?.add(ctl);
   const t = window.setTimeout(() => ctl.abort(), timeoutMs);
+  const sentText = JSON.stringify(body ?? {});
   try {
     const res = await fetch(`http://${address.ip}:${address.port}${path}`, {
       method: "POST",
       headers: { "X-Journal-Key": address.key, "Content-Type": "application/json" },
-      body: JSON.stringify(body ?? {}),
+      body: sentText,
       signal: ctl.signal,
       connectTimeout: Math.min(3000, timeoutMs),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const out = (await res.json()) as T & { ok?: boolean; error?: string };
+    const text = await res.text();
+    logTransfer({ via: "wifi", up: sentText.length, down: text.length, what: wifiWhat(path) });
+    const out = JSON.parse(text) as T & { ok?: boolean; error?: string };
     if (out.ok === false) throw new Error(out.error ?? "refused");
     return out;
   } finally {
@@ -129,11 +133,23 @@ async function postTo<T>(address: DirectAddress, path: string, body: unknown, ti
   }
 }
 
+/** A Wi-Fi request, in words for the network history. */
+function wifiWhat(path: string) {
+  if (path.startsWith("/typing")) return "live typing";
+  if (path.startsWith("/file") || path.startsWith("/blob")) return "photos and files";
+  if (path.startsWith("/clip")) return "shared clipboard";
+  if (path.startsWith("/push") || path.startsWith("/pull")) return "edits";
+  return "link checks";
+}
+
 /** Answers the requests direct.rs hands to the page. */
 async function serveRequests(answer: (path: string, body: Body) => Promise<unknown>) {
   const { invoke } = await import("@tauri-apps/api/core");
   const { listen } = await import("@tauri-apps/api/event");
   return listen<{ id: number; path: string; body: Body }>("direct-req", async (e) => {
+    const b = e.payload.body;
+    const size = b?.data ? b.data.length : b?.records?.length || b?.typing?.length || b?.clip ? JSON.stringify(b).length : 0;
+    if (size) logTransfer({ via: "wifi", down: size, what: wifiWhat(e.payload.path) });
     const result = await answer(e.payload.path, e.payload.body).catch((err) => ({ ok: false, error: String(err?.message ?? err) }));
     await invoke("direct_reply", { id: e.payload.id, result }).catch(() => {});
   });

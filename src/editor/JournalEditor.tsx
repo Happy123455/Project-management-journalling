@@ -311,9 +311,12 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
   // Quick log: one tap adds a project's box (its icon picked by hand or by the Mac's AI). They come first.
   const quickTools: Tool[] = quick.map((q) => ({ key: `ql:${q.id}`, label: q.iconFile ? <GifIcon fileId={q.iconFile} /> : q.icon ?? "⚡", title: `Quick log: ${q.title}`, run: () => insertQuickLog(editor, q.title) }));
   const setupTool: Tool = { key: "quicklog", label: "⚡", title: "Quick log buttons", run: openQuickLogSetup };
-  const allTools = [...tools, setupTool];
+  // Phone: quick-log buttons are tools like the others (first by default; dragged, hidden and
+  // ordered the same way in edit mode and Arrange tools), and ⚡ setup stays put instead of
+  // appearing and vanishing as the list loads.
+  const allTools = phone ? [...quickTools, ...tools, setupTool] : [...tools, setupTool];
   toolCatalog = allTools.map((t) => ({ key: t.key, label: t.label, title: t.title }));
-  const arranged = arrangeTools(allTools, layout).filter((t) => quick.length || t.key !== "quicklog");
+  const arranged = arrangeTools(allTools, layout);
   const startJiggle = () => {
     haptic("press", 0.7);
     setJiggle(true);
@@ -329,7 +332,7 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
   const shown: Tool[] = phone
     ? jiggle
       ? [...arranged, { key: "jiggle-more", label: "⋯", title: "Show or hide tools, layout", run: openArrangeTools }, { key: "jiggle-done", label: "✓ Done", title: "Done arranging", run: stopJiggle }]
-      : [...quickTools, ...(quick.length ? [] : [setupTool]), ...arranged, { key: "arrange", label: "⚙︎", title: "Arrange tools (or hold any tool)", run: startJiggle }]
+      : [...arranged, { key: "arrange", label: "⚙︎", title: "Arrange tools (or hold any tool)", run: startJiggle }]
     : [...quickTools, ...allTools.filter((t) => !PHONE_ONLY.has(t.key))];
   const movable = (k: string) => arranged.some((t) => t.key === k);
   // Dragging in edit mode: the tool under the finger makes room (the order changes as it moves).
@@ -473,7 +476,7 @@ function ArrangeToolsHost() {
             <label className="arrange-big">
               <input type="checkbox" checked={!!layout.big} onChange={(e) => update({ ...layout, big: e.target.checked })} /> Bigger buttons
             </label>
-            <p className="hint">Tick the tools you want, and move them with ↑ ↓. Quick-log buttons always come first.</p>
+            <p className="hint">Tick the tools you want, and move them with ↑ ↓. Quick-log buttons move like any other tool.</p>
           </div>
           <ul>
             {arrangeTools(toolCatalog, layout, true).map((t, i, all) => {

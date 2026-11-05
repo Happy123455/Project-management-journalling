@@ -1,6 +1,7 @@
 import type { FileRecord, JournalStore } from "../store/types";
 import { sha256 } from "../lib/files";
 import { fromLines, planMerge, toLines, type MergePlan, type SyncRecord } from "./merge";
+import { logTransfer } from "./transferLog";
 
 /** The shared folder (Google Drive), seen as paths relative to "Dynamic Journal Sync/". */
 export interface SyncFolder {
@@ -62,8 +63,22 @@ const dec = new TextDecoder();
  * 2. read the other devices' files it hasn't read yet, and import the events this device doesn't have.
  * Files are never rewritten, so on the phone a round only downloads what's new (mobile data).
  */
-export async function syncOnce(store: JournalStore, folder: SyncFolder, memory: SyncMemory = memoryOnly()): Promise<SyncResult> {
+export async function syncOnce(store: JournalStore, plainFolder: SyncFolder, memory: SyncMemory = memoryOnly()): Promise<SyncResult> {
   const me = store.deviceId;
+  // Bytes in and out this round, for the network history.
+  const moved = { up: 0, down: 0, photosUp: 0 };
+  const folder: SyncFolder = Object.assign(Object.create(plainFolder), {
+    read: async (path: string) => {
+      const b = await plainFolder.read(path);
+      if (b) moved.down += b.length;
+      return b;
+    },
+    write: async (path: string, b: Uint8Array) => {
+      await plainFolder.write(path, b);
+      moved.up += b.length;
+      if (path.startsWith("files/")) moved.photosUp++;
+    },
+  });
   const saved = memory.get("journal.sync");
   let mem: Remembered = saved ? JSON.parse(saved) : { files: [], ids: [], hashes: [], seen: [] };
   const remember = () => memory.set("journal.sync", JSON.stringify(mem));
@@ -139,6 +154,13 @@ export async function syncOnce(store: JournalStore, folder: SyncFolder, memory: 
   const replaced = new Set(read.map((k) => k.slice(0, k.lastIndexOf("@"))));
   mem.seen = [...mem.seen.filter((k) => !replaced.has(k.slice(0, k.lastIndexOf("@")))), ...read];
   remember();
+  const what = [
+    missing.length && `${missing.length} edit${missing.length === 1 ? "" : "s"} sent`,
+    plan.events.length && `${plan.events.length} received`,
+    moved.photosUp && `${moved.photosUp} file${moved.photosUp === 1 ? "" : "s"} up`,
+    got.length && `${got.length} file${got.length === 1 ? "" : "s"} down`,
+  ].filter(Boolean).join(", ");
+  if (typeof window !== "undefined") logTransfer({ via: "drive", up: moved.up, down: moved.down, what: what || "checked, nothing new" });
   return { exported: missing.length, imported: plan.events.length, files: got.length };
 }
 
