@@ -216,7 +216,7 @@ const UpcomingRow = React.memo(function UpcomingRow({ page, squeezed, stack, fol
           <span className="reminder-text reminder-inline">{line}</span>
         )}
         <Countdown day={page.day} />
-        {!folded && <ReminderDayLine day={page.day} content={page.content} />}
+        {!folded && page.day === dayKey(new Date()) && <ReminderDayLine day={page.day} content={page.content} />}
       </button>
       {!folded && onAction && (
         <button type="button" className="reminder-more" aria-label="Move or repeat" aria-expanded={menu} onClick={() => setMenu(!menu)}>⋯</button>
