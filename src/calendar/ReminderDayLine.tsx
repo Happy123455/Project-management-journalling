@@ -18,19 +18,34 @@ const at = (day: string, h: number, m: number) => {
   return new Date(y, mo - 1, d, h, m).getTime();
 };
 const hhmm = (h: number, m: number) => `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-const pct = (h: number, m: number) => ((h * 60 + m) / 1440) * 100;
 
-/**
- * A reminder's day as a line coloured like that day's sky where you are (night blue, dawn pink,
- * day, sunset, evening), with a point where each reminder falls, and how long is left until the next.
- * A reminder with no time written shows its morning nudge (08:00) as a hollow point.
- */
-export function ReminderDayLine({ day, content }: { day: string; content: JSONContent | null | undefined }) {
+/** Coming up: how long is left until the reminder's next time (or its 08:00 morning nudge). */
+export function ReminderTimeLeft({ day, content }: { day: string; content: JSONContent | null | undefined }) {
   const now = useNow();
   const times = useMemo(() => reminderTimes(content), [content]);
-  const points = times.length ? times : [{ hour: MORNING_HOUR, minute: 0, text: "" }];
   const timed = times.length > 0;
-  // The sky through the day: a colour every half hour, from the real sun on that date.
+  const points = timed ? times : [{ hour: MORNING_HOUR, minute: 0, text: "" }];
+  const next = points.find((p) => at(day, p.hour, p.minute) > now) ?? null;
+  return (
+    <span className="rdl-left">
+      {next ? (
+        <>
+          ⏳ <b>{timeLeft(at(day, next.hour, next.minute) - now)}</b> left · {timed ? hhmm(next.hour, next.minute) : `morning nudge ${hhmm(MORNING_HOUR, 0)}`}
+        </>
+      ) : (
+        <>✓ Passed</>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Today as a line coloured like today's sky where you are (night blue, dawn pink, day, sunset,
+ * evening), with a point where each of today's reminders falls, sunrise, sunset and now, and how
+ * long is left until the next one.
+ */
+export function TodayDayLine({ day, items }: { day: string; items: { at: number; text: string; done: boolean }[] }) {
+  const now = useNow();
   const sky = useMemo(() => {
     const coords = homeCoords();
     const stops: string[] = [];
@@ -38,36 +53,40 @@ export function ReminderDayLine({ day, content }: { day: string; content: JSONCo
     const sun = sunForDay(new Date(at(day, 12, 0)), coords);
     return { gradient: `linear-gradient(90deg, ${stops.join(", ")})`, sun };
   }, [day]);
-  const next = points.find((p) => at(day, p.hour, p.minute) > now) ?? null;
-  const nowPct = (() => {
-    const start = at(day, 0, 0);
-    const p = ((now - start) / 86_400_000) * 100;
-    return p >= 0 && p <= 100 ? p : null;
-  })();
-  const sunPct = (t: number | null | undefined) => (t ? ((t - at(day, 0, 0)) / 86_400_000) * 100 : null);
-  const rise = sunPct(sky.sun.rise);
-  const set = sunPct(sky.sun.set);
+  const start = at(day, 0, 0);
+  const pctOf = (t: number) => ((t - start) / 86_400_000) * 100;
+  const inDay = (p: number) => p >= 0 && p <= 100;
+  const next = items.find((i) => !i.done && i.at > now) ?? null;
+  const nowPct = pctOf(now);
+  const rise = pctOf(sky.sun.rise);
+  const set = pctOf(sky.sun.set);
+  const clock = (t: number) => {
+    const d = new Date(t);
+    return hhmm(d.getHours(), d.getMinutes());
+  };
   return (
-    <span className="reminder-dayline">
+    <div className="reminder-dayline">
       <span className="rdl-left">
         {next ? (
           <>
-            ⏳ <b>{timeLeft(at(day, next.hour, next.minute) - now)}</b> left · {timed ? hhmm(next.hour, next.minute) : `morning nudge ${hhmm(MORNING_HOUR, 0)}`}
+            ⏳ <b>{timeLeft(next.at - now)}</b> until {clock(next.at)} · {next.text}
           </>
         ) : (
-          <>✓ Passed</>
+          <>✓ Nothing more today</>
         )}
       </span>
       <span className="rdl-track" style={{ background: sky.gradient }} aria-hidden>
-        {rise != null && <i className="rdl-sun" style={{ left: `${rise}%` }} title="Sunrise" />}
-        {set != null && <i className="rdl-sun set" style={{ left: `${set}%` }} title="Sunset" />}
-        {nowPct != null && <i className="rdl-now" style={{ left: `${nowPct}%` }} />}
-        {points.map((p, i) => {
-          const s = skyAt(at(day, p.hour, p.minute));
+        {inDay(rise) && <i className="rdl-sun" style={{ left: `${rise}%` }} />}
+        {inDay(set) && <i className="rdl-sun set" style={{ left: `${set}%` }} />}
+        {inDay(nowPct) && <i className="rdl-now" style={{ left: `${nowPct}%` }} />}
+        {items.map((it, i) => {
+          const p = pctOf(it.at);
+          if (!inDay(p)) return null;
+          const s = skyAt(it.at);
           return (
-            <span key={i} className={`rdl-point${timed ? "" : " untimed"}${next === p ? " next" : ""}`} style={{ left: `${pct(p.hour, p.minute)}%` }} title={`${hhmm(p.hour, p.minute)} ${p.text}`}>
-              <span className="rdl-dot" style={{ background: timed ? s.bg : "transparent" }} />
-              <span className="rdl-time">{s.icon} {hhmm(p.hour, p.minute)}</span>
+            <span key={i} className={`rdl-point${it === next ? " next" : ""}${it.done ? " done" : ""}`} style={{ left: `${p}%` }} title={`${clock(it.at)} ${it.text}`}>
+              <span className="rdl-dot" style={{ background: s.bg }} />
+              <span className="rdl-time">{s.icon} {clock(it.at)}</span>
             </span>
           );
         })}
@@ -79,6 +98,6 @@ export function ReminderDayLine({ day, content }: { day: string; content: JSONCo
         <span>18</span>
         <span>24</span>
       </span>
-    </span>
+    </div>
   );
 }

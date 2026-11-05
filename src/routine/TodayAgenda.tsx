@@ -1,6 +1,8 @@
 import type { JournalStore } from "../store";
 import { agendaAction, useTodayAgenda } from "./agenda";
 import { writeLog, type RoutineView } from "./routineData";
+import { TodayDayLine } from "../calendar/ReminderDayLine";
+import { dayKey } from "../lib/timestamp";
 
 const clock = (t: number) => {
   const d = new Date(t);
@@ -41,6 +43,7 @@ export function TodayAgenda({ store, view, onOpenRoutine }: { store: JournalStor
   return (
     <section className="reminders today-agenda">
       <h2>Today</h2>
+      {items.length > 0 && <TodayDayLine day={dayKey(new Date(now))} items={items} />}
       <ul>{rows}</ul>
       {view && (open || nextStep) && (
         <div className="agenda-next">

@@ -2865,3 +2865,5 @@ html.typing-hot .tiptap, html.typing-hot .source-text { caret-color: #ff3b30; }
 .rdl-hours { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); }
 :where(html[data-theme="neu"]) .rdl-track { box-shadow: var(--neu-in-xs); }
 :where(html[data-theme="neu"]) .rdl-dot { box-shadow: 0 0 0 2px var(--bg), var(--neu-out-xs); }
+.rdl-point.done { opacity: 0.45; }
+.today-agenda .reminder-dayline { margin: 2px 0 10px; }
