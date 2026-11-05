@@ -1,6 +1,7 @@
 import React, { memo, useEffect, useRef, useState, type CSSProperties } from "react";
 import { dayKey } from "../lib/timestamp";
 import { heat } from "../lib/words";
+import { useEscapeToClose } from "../ui/useEscapeToClose";
 
 export const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -284,12 +285,7 @@ export function YearPanel({ year, day, shading, today, open, onClose, onPick, on
   const max = maxFor(shading, String(year), today);
   const touch = useRef<{ x: number; y: number } | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  useEscapeToClose(onClose, !!open);
 
   return (
     <>

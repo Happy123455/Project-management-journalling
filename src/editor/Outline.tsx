@@ -10,6 +10,7 @@ import { journalStore } from "./attachments";
 import { useRoutine } from "../routine/routineData";
 import { agendaAction, useTodayAgenda } from "../routine/agenda";
 import { DayTimeline } from "../routine/DayTimeline";
+import { useEscapeToClose } from "../ui/useEscapeToClose";
 
 /** Outline → 📅 Day: the day's timeline (routine, reminders, now) instead of the note's parts. */
 function DayView({ day }: { day: string }) {
@@ -144,16 +145,14 @@ export function OutlinePanel({ editor, onJump, onClose, day }: { editor: Editor;
     }
   };
   const [filter, setFilter] = useState("");
+  useEscapeToClose(onClose);
   useEffect(() => {
     const update = () => setItems(outlineOf(editor.state.doc));
     editor.on("update", update);
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
     return () => {
       editor.off("update", update);
-      window.removeEventListener("keydown", onKey);
     };
-  }, [editor, onClose]);
+  }, [editor]);
   // 🕒 Time: only the timestamps, with how long passed between each one and the next, and the
   // time rail on the right edge of the note.
   const time = useTimeRail();

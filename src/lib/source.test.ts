@@ -82,4 +82,37 @@ describe("source mode", () => {
   it("keeps an unpaired * as a character", () => {
     expect(sourceToDoc("2*3 is six").content![0].content).toEqual([t("2*3 is six")]);
   });
+
+  it("leaves the born time out of Source mode and keeps it on the way back", () => {
+    const doc: JSONContent = {
+      type: "doc",
+      content: [
+        { type: "paragraph", attrs: { indent: 0, born: "2026-11-05T10:00:00.000Z" }, content: [t("5+7=12")] },
+        { type: "heading", attrs: { level: 2, born: "2026-11-05T10:01:00.000Z" }, content: [t("Plans")] },
+        { type: "paragraph", attrs: { indent: 0, born: "2026-11-05T10:02:00.000Z" }, content: [t("same")] },
+        { type: "paragraph", attrs: { indent: 0, born: "2026-11-05T10:03:00.000Z" }, content: [t("same")] },
+      ],
+    };
+    const src = docToSource(doc);
+    expect(src).toBe("5+7=12\n## Plans\nsame\nsame");
+    const mem = sourceMemory(doc);
+    const back = sourceToDoc(src, mem);
+    expect(back.content!.map((b) => b.attrs?.born)).toEqual(["2026-11-05T10:00:00.000Z", "2026-11-05T10:01:00.000Z", "2026-11-05T10:02:00.000Z", "2026-11-05T10:03:00.000Z"]);
+    // Reading it again (as Source mode does while typing) gives the same times.
+    expect(sourceToDoc(src, mem).content![0].attrs?.born).toBe("2026-11-05T10:00:00.000Z");
+  });
+
+  it("only escapes a backslash where it would be read as Markdown", () => {
+    for (const text of ["\\n", "\\*", "\\\\", "C:\\Users\\x", "a\\", "\\# not a heading", "\\n at start", "\\[[x]]", "2\\=3"]) {
+      const doc = { type: "doc", content: [{ type: "paragraph", attrs: { indent: 0 }, content: [t(text)] }] };
+      expect(sourceToDoc(docToSource(doc)).content![0].content).toEqual([t(text)]);
+    }
+    const line = (text: string) => docToSource({ type: "doc", content: [p(t(text))] });
+    expect(line("\\n")).toBe("\\n");
+    expect(line("C:\\Users\\x")).toBe("C:\\Users\\x");
+    expect(line("\\*")).toBe("\\\\\\*");
+    // A backslash at the end of bold text is kept apart from the next mark.
+    const mixed = { type: "doc", content: [p(t("a\\", "bold"), t("b", "italic"))] };
+    expect(norm(sourceToDoc(docToSource(mixed)))).toEqual(norm(mixed));
+  });
 });

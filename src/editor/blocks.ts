@@ -5,7 +5,7 @@ import { Plugin, PluginKey, Selection, TextSelection, type Command, type EditorS
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { Mapping, ReplaceAroundStep } from "@tiptap/pm/transform";
 import type { JSONContent } from "@tiptap/core";
-import { docToSource } from "../lib/source";
+import { docToMarkdown } from "../lib/source";
 
 /**
  * The block system. Every top-level node of a note is a block. Nesting is an `indent` level on the
@@ -309,11 +309,7 @@ export function blockText(doc: PMNode, index: number): string {
     if (json.attrs?.collapsed) json.attrs = { ...json.attrs, collapsed: false };
     content.push(json);
   }
-  return docToSource({ type: "doc", content })
-    .split("\n")
-    .filter((l) => !/^\s*%%list\{.*\}%%\s*$/.test(l))
-    .map((l) => l.replace(/ ?%%\{.*\}%%$/, ""))
-    .join("\n");
+  return docToMarkdown({ type: "doc", content });
 }
 
 /**

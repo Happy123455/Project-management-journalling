@@ -4,6 +4,7 @@ import { dayTitle } from "../lib/timestamp";
 import { openOutline, setViewMode, useViewMode, type ViewMode } from "../editor/viewMode";
 import { matchTitles, type TitleHit } from "./titleMatch";
 import { currentLoc, type Loc, type TabsState } from "./tabs";
+import { useEscapeToClose } from "../ui/useEscapeToClose";
 
 /** Line icons, drawn like the phone's own (thin, rounded). */
 const Icon = ({ d, size = 22 }: { d: ReactNode; size?: number }) => (
@@ -112,11 +113,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
 
 /** View / Edit / Source, then the app's places (menu, outline, routine…). */
 function ModeMenu({ mode, actions, onClose }: { mode: ViewMode; actions: MenuAction[]; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeToClose(onClose);
   return createPortal(
     <>
       <div className="nav-sheet-backdrop" onClick={onClose} />
@@ -188,11 +185,7 @@ export function TitleSearch({ pages, days, today, onOpen, onClose }: {
       live = false;
     };
   }, [pages]);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeToClose(onClose);
   const hits = matchTitles(q, names, days, today);
   return createPortal(
     <>
@@ -242,11 +235,7 @@ export function TabSwitcher({ tabs, today, onSwitch, onClose: onCloseTab, onNew,
   onNew: () => void;
   onDismiss: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onDismiss();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onDismiss]);
+  useEscapeToClose(onDismiss);
   return createPortal(
     <>
       <div className="nav-sheet-backdrop" onClick={onDismiss} />

@@ -23,9 +23,15 @@ type Attrs = Record<string, unknown>;
 const isEmpty = (v: unknown) =>
   v === null || v === undefined || v === false || v === 0 || v === "" || (typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length === 0);
 
+/**
+ * Bookkeeping attrs the app keeps for itself (`born`: when typing in a line began). They are not
+ * written into Source mode; reading back puts them back from the note as it was (SourceMemory).
+ */
+const HIDDEN = ["born"];
+
 function extras(attrs: Attrs | undefined, handled: string[]): Attrs | null {
   const out: Attrs = {};
-  for (const [k, v] of Object.entries(attrs ?? {})) if (!handled.includes(k) && !isEmpty(v)) out[k] = v;
+  for (const [k, v] of Object.entries(attrs ?? {})) if (!handled.includes(k) && !HIDDEN.includes(k) && !isEmpty(v)) out[k] = v;
   return Object.keys(out).length ? out : null;
 }
 const suffix = (x: Attrs | null) => (x ? ` %%${JSON.stringify(x)}%%` : "");
@@ -44,7 +50,9 @@ const DELIM: Record<string, [string, string]> = {
 /** Escapes what would otherwise be read back as formatting. */
 export function escapeText(s: string): string {
   return s
-    .replace(/\\/g, "\\\\")
+    // A "\" is doubled only where it would otherwise escape what comes next (or at the end, where
+    // the next node's text follows), so "\n" or "C:\Users" read the same in Source mode.
+    .replace(/\\(?=[*`~=[\]!<\\(]|$)/g, "\\\\")
     .replace(/\*/g, "\\*")
     .replace(/`/g, "\\`")
     .replace(/~~/g, "\\~\\~")
@@ -95,8 +103,12 @@ function inlineText(nodes: JSONContent[] | undefined): string {
 }
 
 /** A paragraph's text whose start would read as Markdown gets a "\" in front. */
-const LINE_START = /^(#{1,6} |[-+] |\d+[.)] |> |```|---$|🔗 |  |%%|\\)/;
-const guardStart = (s: string) => (LINE_START.test(s) ? "\\" + s : s);
+const LINE_START = /^(#{1,6} |[-+] |\d+[.)] |> |```|---$|🔗 |  |%%)/;
+/** Starts like Markdown, or with "\"s in front of something that does. */
+const needsGuard = (s: string): boolean => LINE_START.test(s) || (s.startsWith("\\") && needsGuard(s.slice(1)));
+const guardStart = (s: string) => (needsGuard(s) ? "\\" + s : s);
+/** The characters a "\" escapes when reading back; before anything else it is a plain "\". */
+const ESCAPABLE = /[*`~=[\]!<\\(]/;
 
 const tabs = (n: number) => "\t".repeat(Math.max(0, n));
 const fence = (node: JSONContent, depth: number) => `${tabs(depth)}\`\`\`block\n${JSON.stringify(node)}\n${tabs(depth)}\`\`\``;
@@ -182,24 +194,58 @@ export function docToSource(doc: JSONContent | null | undefined): string {
   return lines.join("\n");
 }
 
+/** The note as Markdown to copy out: Source mode without the app's own %%{…}%% notes. */
+export function docToMarkdown(doc: JSONContent | null | undefined): string {
+  return docToSource(doc)
+    .split("\n")
+    .filter((l) => !/^\s*%%list\{.*\}%%\s*$/.test(l))
+    .map((l) => l.replace(/ ?%%\{.*\}%%$/, ""))
+    .join("\n");
+}
+
 // ───────────── Reading back ─────────────
 
 /** What the note had, so read-back media and cards keep what the text doesn't show (type, size…). */
 export interface SourceMemory {
   files: Map<string, JSONContent>;
   cards: Map<string, Attrs>;
+  /** Hidden attrs of text blocks, by "type:text" (a queue, for lines that read the same). */
+  hidden?: Map<string, Attrs[]>;
+}
+
+const nodeText = (n: JSONContent): string => (n.text ?? "") + (n.content ?? []).map(nodeText).join("");
+const hiddenKey = (n: JSONContent) => `${n.type}:${nodeText(n)}`;
+
+/** Gives text blocks back the hidden attrs they had before Source mode (matched by their text). */
+function restoreHidden(n: JSONContent, mem: SourceMemory): void {
+  if (!mem.hidden?.size) return;
+  if ((n.type === "paragraph" || n.type === "heading") && !HIDDEN.some((k) => n.attrs?.[k])) {
+    const queue = mem.hidden.get(hiddenKey(n));
+    const kept = queue?.shift();
+    if (kept) n.attrs = { ...(n.attrs ?? {}), ...kept };
+  }
+  n.content?.forEach((c) => restoreHidden(c, mem));
 }
 
 export function sourceMemory(...docs: (JSONContent | null | undefined)[]): SourceMemory {
   const files = new Map<string, JSONContent>();
   const cards = new Map<string, Attrs>();
+  const hidden = new Map<string, Attrs[]>();
   const walk = (n: JSONContent) => {
+    if (n.type === "paragraph" || n.type === "heading") {
+      const kept: Attrs = {};
+      for (const k of HIDDEN) if (n.attrs?.[k]) kept[k] = n.attrs[k];
+      if (Object.keys(kept).length) {
+        const key = hiddenKey(n);
+        hidden.set(key, [...(hidden.get(key) ?? []), kept]);
+      }
+    }
     if ((n.type === "attachmentImage" || n.type === "attachmentMedia" || n.type === "attachmentFile") && n.attrs?.fileId) files.set(String(n.attrs.fileId), n);
     if (n.type === "linkCard" && n.attrs?.url) cards.set(String(n.attrs.url), n.attrs);
     n.content?.forEach(walk);
   };
   docs.forEach((d) => d && walk(d));
-  return { files, cards };
+  return { files, cards, hidden };
 }
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|heic|heif|bmp|svg|avif)$/i;
@@ -257,7 +303,7 @@ export function parseInline(src: string, mem: SourceMemory): JSONContent[] {
   };
   for (let i = 0; i < src.length; ) {
     const rest = src.slice(i);
-    if (src[i] === "\\" && i + 1 < src.length) {
+    if (src[i] === "\\" && i + 1 < src.length && ESCAPABLE.test(src[i + 1])) {
       buf += src[i + 1];
       i += 2;
       continue;
@@ -378,7 +424,7 @@ function findLinkEnd(src: string, open: number): { textEnd: number; href: string
   let depth = 0;
   for (let j = open + 1; j < src.length; j++) {
     const c = src[j];
-    if (c === "\\") {
+    if (c === "\\" && ESCAPABLE.test(src[j + 1] ?? "")) {
       j++;
       continue;
     }
@@ -481,12 +527,15 @@ export function sourceToDoc(source: string, mem: SourceMemory = sourceMemory()):
       const url = m[1];
       content.push({ type: "linkCard", attrs: { ...(mem.cards.get(url) ?? {}), ...extra, indent, url } });
     } else {
-      const text = line.startsWith("\\") && LINE_START.test(line.slice(1)) ? line.slice(1) : line;
+      const text = line.startsWith("\\") && needsGuard(line.slice(1)) ? line.slice(1) : line;
       content.push(para(text, { ...extra, indent }));
     }
   }
   if (!content.length) content.push({ type: "paragraph", attrs: { indent: 0 } });
-  return { type: "doc", content };
+  const doc: JSONContent = { type: "doc", content };
+  // A fresh copy of the queues, so reading the same text back twice gives the same result.
+  if (mem.hidden?.size) restoreHidden(doc, { ...mem, hidden: new Map([...mem.hidden].map(([k, v]) => [k, [...v]])) });
+  return doc;
 }
 
 function readList(lines: string[], start: number, depth: number, mem: SourceMemory, listAttrs: Attrs | null): { node: JSONContent; next: number } {

@@ -12,6 +12,7 @@ import { useTodayAgenda, agendaAction } from "./agenda";
 import { DayTimeline } from "./DayTimeline";
 import { PhaseChart, TrendChart } from "./charts";
 import { askHealthAccess, healthAvailable, importHealth } from "./health";
+import { useEscapeToClose } from "../ui/useEscapeToClose";
 
 type Tab = "now" | "trends" | "phases" | "setup";
 const clock = (t: number) => {
@@ -24,11 +25,7 @@ export function RoutinePanel({ store, onClose }: { store: JournalStore; onClose:
   const [tab, setTab] = useState<Tab>("now");
   const { view } = useRoutine(store);
   const { items } = useTodayAgenda(store);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeToClose(onClose);
   // The phone: exercise and sleep come in from the health app when the panel opens.
   useEffect(() => {
     if (view?.config.health) void importHealth(store, view.config).catch(() => {});

@@ -16,6 +16,8 @@ export function plainLinks(text: string): string {
     const alias = /\|([^\]]*)\]\]$/.exec(m)?.[1]?.trim();
     if (alias) return alias;
     const { note, section } = splitTarget(inner[1]);
+    // "[[ ]]" (no name in it) is text the person wrote: kept as it is.
+    if (!note) return m;
     return section ? `${note} › ${section}` : note;
   });
 }

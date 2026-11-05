@@ -1,3 +1,4 @@
+import { closeHistory } from "@tiptap/pm/history";
 import { Extension } from "@tiptap/react";
 import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { ReplaceStep } from "@tiptap/pm/transform";
@@ -33,7 +34,8 @@ export function mathFollowUp(tr: Transaction, after: EditorState, on = editorPre
   const answer = answerFor(before, lines.length ? variablesIn(lines) : undefined);
   if (answer === null) return null;
   const text = (before.endsWith(" ") ? " " : "") + answer;
-  const next = after.tr.insertText(text, from + 1).setMeta(key, true);
+  // Its own undo step: ⌘Z takes the answer away and leaves "5+7=" as typed.
+  const next = closeHistory(after.tr.insertText(text, from + 1).setMeta(key, true));
   return next.setSelection(TextSelection.create(next.doc, from + 1 + text.length));
 }
 

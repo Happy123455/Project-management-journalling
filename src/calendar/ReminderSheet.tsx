@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { addDays, dayKey, dayTitle } from "../lib/timestamp";
 import { stepDay } from "../lib/reminders";
+import { useEscapeToClose } from "../ui/useEscapeToClose";
 
 /** The next Monday after `day` (a week starting fresh). */
 function nextMonday(day: string): string {
@@ -20,11 +21,7 @@ export function DayPickerSheet({ title, from, onPick, onClose, withTime }: { tit
   // A time is optional: with one, the note starts with "⏰ 15:00" and rings then (else in the morning).
   const [time, setTime] = useState("");
   const pick = (day: string) => onPick(day, time || undefined);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeToClose(onClose);
   const picks: [string, string][] = [
     ["Tomorrow", addDays(base, 1)],
     ["In 3 days", addDays(base, 3)],

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { useEscapeToClose } from "../ui/useEscapeToClose";
 
 let pdfjs: Promise<typeof import("pdfjs-dist")> | null = null;
 
@@ -53,11 +54,7 @@ export function PdfViewer({ name, bytes, onClose, onOpenExternally }: {
     };
   }, [bytes]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeToClose(onClose);
 
   return (
     <div className="pdf-viewer" role="dialog" aria-label={name}>

@@ -2953,3 +2953,23 @@ html:has(.mac-tabbar) .page { padding-bottom: 46px; }
   .page-header h1 { min-width: 0; flex: 0 1 auto; overflow: hidden; }
   .page-header h1 > :first-child, .page-header h1 { white-space: nowrap; text-overflow: ellipsis; }
 }
+
+/* Mac: the left menu is pinned to the window rather than sticky, so it can't scroll away and leave
+   an empty column (a sticky menu stops at the end of the app box, and WebKit could leave it out
+   of place after a sheet like Settings closed). ⌘\ hides it; the edge tab brings it back. */
+@media (min-width: 761px) and (pointer: fine) {
+  .app > .sidebar { position: fixed; top: 0; left: 0; height: 100vh; width: var(--left-w, 260px); z-index: 5; }
+  .app > .page { grid-column: 2; }
+  .app > .links-panel { grid-column: 3; }
+  html.sidebar-hidden { --left-w: 0px !important; }
+  html.sidebar-hidden .app > .sidebar { display: none; }
+  .sidebar-edge {
+    position: fixed; left: 0; top: 50%; transform: translateY(-50%); z-index: 9;
+    width: 14px; height: 56px; min-height: 0; padding: 0; border: 1px solid var(--border); border-left: none;
+    border-radius: 0 8px 8px 0; background: var(--panel); color: var(--muted); font-size: 13px; box-shadow: none;
+    opacity: 0.55; transition: opacity 0.15s, width 0.15s;
+  }
+  .sidebar-edge:hover { opacity: 1; width: 18px; color: var(--text); }
+}
+.sidebar-edge { display: none; }
+@media (min-width: 761px) and (pointer: fine) { .sidebar-edge { display: block; } }

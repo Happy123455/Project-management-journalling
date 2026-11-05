@@ -4,6 +4,7 @@ import { fileKind } from "../lib/files";
 import { openFile, showPdf, showPhoto, useFileUrl } from "../editor/attachments";
 import type { ExtractedLinks } from "../lib/links";
 import type { FileRecord, JournalStore } from "../store";
+import { useEscapeToClose } from "../ui/useEscapeToClose";
 
 /** Put stored files back into the open note: at a point on screen (a drop), or at the cursor. */
 export type InsertMedia = (files: FileRecord[], at?: { x: number; y: number }) => void;
@@ -378,12 +379,7 @@ export function InfoTabs({ links, mediaIds, store, onOpenLink, onOpenTag, backli
 
 /** Phone: slides in from the left with Days, then Links / Tags / Media. */
 export function Drawer({ open, onClose, top, bottom, children }: { open: boolean; onClose: () => void; top?: ReactNode; bottom?: ReactNode; children: ReactNode }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  useEscapeToClose(onClose, !!open);
   return (
     <>
       <div className={open ? "drawer-backdrop open" : "drawer-backdrop"} onClick={onClose} />

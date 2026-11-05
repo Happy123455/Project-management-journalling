@@ -35,7 +35,7 @@ import { SourceEditor } from "./SourceEditor";
 import { jumpTo, OutlinePanel } from "./Outline";
 import { TimeRail, useTimeRail } from "./TimeRail";
 import { registerOpenNote } from "./noteEdit";
-import { docToSource, sourceMemory, sourceToDoc, type SourceMemory } from "../lib/source";
+import { docToMarkdown, docToSource, sourceMemory, sourceToDoc, type SourceMemory } from "../lib/source";
 import { docText } from "../lib/words";
 import { SmartPaste } from "./SmartPaste";
 import { Timestamp } from "./timestamp";
@@ -434,17 +434,18 @@ const MODES: { mode: ViewMode; icon: string; label: string }[] = [
 
 /** Live / Source / Reading, and the outline: always in reach above the note. */
 function ModePill({ mode, editor }: { mode: ViewMode; editor: Editor | null }) {
-  const [copied, setCopied] = useState(false);
-  // The whole note in one tap, as plain text (each block's ⧉ still copies just that block).
-  const copyAll = async () => {
+  const [copied, setCopied] = useState<"" | "plain" | "md">("");
+  // The whole note in one tap, as plain text or as Markdown (each block's ⧉ still copies just that block).
+  const copyAll = async (as: "plain" | "md") => {
     if (!editor) return;
     const { copyText } = await import("./codeBlock");
-    const text = plainText((editor.getJSON().content ?? []) as JSONContent[]);
+    const json = editor.getJSON();
+    const text = as === "md" ? docToMarkdown(json) : plainText((json.content ?? []) as JSONContent[]);
     if (!text.trim()) return showToast("Nothing to copy yet");
     try {
       await copyText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1400);
+      setCopied(as);
+      window.setTimeout(() => setCopied(""), 1400);
     } catch (e) {
       showToast(`Couldn't copy: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
@@ -459,8 +460,11 @@ function ModePill({ mode, editor }: { mode: ViewMode; editor: Editor | null }) {
       <button type="button" title="Outline" onClick={openOutline}>
         <span aria-hidden>☰</span> <span className="mode-label">Outline</span>
       </button>
-      <button type="button" title="Copy the whole note as plain text" className={copied ? "copied" : ""} onClick={() => void copyAll()}>
-        <span aria-hidden>{copied ? "✓" : "⧉"}</span> <span className="mode-label">{copied ? "Copied" : "Copy all"}</span>
+      <button type="button" title="Copy the whole note as plain text" className={copied === "plain" ? "copied" : ""} onClick={() => void copyAll("plain")}>
+        <span aria-hidden>{copied === "plain" ? "✓" : "⧉"}</span> <span className="mode-label">{copied === "plain" ? "Copied" : "Copy all"}</span>
+      </button>
+      <button type="button" title="Copy the whole note as Markdown (keeps **bold**, `code` and [[links]])" className={copied === "md" ? "copied" : ""} onClick={() => void copyAll("md")}>
+        <span aria-hidden>{copied === "md" ? "✓" : "M↓"}</span> <span className="mode-label">{copied === "md" ? "Copied" : "Markdown"}</span>
       </button>
     </div>
   );

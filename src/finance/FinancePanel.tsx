@@ -10,6 +10,7 @@ import { STEP_COLORS } from "../routine/charts";
 import {
   FINANCE_EVENT, importMoney, loadTxns, moneySettings, notificationsReady, onPhone, setMoneySettings, smsReady,
 } from "./capture";
+import { useEscapeToClose } from "../ui/useEscapeToClose";
 
 type Tab = "overview" | "list" | "insights" | "setup";
 const r0 = (n: number) => rupees(n, 0);
@@ -20,6 +21,7 @@ const thisMonth = () => dayKey(new Date()).slice(0, 7);
 export function FinancePanel({ store, onClose, onOpenDay }: { store: JournalStore; onClose: () => void; onOpenDay: (day: string) => void }) {
   const [tab, setTab] = useState<Tab>("overview");
   const [txns, setTxns] = useState<Txn[] | null>(null);
+  useEscapeToClose(onClose);
   useEffect(() => {
     const load = () => void loadTxns(store).then(setTxns).catch(() => setTxns([]));
     load();
@@ -27,14 +29,11 @@ export function FinancePanel({ store, onClose, onOpenDay }: { store: JournalStor
     if (onPhone()) void importMoney(store).catch(() => {});
     window.addEventListener(FINANCE_EVENT, load);
     window.addEventListener("journal:synced", load);
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener(FINANCE_EVENT, load);
       window.removeEventListener("journal:synced", load);
-      window.removeEventListener("keydown", onKey);
     };
-  }, [store, onClose]);
+  }, [store]);
   return createPortal(
     <>
       <div className="outline-backdrop" onClick={onClose} />

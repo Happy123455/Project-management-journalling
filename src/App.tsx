@@ -46,7 +46,7 @@ import { fileUrl, mediaNode, openFile, setAttachmentStore, showPdf, showPhoto } 
 import { flushPendingEdits, hasPendingEdits, JournalEditor } from "./editor/JournalEditor";
 import { useTouchDevice } from "./editor/KeyboardBar";
 import { MacTabBar, NavIsland, TabSwitcher, TitleSearch, type MenuAction } from "./nav/NavIsland";
-import { PanelResizer, usePanelWidths } from "./nav/PanelResizer";
+import { PanelResizer, SidebarEdge, usePanelWidths, useSidebarToggle } from "./nav/PanelResizer";
 import { activeTab, closeTab, currentLoc, go, loadTabs, locKey, openTab, saveTabs, switchTab, visit, type Loc, type TabsState } from "./nav/tabs";
 import { receiveTyping } from "./sync/liveTyping";
 import { CaptureHost } from "./editor/CaptureHost";
@@ -114,6 +114,7 @@ function App() {
   const [titleSearchOpen, setTitleSearchOpen] = useState(false);
   const [tabsOpen, setTabsOpen] = useState(false);
   usePanelWidths();
+  const [sidebarHidden, toggleSidebar] = useSidebarToggle();
   // The next day opens to read, not to type (after a swipe between days).
   const previewNext = useRef(false);
   const pending = useRef<{ day: string; content: JSONContent; plainText: string } | null>(null);
@@ -807,6 +808,13 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Closing search without picking a result (Esc, tapping outside) also drops the query, so no
+  // "🔍 query" chip is left behind. Picking a result keeps it, with its highlights.
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setQuery("");
+  }, []);
+
   const openHit = async (hit: SearchHit, match: number) => {
     setSearchOpen(false);
     if (hit.kind !== "file") setFind({ where: hit.day ?? `page:${hit.title}`, terms: searchTerms(query), index: match, count: 0 });
@@ -1060,7 +1068,8 @@ function App() {
       </main>
 
       <aside className="links-panel">{infoTabs}</aside>
-      {!touch && <PanelResizer side="left" />}
+      {!touch && !sidebarHidden && <PanelResizer side="left" />}
+      {!touch && sidebarHidden && <SidebarEdge onShow={toggleSidebar} />}
       {!touch && <PanelResizer side="right" />}
 
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} top={menuRibbon} bottom={menuFooter}>
@@ -1098,7 +1107,7 @@ function App() {
 
       </Drawer>
 
-      {searchOpen && <SearchPanel query={query} onQuery={setQuery} results={results} onPick={openHit} onClose={() => setSearchOpen(false)} />}
+      {searchOpen && <SearchPanel query={query} onQuery={setQuery} results={results} onPick={openHit} onClose={closeSearch} />}
 
       {find && find.where === (route.kind === "page" ? `page:${route.page.title}` : route.kind === "day" ? day : "") && (
         <FindBar index={find.index} count={find.count} onMove={(index) => setFind({ ...find, index })} onClose={() => setFind(null)} />

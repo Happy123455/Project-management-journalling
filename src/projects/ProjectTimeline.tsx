@@ -35,6 +35,7 @@ function CopyButton({ text, label = "Copy" }: { text: () => string; label?: stri
   );
 }
 import type { JournalStore, NamedPage } from "../store";
+import { useEscapeToClose } from "../ui/useEscapeToClose";
 
 const short = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 const GAP_CAP = 60;
@@ -286,11 +287,7 @@ function EntryPopup({ entry, from, onClose, onOpenDay, ...links }: { entry: Entr
     setClosing(true);
     window.setTimeout(onClose, 200);
   };
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
+  useEscapeToClose(() => close());
   // The card starts at the row (scaled down to it) and grows to its place in the middle.
   const vw = window.innerWidth;
   const vh = window.visualViewport?.height ?? window.innerHeight;

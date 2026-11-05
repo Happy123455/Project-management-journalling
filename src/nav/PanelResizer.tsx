@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /** Mac: how wide the left menu and the right panel are, dragged by their edge and kept on this device. */
 const KEY = "journal.panelWidths";
@@ -75,5 +75,48 @@ export function PanelResizer({ side }: { side: Side }) {
         el.addEventListener("pointercancel", up);
       }}
     />
+  );
+}
+
+/** Mac: the left menu can be hidden (⌘\), and it's always one click away from the left edge. */
+const HIDDEN_KEY = "journal.sidebarHidden";
+const loadHidden = () => {
+  try {
+    return localStorage.getItem(HIDDEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+
+export function useSidebarToggle(): [boolean, () => void] {
+  const [hidden, setHidden] = useState(loadHidden);
+  useEffect(() => {
+    document.documentElement.classList.toggle("sidebar-hidden", hidden);
+    try {
+      localStorage.setItem(HIDDEN_KEY, hidden ? "1" : "0");
+    } catch {
+      // Only a convenience.
+    }
+  }, [hidden]);
+  const toggle = useCallback(() => setHidden((h) => !h), []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === "\\") {
+        e.preventDefault();
+        toggle();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggle]);
+  return [hidden, toggle];
+}
+
+/** The slim tab on the left edge that brings the hidden menu back. */
+export function SidebarEdge({ onShow }: { onShow: () => void }) {
+  return (
+    <button type="button" className="sidebar-edge" onClick={onShow} title="Show the menu (⌘\)" aria-label="Show the menu">
+      ›
+    </button>
   );
 }

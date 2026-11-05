@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { highlightParts, matchText, searchTerms, type LineMatch } from "../lib/search";
 import { dayTitle } from "../lib/timestamp";
 import type { SearchHit } from "../store";
+import { useEscapeToClose } from "../ui/useEscapeToClose";
 
 const MAX_LINES = 5;
 const RECENT_KEY = "journal.recentSearches";
@@ -77,11 +78,7 @@ export function SearchPanel({ query, onQuery, results, onPick, onClose }: {
     const t = window.setTimeout(() => onQuery(draft), 200);
     return () => window.clearTimeout(t);
   }, [draft, onQuery]);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeToClose(onClose);
 
   // Phone: the panel ends above the keyboard (the window itself doesn't shrink for it), so the
   // results are never hidden behind it.
