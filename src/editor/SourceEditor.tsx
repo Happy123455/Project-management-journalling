@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatTimestamp } from "../lib/timestamp";
 import { sourceStats } from "../lib/source";
+import { noteTyped } from "./typingGuide";
+import { useBarShown } from "./KeyboardBar";
 
 /**
  * Source mode: the note as plain characters in one text box (Markdown, like Obsidian's source
@@ -160,7 +162,10 @@ export function SourceEditor({ value, onChange, touch, autofocus }: { value: str
         value={text}
         spellCheck
         autoCapitalize="sentences"
-        onChange={(e) => changed(e.target.value)}
+        onChange={(e) => {
+          noteTyped(e.target.value.length - text.length);
+          changed(e.target.value);
+        }}
         onKeyDown={onKeyDown}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
@@ -176,6 +181,7 @@ export function SourceEditor({ value, onChange, touch, autofocus }: { value: str
 
 /** The phone's tool row, pinned above the keyboard. */
 function SourceKeyboardBar({ children }: { children: React.ReactNode }) {
+  useBarShown(true);
   const [bottom, setBottom] = useState(() => (window.visualViewport ? window.visualViewport.offsetTop + window.visualViewport.height : window.innerHeight));
   useEffect(() => {
     const vv = window.visualViewport;

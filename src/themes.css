@@ -480,3 +480,35 @@ html[data-theme="neu"] .ambience-rain { opacity: 0.7; }
 :where(html[data-theme="neu"]) .math-library-item:active { box-shadow: var(--neu-in-sm); }
 :where(html[data-theme="neu"]) .handwriting-canvas { border-color: transparent; box-shadow: var(--neu-in-sm); }
 :where(html[data-theme="neu"]) .math-plot .mp-dot { stroke: var(--bg); }
+
+/* ═══════════ Soft UI: the phone's navigation island, its menu and tabs ═══════════ */
+:where(html[data-theme="neu"]) .nav-island {
+  color: var(--text);
+  background: var(--bg);
+  border-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--neu-out), var(--neu-overlay);
+}
+:where(html[data-theme="neu"]) .nav-island .nav-btn { background: transparent; box-shadow: none; }
+:where(html[data-theme="neu"]) .nav-island .nav-btn:active { background: var(--bg); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .nav-home {
+  color: var(--accent);
+  background: var(--bg);
+  border-color: var(--bg);
+  box-shadow: var(--neu-out-sm), 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+:where(html[data-theme="neu"]) .nav-home.at-today { color: #fff; background: var(--accent); }
+:where(html[data-theme="neu"]) .nav-home:active { box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .nav-mode-icon { background: var(--accent); }
+:where(html[data-theme="neu"]) .nav-menu,
+:where(html[data-theme="neu"]) .nav-tabs-sheet {
+  background: var(--bg);
+  border-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--neu-out), var(--neu-overlay);
+}
+:where(html[data-theme="neu"]) .nav-modes button.active { color: #fff; background: var(--accent); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .nav-tab-list li.active .nav-tab-card { box-shadow: var(--neu-in-sm); color: var(--accent); }
+:where(html[data-theme="neu"]) .hot-caret { box-shadow: 0 0 6px 2px rgba(255, 59, 48, 0.75), 0 0 14px 5px rgba(255, 120, 40, 0.4); }

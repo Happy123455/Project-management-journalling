@@ -4,6 +4,7 @@ import { REPEATS, stepDay, type Repeat } from "../lib/reminders";
 import { docText } from "../lib/words";
 import { MediaPeek, mediaItemsIn, type PeekItem } from "../editor/MediaPeek";
 import { Marquee } from "../ui/Marquee";
+import { ReminderDayLine } from "./ReminderDayLine";
 import type { JSONContent } from "@tiptap/react";
 import type { DayPage } from "../store";
 
@@ -215,6 +216,7 @@ const UpcomingRow = React.memo(function UpcomingRow({ page, squeezed, stack, fol
           <span className="reminder-text reminder-inline">{line}</span>
         )}
         <Countdown day={page.day} />
+        {!folded && <ReminderDayLine day={page.day} content={page.content} />}
       </button>
       {!folded && onAction && (
         <button type="button" className="reminder-more" aria-label="Move or repeat" aria-expanded={menu} onClick={() => setMenu(!menu)}>⋯</button>

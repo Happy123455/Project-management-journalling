@@ -20,8 +20,8 @@ export interface MenuPrefs {
   hidden: MenuKey[];
   collapsed: MenuKey[];
   names: Partial<Record<MenuKey, string>>;
-  /** Days: newest first or oldest first. */
-  daysSort: "new" | "old";
+  /** Days: newest first, oldest first, or only the past (today and before, newest first: no reminders ahead). */
+  daysSort: DaysSort;
   /** Projects left out of the menu (by page id). */
   hiddenProjects: string[];
   /** How many projects the menu shows. */
@@ -29,6 +29,8 @@ export interface MenuPrefs {
   /** Show each project's open tasks under its name. */
   projectTasks: boolean;
 }
+
+export type DaysSort = "new" | "old" | "past";
 
 const KEY = "journal.menu";
 const EVENT = "journal:menu-prefs";
@@ -47,7 +49,7 @@ export function loadMenuPrefs(): MenuPrefs {
     hidden: keys(v.hidden),
     collapsed: keys(v.collapsed),
     names: v.names && typeof v.names === "object" ? v.names : {},
-    daysSort: v.daysSort === "old" ? "old" : "new",
+    daysSort: v.daysSort === "old" || v.daysSort === "past" ? v.daysSort : "new",
     hiddenProjects: Array.isArray(v.hiddenProjects) ? v.hiddenProjects.filter((x) => typeof x === "string") : [],
     projectLimit: Number.isFinite(v.projectLimit) && v.projectLimit! > 0 ? Math.min(30, Math.round(v.projectLimit!)) : 6,
     projectTasks: v.projectTasks !== false,
@@ -158,8 +160,24 @@ function ProjectsEdit() {
   );
 }
 
+const DAY_SORTS: { value: DaysSort; label: string; title: string }[] = [
+  { value: "new", label: "↓ Newest", title: "Newest first (reminders ahead on top)" },
+  { value: "old", label: "↑ Oldest", title: "Oldest first" },
+  { value: "past", label: "⏪ Past", title: "Only past notes, today at the top" },
+];
+
 /**
- * Days with something written in them (and today), newest or oldest first. Days that were only
+ * The days the menu lists: written ones plus today (and the open day), in the chosen order. "past"
+ * leaves out the days ahead (reminders) and puts today first, then back in time.
+ */
+export function daysShown(days: string[], { today, day, written, sort }: { today: string; day: string; written: Set<string> | null; sort: DaysSort }): string[] {
+  let list = [...new Set([today, ...days])].filter((d) => d === today || d === day || !written || written.has(d));
+  if (sort === "past") list = list.filter((d) => d <= today);
+  return list.sort((a, b) => (sort === "old" ? a.localeCompare(b) : b.localeCompare(a)));
+}
+
+/**
+ * Days with something written in them (and today), newest or oldest first, or only the past. Days that were only
  * opened (an empty page) are left out.
  */
 export function DaysList({ store, days, day, today, refreshKey, onPick }: {
@@ -184,19 +202,17 @@ export function DaysList({ store, days, day, today, refreshKey, onPick }: {
       live = false;
     };
   }, [store, days.length, refreshKey]);
-  const list = [...new Set([today, ...days])].filter((d) => d === today || d === day || !written || written.has(d));
-  list.sort((a, b) => (prefs.daysSort === "new" ? b.localeCompare(a) : a.localeCompare(b)));
+  const list = daysShown([...days], { today, day, written, sort: prefs.daysSort });
   const LIMIT = 60;
   const shown = showAll ? list : list.slice(0, LIMIT);
   return (
     <>
       <div className="days-sort" role="radiogroup" aria-label="Order">
-        <button type="button" role="radio" aria-checked={prefs.daysSort === "new"} className={prefs.daysSort === "new" ? "active" : ""} onClick={() => setPrefs({ daysSort: "new" })}>
-          ↓ Newest first
-        </button>
-        <button type="button" role="radio" aria-checked={prefs.daysSort === "old"} className={prefs.daysSort === "old" ? "active" : ""} onClick={() => setPrefs({ daysSort: "old" })}>
-          ↑ Oldest first
-        </button>
+        {DAY_SORTS.map((o) => (
+          <button key={o.value} type="button" role="radio" aria-checked={prefs.daysSort === o.value} className={prefs.daysSort === o.value ? "active" : ""} title={o.title} onClick={() => setPrefs({ daysSort: o.value })}>
+            {o.label}
+          </button>
+        ))}
         <span className="days-count">{list.length}</span>
       </div>
       <ul className="day-list">

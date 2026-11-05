@@ -317,6 +317,12 @@ class MainActivity : TauriActivity() {
       val v = vibrator
       if (!v.hasVibrator()) return
       val s = strength.coerceIn(0.05f, 1f)
+      // The typing speed guide: a short double buzz, clearly more than a tap.
+      if (kind == "warn") {
+        val amp = (80 + 175 * s).toInt().coerceIn(1, 255)
+        v.vibrate(android.os.VibrationEffect.createWaveform(longArrayOf(0, 35, 60, 35), intArrayOf(0, amp, 0, amp), -1))
+        return
+      }
       if (android.os.Build.VERSION.SDK_INT >= 30) {
         val primitive = when (kind) {
           "tick" -> android.os.VibrationEffect.Composition.PRIMITIVE_LOW_TICK

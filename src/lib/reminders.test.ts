@@ -76,3 +76,23 @@ describe("timed reminders today", () => {
     expect(alarms.map((a) => a.body)).toEqual(["⏰ 17:00 call"]);
   });
 });
+
+describe("reminder times and time left", () => {
+  it("finds the times a reminder rings at, earliest first, skipping done lines", async () => {
+    const { reminderTimes } = await import("./reminders");
+    const p = (text: string) => ({ type: "paragraph", content: [{ type: "text", text }] });
+    const doc = { type: "doc", content: [p("dentist 17:30"), p("call mom at 9"), p("✅ old 10:00"), p("just a note")] };
+    expect(reminderTimes(doc).map((t) => [t.hour, t.minute, t.text])).toEqual([[9, 0, "call mom at 9"], [17, 30, "dentist 17:30"]]);
+  });
+  it("says how long is left, short", async () => {
+    const { timeLeft } = await import("./reminders");
+    const M = 60_000;
+    expect(timeLeft(-5)).toBe("now");
+    expect(timeLeft(30_000)).toBe("<1m");
+    expect(timeLeft(12 * M)).toBe("12m");
+    expect(timeLeft(200 * M)).toBe("3h 20m");
+    expect(timeLeft(60 * M)).toBe("1h");
+    expect(timeLeft((4 * 1440 + 3 * 60 + 5) * M)).toBe("4d 3h");
+    expect(timeLeft(2 * 1440 * M)).toBe("2d");
+  });
+});

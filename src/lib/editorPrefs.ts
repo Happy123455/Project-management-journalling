@@ -10,10 +10,14 @@ export interface EditorPrefs {
   autoMath: boolean;
   /** Plain maths in the text ("(a+b)/2", "x^2") is drawn as a formula (the text stays as typed). */
   prettyMath: boolean;
+  /** Typing speed guide: typing faster than `maxCps` makes the cursor hot and buzzes the phone. */
+  typingGuide: boolean;
+  /** The most characters per second the guide allows. */
+  maxCps: number;
 }
 
 const KEY = "journal.editor";
-const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true, prettyMath: true };
+const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true, prettyMath: true, typingGuide: false, maxCps: 6 };
 
 export function editorPrefs(): EditorPrefs {
   try {

@@ -27,6 +27,7 @@ import { YoutubeEmbed, youtubeEmbedFrom } from "./youtubeEmbed";
 import { FindHighlight, findKey } from "./findHighlight";
 import { LogBlock } from "./logBlock";
 import { KeyboardBar, useTouchDevice } from "./KeyboardBar";
+import { HotCaret } from "./HotCaret";
 import { LinkSuggest } from "./linkSuggest";
 import { insertLogOrTime, SlashMenu } from "./slashMenu";
 import { openOutline, setViewMode, useViewMode, type ViewMode } from "./viewMode";
@@ -792,6 +793,7 @@ export function JournalEditor({
       <EditorContent editor={editor} className={touch ? "editor-body with-keyboard-bar" : "editor-body"} />
       {editor && mode === "live" && <BlockHandle editor={editor} touch={touch} onInfo={() => setInfoOpen(true)} />}
       {editor && mode === "live" && <SmartPaste editor={editor} />}
+      {editor && mode === "live" && <HotCaret editor={editor} />}
       {editor && infoOpen && <BlockInfoPanel editor={editor} onClose={() => setInfoOpen(false)} />}
       {editor && touch && mode === "live" && (
         <KeyboardBar editor={editor} layout={toolLayout}>

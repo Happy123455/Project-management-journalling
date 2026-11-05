@@ -296,7 +296,7 @@ function GestureSettings() {
 /** Code blocks, stamps on older days, the time-ago line. */
 function EditorSettings() {
   const [e, setE] = useState(editorPrefs);
-  const row = (key: keyof EditorPrefs, label: string, hint: string) => (
+  const row = (key: { [K in keyof EditorPrefs]: EditorPrefs[K] extends boolean ? K : never }[keyof EditorPrefs], label: string, hint: string) => (
     <label className="settings-toggle">
       <input type="checkbox" checked={e[key]} onChange={(ev) => setE(setEditorPrefs({ [key]: ev.target.checked }))} />
       <span className="settings-toggle-text">
@@ -313,6 +313,25 @@ function EditorSettings() {
       {row("relativeTime", "Show how long ago a day is", "Under the date: years, months and days from today")}
       {row("autoMath", "Solve math as you type", "Type = after a sum and the answer appears: 12+12= becomes 12+12=24 (undo takes it back)")}
       {row("prettyMath", "Draw formulas", "Plain maths like (a+b+c+d)/2 or x^2 shows as a proper formula; the line you're writing in stays plain text")}
+      {row("typingGuide", "Typing speed guide", "Typing faster than the limit turns the cursor red and hot and buzzes the phone, as a reminder to slow down")}
+      {e.typingGuide && (
+        <label className="settings-number">
+          <span>Most characters per second</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            min={1}
+            max={30}
+            step={0.5}
+            value={e.maxCps}
+            onChange={(ev) => {
+              const v = Number(ev.target.value);
+              if (Number.isFinite(v) && v > 0) setE(setEditorPrefs({ maxCps: Math.min(30, Math.max(1, v)) }));
+            }}
+          />
+          <small>About {Math.round(e.maxCps * 12)} words a minute. 5 is calm handwriting pace, 8 is quick typing.</small>
+        </label>
+      )}
     </section>
   );
 }

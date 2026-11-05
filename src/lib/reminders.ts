@@ -224,3 +224,25 @@ export function todayAgenda(todayPage: { content: JSONContent; reminder?: boolea
   }
   return out.sort((a, b) => a.at - b.at);
 }
+
+/** The times a reminder note rings at on its day (its open, timed reminder lines), earliest first. */
+export function reminderTimes(doc: JSONContent | null | undefined): { hour: number; minute: number; text: string }[] {
+  const out: { hour: number; minute: number; text: string }[] = [];
+  for (const line of noteLines(doc, true)) {
+    if (!reminderLine(line, true)) continue;
+    for (const t of timesIn(line)) out.push({ ...t, text: clean(line) });
+  }
+  return out.sort((a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute));
+}
+
+/** How long until something, short: "4d 3h", "3h 20m", "12m", "now". */
+export function timeLeft(ms: number): string {
+  if (ms < 60_000) return ms <= 0 ? "now" : "<1m";
+  const mins = Math.floor(ms / 60_000);
+  const d = Math.floor(mins / 1440);
+  const h = Math.floor((mins % 1440) / 60);
+  const m = mins % 60;
+  if (d) return h ? `${d}d ${h}h` : `${d}d`;
+  if (h) return m ? `${h}h ${m}m` : `${h}h`;
+  return `${m}m`;
+}

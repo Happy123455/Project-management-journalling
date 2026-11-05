@@ -44,6 +44,9 @@ import { mediaIdsIn } from "./lib/media";
 import { autoBackup, exportBackup } from "./backup";
 import { fileUrl, mediaNode, openFile, setAttachmentStore, showPdf, showPhoto } from "./editor/attachments";
 import { flushPendingEdits, hasPendingEdits, JournalEditor } from "./editor/JournalEditor";
+import { useTouchDevice } from "./editor/KeyboardBar";
+import { NavIsland, TabSwitcher, TitleSearch, type MenuAction } from "./nav/NavIsland";
+import { activeTab, closeTab, currentLoc, go, loadTabs, locKey, openTab, saveTabs, switchTab, visit, type Loc, type TabsState } from "./nav/tabs";
 import { receiveTyping } from "./sync/liveTyping";
 import { CaptureHost } from "./editor/CaptureHost";
 import { PdfHost } from "./editor/PdfHost";
@@ -104,6 +107,11 @@ function App() {
   // never created for one day with another day's text.
   const [loadedDay, setLoadedDay] = useState<string | null>(null);
   const swipe = useRef<{ x: number; y: number; t: number; onBar: boolean } | null>(null);
+  // Phone: the navigation island's tabs (each with its own back/forward), the title search and the tab list.
+  const touch = useTouchDevice();
+  const [tabs, setTabs] = useState<TabsState>(() => loadTabs({ kind: "day", day: dayKey(new Date()) }));
+  const [titleSearchOpen, setTitleSearchOpen] = useState(false);
+  const [tabsOpen, setTabsOpen] = useState(false);
   // The next day opens to read, not to type (after a swipe between days).
   const previewNext = useRef(false);
   const pending = useRef<{ day: string; content: JSONContent; plainText: string } | null>(null);
@@ -325,7 +333,7 @@ function App() {
   }, []);
 
   // A menu, the year view or a sheet is open: the note behind it can't scroll or be typed into.
-  const overlayOpen = drawerOpen || yearOpen || upcomingOpen || settingsOpen || searchOpen || graphOpen || mindOpen || chatOpen || !!nexus;
+  const overlayOpen = drawerOpen || yearOpen || upcomingOpen || settingsOpen || searchOpen || graphOpen || mindOpen || chatOpen || !!nexus || titleSearchOpen || tabsOpen;
   useEffect(() => {
     document.documentElement.classList.toggle("overlay-open", overlayOpen);
     if (overlayOpen) (document.activeElement as HTMLElement | null)?.closest?.(".tiptap") && (document.activeElement as HTMLElement).blur();
@@ -545,6 +553,59 @@ function App() {
   };
 
   const pageNames = useCallback(() => store?.pageNames() ?? Promise.resolve([]), [store]);
+
+  // ───── Tabs and back / forward (the phone's navigation island) ─────
+  const loc: Loc = route.kind === "day" ? { kind: "day", day } : route.kind === "page" ? { kind: "page", title: route.page.title } : { kind: "tag", tag: route.tag };
+  const here = locKey(loc);
+  // Whatever opens on screen becomes the active tab's newest place (going back/forward only moves within it).
+  useEffect(() => {
+    setTabs((t) => visit(t, loc));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [here]);
+  useEffect(() => saveTabs(tabs), [tabs]);
+  const openLoc = (l: Loc) => {
+    if (l.kind === "day") return void goTo(l.day);
+    if (l.kind === "page") return void handlers.onOpenLink(l.title);
+    return void handlers.onOpenTag(l.tag);
+  };
+  const step = (by: -1 | 1) => {
+    const next = go(tabs, by);
+    if (!next) return;
+    setTabs(next.state);
+    openLoc(next.loc);
+  };
+  const goHome = () => {
+    if (route.kind === "day" && day === today) return window.scrollTo({ top: 0, behavior: "smooth" });
+    setFind(null);
+    void goTo(today);
+  };
+  const islandActions: MenuAction[] = [
+    { icon: "☰", label: "Menu", run: () => setDrawerOpen(true) },
+    { icon: "🔎", label: "Search text", run: () => setSearchOpen(true) },
+    { icon: "🧭", label: "Routine", run: () => setRoutineOpen(true) },
+    { icon: "💬", label: "Chat", run: () => void flush().then(() => setChatOpen(true)) },
+    { icon: "📅", label: "Year", run: () => openYear() },
+    { icon: "🔔", label: "Coming up", run: () => setUpcomingOpen(true) },
+    { icon: "💰", label: "Money", run: () => setMoneyOpen(true) },
+    { icon: "🕸", label: "Graph", run: () => setGraphOpen(true) },
+    { icon: "🧠", label: "Mind map", run: () => setMindOpen(true) },
+    { icon: "⑂", label: "History", run: () => void openNexus() },
+    { icon: "⚙︎", label: "Settings", run: () => setSettingsOpen(true) },
+  ];
+  useEffect(() => {
+    document.documentElement.classList.toggle("has-island", touch);
+  }, [touch]);
+
+  // The day header's ☰ 🔍 🧭 💬 also ride on the calendar strip once the header has scrolled away;
+  // while the header is in sight they'd only show twice, so the strip's copies stay hidden.
+  useEffect(() => {
+    const root = document.documentElement;
+    const header = document.querySelector(".page-header");
+    if (!header) return root.classList.remove("header-in-view");
+    const io = new IntersectionObserver(([e]) => root.classList.toggle("header-in-view", e.isIntersecting && e.intersectionRatio > 0.5), { threshold: [0, 0.5, 1] });
+    io.observe(header);
+    return () => io.disconnect();
+  }, [route.kind, store]);
 
   const links = useMemo(() => extractLinks(text), [text]);
   // On a person's or topic's page, its own links and tags as they were when it opened.
@@ -1090,6 +1151,58 @@ function App() {
       <CaptureHost />
       <PhotoHost />
       <Toasts />
+      {touch && store && (
+        <NavIsland
+          away={overlayOpen || routineOpen || moneyOpen || !!dayPicker}
+          tabs={tabs}
+          today={today}
+          canBack={activeTab(tabs).index > 0}
+          canForward={activeTab(tabs).index < activeTab(tabs).history.length - 1}
+          onBack={() => step(-1)}
+          onForward={() => step(1)}
+          onHome={goHome}
+          onSearch={() => setTitleSearchOpen(true)}
+          onTabs={() => setTabsOpen(true)}
+          actions={islandActions}
+        />
+      )}
+      {titleSearchOpen && (
+        <TitleSearch
+          pages={pageNames}
+          days={days}
+          today={today}
+          onClose={() => setTitleSearchOpen(false)}
+          onOpen={(hit, newTab) => {
+            setTitleSearchOpen(false);
+            const l: Loc = hit.kind === "day" ? { kind: "day", day: hit.key } : { kind: "page", title: hit.key };
+            if (newTab) setTabs((t) => openTab(t, l));
+            openLoc(l);
+          }}
+        />
+      )}
+      {tabsOpen && (
+        <TabSwitcher
+          tabs={tabs}
+          today={today}
+          onDismiss={() => setTabsOpen(false)}
+          onSwitch={(id) => {
+            setTabsOpen(false);
+            const next = switchTab(tabs, id);
+            setTabs(next);
+            openLoc(currentLoc(activeTab(next)));
+          }}
+          onClose={(id) => {
+            const next = closeTab(tabs, id);
+            setTabs(next);
+            if (id === tabs.active) openLoc(currentLoc(activeTab(next)));
+          }}
+          onNew={() => {
+            setTabsOpen(false);
+            setTabs((t) => openTab(t, { kind: "day", day: today }));
+            void goTo(today);
+          }}
+        />
+      )}
       <PullToToday enabled={route.kind === "day" && day !== today && !yearOpen && !drawerOpen} onToday={() => void goTo(today)} />
 
       <YearPanel

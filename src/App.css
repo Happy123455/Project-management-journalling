@@ -2655,3 +2655,213 @@ html.time-rail-on .editor-body { padding-right: 22px; }
 @media (pointer: fine) { .money-glance-hint { display: none; } }
 .project-list .project-hide, .project-list .project-tasks-more { width: auto; }
 .entries-table tr.sky td.entries-when { background: var(--row-sky); color: var(--row-fg, inherit); font-weight: 650; }
+
+/* ───────────── Phone navigation island (src/nav/NavIsland.tsx) ─────────────
+   Floats at the bottom while not typing; as the keyboard comes up it sinks and shrinks away and the
+   formatting bar pops up in its place (html.kb-bar-on), and it springs back when typing stops. */
+.nav-island {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+  z-index: 15;
+  width: min(calc(100vw - 24px), 430px);
+  height: 58px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 29px;
+  color: #f4f6fb;
+  background: rgba(22, 23, 28, 0.86);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 10px 30px rgba(0, 0, 0, 0.35);
+  transform: translate3d(-50%, 0, 0);
+  transition: transform 0.5s var(--spring), opacity 0.28s ease, border-radius 0.4s ease;
+}
+html.kb-bar-on .nav-island,
+.nav-island.away,
+html.yt-full-open .nav-island {
+  transform: translate3d(-50%, 120%, 0) scale(0.6, 0.75);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.32s cubic-bezier(0.55, 0, 0.75, 0.2), opacity 0.22s ease;
+}
+.nav-side { display: flex; align-items: center; justify-content: space-around; min-width: 0; }
+.nav-island .nav-btn {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.nav-island .nav-btn:active { background: rgba(255, 255, 255, 0.12); transform: scale(0.9); }
+.nav-island .nav-btn:disabled { opacity: 0.32; }
+.nav-home {
+  width: 64px;
+  height: 64px;
+  margin: -14px 6px 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: radial-gradient(circle at 35% 30%, rgba(var(--heat-rgb), 0.95), rgba(var(--heat-rgb), 0.75));
+  border: 3px solid rgba(22, 23, 28, 0.86);
+  box-shadow: 0 6px 18px rgba(var(--heat-rgb), 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: transform 0.35s var(--spring);
+  -webkit-tap-highlight-color: transparent;
+}
+.nav-home:active { transform: scale(0.88); }
+.nav-tab-count {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border: 2px solid currentColor;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+.nav-mode { position: relative; }
+.nav-mode-icon { position: absolute; top: 2px; right: 0; font-size: 10px; line-height: 1; padding: 2px 3px; border-radius: 6px; background: rgba(var(--heat-rgb), 0.9); color: #fff; }
+.nav-burger { display: grid; gap: 4px; width: 20px; }
+.nav-burger i { display: block; height: 2px; border-radius: 1px; background: currentColor; }
+.nav-mode.open .nav-burger i:nth-child(2) { opacity: 0.4; }
+
+.nav-sheet-backdrop { position: fixed; inset: 0; z-index: 46; background: rgba(0, 0, 0, 0.3); animation: fade-in 0.2s ease; }
+.nav-menu, .nav-tabs-sheet {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  z-index: 47;
+  width: min(calc(100vw - 24px), 430px);
+  max-height: 70vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
+  padding: 12px;
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--panel) 95%, transparent);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px 0 var(--glass-rim), 0 18px 50px rgba(0, 0, 0, 0.35);
+  transform: translateX(-50%);
+  transform-origin: 50% 100%;
+  animation: island-grow 0.42s var(--spring);
+}
+@keyframes island-grow {
+  from { transform: translateX(-50%) scale(0.55, 0.3); opacity: 0; border-radius: 40px; }
+  to { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+.nav-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+.nav-modes button { height: 42px; border-radius: 14px; font-weight: 600; }
+.nav-modes button.active { color: #fff; background: rgb(var(--heat-rgb)); border-color: transparent; }
+.nav-menu-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.nav-menu-grid button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 2px; border-radius: 16px; font-size: 12px; }
+.nav-menu-grid button span { font-size: 22px; line-height: 1; }
+.nav-tabs-sheet header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.nav-tabs-sheet h2 { margin: 0 4px; font-size: 16px; }
+.nav-new-tab { border-radius: 999px; padding: 6px 14px; font-weight: 600; }
+.nav-tab-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.nav-tab-list li { display: flex; gap: 6px; align-items: stretch; }
+.nav-tab-card { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 16px; text-align: left; }
+.nav-tab-list li.active .nav-tab-card { border-color: rgb(var(--heat-rgb)); box-shadow: 0 0 0 2px rgba(var(--heat-rgb), 0.45); }
+.nav-tab-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.nav-tab-steps { font-size: 11px; color: var(--muted); }
+.nav-tab-close { width: 44px; border-radius: 16px; padding: 0; }
+.title-search .title-hit { display: flex; gap: 6px; }
+.title-search .title-hit .search-result { flex: 1; min-width: 0; }
+.title-hit-label { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title-hit-tab { width: 44px; padding: 0; border-radius: 14px; flex: none; }
+
+/* The formatting bar pops up out of where the island was. */
+.keyboard-bar { animation: kb-bar-in 0.36s var(--spring); transform-origin: 50% 100%; }
+@keyframes kb-bar-in {
+  from { transform: translateY(-100%) translateY(24px) scale(0.6, 0.7); opacity: 0; border-radius: 30px; }
+  to { transform: translateY(-100%); opacity: 1; }
+}
+
+/* Room for the island under the note, and things that sat at the bottom move above it. */
+html.has-island .page { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); }
+html.has-island:not(.kb-bar-on) .find-bar { bottom: calc(env(safe-area-inset-bottom, 0px) + 82px); }
+html.has-island .pull-today { bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); }
+@media (prefers-reduced-motion: reduce) {
+  .nav-island, html.kb-bar-on .nav-island { transition: opacity 0.2s; }
+  .keyboard-bar, .nav-menu, .nav-tabs-sheet { animation: none; }
+}
+
+/* The day header's tools show once: in the header while it's in sight, on the strip after it scrolled away. */
+html.header-in-view .cal-actions { display: none; }
+.cal-actions { animation: fade-in 0.25s ease; }
+
+/* Typing speed guide: too fast, and the cursor runs hot. */
+html.typing-hot .tiptap, html.typing-hot .source-text { caret-color: #ff3b30; }
+.hot-caret {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 3px;
+  z-index: 6;
+  pointer-events: none;
+  border-radius: 2px;
+  background: #ff3b30;
+  box-shadow: 0 0 6px 2px rgba(255, 59, 48, 0.85), 0 0 16px 6px rgba(255, 120, 40, 0.5);
+  animation: hot-glow 0.6s steps(6) infinite alternate;
+}
+@keyframes hot-glow { from { opacity: 1; } to { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .hot-caret { animation: none; } }
+
+.settings-number { display: grid; grid-template-columns: 1fr 90px; align-items: center; gap: 4px 10px; margin: 4px 0 10px 26px; }
+.settings-number input { font: inherit; padding: 6px 10px; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; }
+.settings-number small { grid-column: 1 / -1; color: var(--muted); }
+.panel-count { margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 11px; color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); }
+
+/* Coming up: time left until the reminder and its day as a sky-coloured line with where it falls. */
+.reminder-dayline { display: grid; gap: 3px; margin-top: 6px; width: 100%; }
+.rdl-left { font-size: 12px; color: var(--muted); }
+.rdl-left b { color: var(--text); font-weight: 700; }
+.rdl-track {
+  position: relative;
+  display: block;
+  height: 8px;
+  margin-top: 18px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.25);
+}
+.rdl-sun { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: rgba(255, 196, 70, 0.9); }
+.rdl-now { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); opacity: 0.7; }
+.rdl-point { position: absolute; top: 50%; transform: translate(-50%, -50%); display: grid; place-items: center; }
+.rdl-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--reminder);
+  box-sizing: border-box;
+  box-shadow: 0 0 0 2px var(--panel), 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+.rdl-point.next .rdl-dot { width: 16px; height: 16px; border-width: 3px; }
+.rdl-point.untimed .rdl-dot { border-style: dashed; }
+.rdl-time {
+  position: absolute;
+  bottom: calc(100% + 1px);
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text);
+}
+.rdl-hours { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); }
+:where(html[data-theme="neu"]) .rdl-track { box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .rdl-dot { box-shadow: 0 0 0 2px var(--bg), var(--neu-out-xs); }

@@ -37,4 +37,31 @@ describe("projects", () => {
     expect(extractTasks(next).map((t) => t.checked)).toEqual([false, true, true]);
     expect(extractTasks(doc).map((t) => t.checked)).toEqual([false, true, false]);
   });
+
+  it("counts tasks inside the project's box in a day note", () => {
+    const day = {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "morning" }] },
+        { type: "paragraph", attrs: { indent: 0 }, content: [{ type: "text", text: "[[Journal]]" }] },
+        { type: "taskList", attrs: { indent: 1 }, content: [task("write 3 pages"), task("review", true)] },
+        { type: "paragraph", attrs: { indent: 1 }, content: [{ type: "text", text: "notes" }] },
+        { type: "taskList", attrs: { indent: 0 }, content: [task("not this one")] },
+      ],
+    };
+    expect(projectTasks(day, "Journal").map((t) => t.text)).toEqual(["write 3 pages", "review"]);
+  });
+
+  it("counts tasks under a heading that names the project, and sub-tasks of a task that does", () => {
+    const day = {
+      type: "doc",
+      content: [
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "#journal today" }] },
+        { type: "taskList", content: [task("under heading")] },
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Other" }] },
+        { type: "taskList", content: [task("elsewhere"), task("big [[Journal]]", false, [task("small step")])] },
+      ],
+    };
+    expect(projectTasks(day, "Journal").map((t) => t.text)).toEqual(["under heading", "big [[Journal]]", "small step"]);
+  });
 });
