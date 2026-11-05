@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadMap, MAP_PAGE, placeNew, projectMapPage, ROOT_ID, saveMap, type MindMap, type MindNode } from "../lib/mindmap";
 import { dayColor } from "../lib/projectDays";
+import { arrange, edgeStyle, loadMindLayout, MIND_LAYOUTS, saveMindLayout, type MindLayout } from "../lib/mindLayout";
 import { showError, showToast } from "../lib/toast";
 import type { JournalStore, NamedPage } from "../store";
 import { growMap, growPending, growProjectMap, MAP_SKILL, pendingDays, PROJECT_SKILL, tidyMap } from "./grow";
@@ -11,11 +12,30 @@ interface Placed {
   y: number;
 }
 
-/** Every node where it was first placed (placeNew never moves one), so the map grows like a tree. */
-function layout(map: MindMap): Map<string, Placed> {
+/**
+ * "As it grew": every node where it was first placed (placeNew never moves one), so the map grows
+ * like a tree. The other layouts arrange the same tree neatly (radial, trees, charts).
+ */
+function layout(map: MindMap, mode: MindLayout): Map<string, Placed> {
   const out = new Map<string, Placed>();
-  for (const n of placeNew(map).nodes) out.set(n.id, { node: n, x: n.x ?? 0, y: n.y ?? 0 });
+  const nodes = placeNew(map).nodes;
+  const at = mode === "grown" ? null : arrange(map, mode);
+  for (const n of nodes) {
+    const p = at?.get(n.id);
+    out.set(n.id, { node: n, x: p ? p.x : n.x ?? 0, y: p ? p.y : n.y ?? 0 });
+  }
   return out;
+}
+
+/** The view that shows all of `placed` in a canvas of this size. */
+function fitView(placed: Map<string, Placed>, c: HTMLCanvasElement | null) {
+  const ps = [...placed.values()];
+  if (!ps.length) return { x: 0, y: 0, scale: 1 };
+  const xs = ps.map((p) => p.x);
+  const ys = ps.map((p) => p.y);
+  const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const scale = c ? Math.max(0.25, Math.min(1.2, (c.clientWidth - 80) / Math.max(1, maxX - minX), (c.clientHeight - 80) / Math.max(1, maxY - minY))) : 1;
+  return { x: (-(minX + maxX) / 2) * scale, y: (-(minY + maxY) / 2) * scale, scale };
 }
 
 const short = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
@@ -33,6 +53,7 @@ export function MindMapView({ store, today, onClose, onOpenDay, onOpenPage }: { 
   const [playing, setPlaying] = useState(false);
   const [picked, setPicked] = useState<MindNode | null>(null);
   const [growing, setGrowing] = useState(false);
+  const [mode, setMode] = useState<MindLayout>(loadMindLayout);
   const canvas = useRef<HTMLCanvasElement>(null);
   const view = useRef({ x: 0, y: 0, scale: 1 });
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -50,19 +71,22 @@ export function MindMapView({ store, today, onClose, onOpenDay, onOpenPage }: { 
       setMap(m);
       setUpTo(m.processedDays.length);
       // The whole map in view to start with.
-      const c = canvas.current;
-      const xs = m.nodes.map((n) => n.x ?? 0);
-      const ys = m.nodes.map((n) => n.y ?? 0);
-      const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-      const scale = c ? Math.max(0.25, Math.min(1.2, (c.clientWidth - 80) / Math.max(1, maxX - minX), (c.clientHeight - 80) / Math.max(1, maxY - minY))) : 1;
-      view.current = { x: (-(minX + maxX) / 2) * scale, y: (-(minY + maxY) / 2) * scale, scale };
+      view.current = fitView(layout(m, modeRef.current), canvas.current);
     });
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   useEffect(reload, [store, pageTitle]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     void store.projects().then((p) => setProjects(p.filter((x) => x.props.project?.status !== "done")), () => {});
     void pendingDays(store, today).then((d) => setPending(d.length), () => {});
   }, [store, today]);
-  const placed = useMemo(() => (map ? layout(map) : new Map<string, Placed>()), [map]);
+  const placed = useMemo(() => (map ? layout(map, mode) : new Map<string, Placed>()), [map, mode]);
+  const pickLayout = (next: MindLayout) => {
+    setMode(next);
+    saveMindLayout(next);
+    if (map) view.current = fitView(layout(map, next), canvas.current);
+  };
+  const edges = edgeStyle(mode);
   const days = map?.processedDays ?? [];
   const lastDay = days[Math.min(upTo, days.length) - 1] ?? "";
   const visible = (n: MindNode) => n.id === ROOT_ID || (!!lastDay && n.firstSeenDay <= lastDay);
@@ -111,7 +135,20 @@ export function MindMapView({ store, today, onClose, onOpenDay, onOpenPage }: { 
       ctx.lineWidth = 1.5 + Math.log2(p.node.weight + 1) * 1.6;
       ctx.beginPath();
       ctx.moveTo(parent.x, parent.y);
-      ctx.quadraticCurveTo((parent.x + p.x) / 2, (parent.y + p.y) / 2 - 10, p.x, p.y);
+      if (edges === "elbow-x") {
+        // Logic chart: across from the parent, then a bracket down/up to the child.
+        const mx = (parent.x + p.x) / 2;
+        ctx.lineTo(mx, parent.y);
+        ctx.lineTo(mx, p.y);
+        ctx.lineTo(p.x, p.y);
+      } else if (edges === "elbow-y") {
+        // Organization chart: down from the parent, across, down to the child.
+        const my = (parent.y + p.y) / 2;
+        ctx.lineTo(parent.x, my);
+        ctx.lineTo(p.x, my);
+        ctx.lineTo(p.x, p.y);
+      } else if (mode === "right" || mode === "left") ctx.bezierCurveTo((parent.x + p.x) / 2, parent.y, (parent.x + p.x) / 2, p.y, p.x, p.y);
+      else ctx.quadraticCurveTo((parent.x + p.x) / 2, (parent.y + p.y) / 2 - 10, p.x, p.y);
       ctx.stroke();
     }
     ctx.font = "600 13px system-ui, sans-serif";
@@ -253,6 +290,11 @@ export function MindMapView({ store, today, onClose, onOpenDay, onOpenPage }: { 
             📚 Read {pending} note{pending === 1 ? "" : "s"}
           </button>
         )}
+        <select value={mode} onChange={(e) => pickLayout(e.target.value as MindLayout)} aria-label="Layout" title="How the map is arranged">
+          {MIND_LAYOUTS.map((l) => (
+            <option key={l.value} value={l.value}>{l.icon} {l.label}</option>
+          ))}
+        </select>
         <button type="button" onClick={() => void tidy()} disabled={growing} title="Fold duplicates together; the skill learns from the map">🧹 Tidy</button>
         <button type="button" onClick={() => onOpenPage(project ? PROJECT_SKILL : MAP_SKILL)} title="The method the AI follows (you can change it)">📜 Skill</button>
       </div>

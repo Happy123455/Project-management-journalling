@@ -47,6 +47,9 @@ export interface MenuAction {
   run: () => void;
 }
 
+/** How far Home is drawn up before its joystick engages (px). */
+const JOY_LIFT = 64;
+
 type Gesture = {
   id: number;
   x0: number;
@@ -73,7 +76,8 @@ const QUICK: { key: ViewMode | "outline"; icon: string; label: string }[] = [
  * as the keyboard comes up). Back / forward, search by note title, a big Home for today's note,
  * tabs and the mode + menu switcher. Gestures on it:
  * - swipe left → right goes forward, right → left goes back; swipe up opens the menu;
- * - hold Home: a joystick that scrolls the note (lean further for faster, a tick as it goes);
+ * - hold Home, then draw it up clear of the bottom edge: a joystick that scrolls the note (lean further
+ *   for faster, a tick as it goes);
  *   double-tap Home: the end of today's note, ready to write;
  * - swipe up from (or hold) the tabs: tab previews float up, slide onto one and let go to open it;
  * - hold the menu: View / Edit / Source / Outline fan out, slide onto one and let go.
@@ -103,7 +107,8 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   const g = useRef<Gesture | null>(null);
   const quietClick = useRef(0);
   const lastHome = useRef(0);
-  const joyRun = useRef<{ frame: number; at: number; off: number; travel: number; edge: boolean } | null>(null);
+  // armed: the button has been lifted clear of the screen's bottom edge and the stick is live.
+  const joyRun = useRef<{ frame: number; at: number; off: number; travel: number; edge: boolean; armed: boolean } | null>(null);
   const atToday = (() => {
     const l = currentLoc(tabs.tabs.find((t) => t.id === tabs.active) ?? tabs.tabs[0]);
     return l.kind === "day" && l.day === today;
@@ -123,13 +128,13 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   const startJoy = () => {
     haptic("press", 0.9);
     setJoy(0);
-    const j = { frame: 0, at: performance.now(), off: 0, travel: 0, edge: false };
+    const j = { frame: 0, at: performance.now(), off: 0, travel: 0, edge: false, armed: false };
     joyRun.current = j;
     const loop = (now: number) => {
       const dt = Math.min(0.05, (now - j.at) / 1000);
       j.at = now;
       const lean = Math.abs(j.off) - 8;
-      if (lean > 0) {
+      if (j.armed && lean > 0) {
         // Fine near the middle, quick at full lean (about a screen a second at 80px).
         const v = Math.sign(j.off) * Math.pow(Math.min(lean, 90) / 82, 1.6) * 2600;
         const before = window.scrollY;
@@ -211,8 +216,17 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     }
     if (s.mode === "joy") {
       const j = joyRun.current;
-      if (j) j.off = Math.max(-100, Math.min(100, dy));
-      setJoy(Math.max(-40, Math.min(40, dy * 0.4)));
+      if (!j) return;
+      // First the button is drawn up, away from the bottom edge (nothing scrolls yet); once it is a
+      // safe height up, the stick engages there, with room to lean both ways.
+      if (!j.armed) {
+        if (dy > -JOY_LIFT) return setJoy(Math.min(0, dy));
+        j.armed = true;
+        haptic("edge", 0.9);
+      }
+      const off = dy + JOY_LIFT;
+      j.off = Math.max(-100, Math.min(100, off));
+      setJoy(-JOY_LIFT + Math.max(-40, Math.min(40, off * 0.4)));
     } else if (s.mode === "quick" || s.mode === "previews") {
       if (Math.hypot(dx, dy) > 14) s.movedAfter = true;
       pickAt(e.clientX, e.clientY);

@@ -7,7 +7,7 @@ import { countWords, docText } from "../lib/words";
 import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
 import { Serial } from "./serial";
 import { fileEventBody, fileFromEvent, fromBase64, newFileRecord, toBase64 } from "./files";
-import { docKey, eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
+import { beforeKey, docKey, eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
 import { withPatch } from "./props";
 import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
 import type { JSONContent } from "@tiptap/react";
@@ -370,7 +370,7 @@ export class MemoryStore implements JournalStore {
       if (page) docs.set(id, { current: JSON.stringify(page.content), befores: new Set() });
     }
     for (const e of this.data.events) {
-      if (e.before && (e.op === "create" || e.op === "update")) docs.get(e.blockId)?.befores.add(docKey(e.before));
+      if (e.before && (e.op === "create" || e.op === "update")) docs.get(e.blockId)?.befores.add(beforeKey(docKey(e.before)));
     }
     return { eventIds: new Set(this.data.events.map((e) => e.id)), latest, fileIds: new Set(Object.keys(this.files)), docs };
   }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { JournalStore } from "../store";
 import { askAi, AiUnavailableError } from "../ai/client";
@@ -22,6 +22,8 @@ export function FinancePanel({ store, onClose, onOpenDay }: { store: JournalStor
   const [tab, setTab] = useState<Tab>("overview");
   const [txns, setTxns] = useState<Txn[] | null>(null);
   useEscapeToClose(onClose);
+  const panel = useRef<HTMLElement>(null);
+  const swipe = useRef<{ x: number; y: number; on: boolean; dx: number } | null>(null);
   useEffect(() => {
     const load = () => void loadTxns(store).then(setTxns).catch(() => setTxns([]));
     load();
@@ -37,7 +39,51 @@ export function FinancePanel({ store, onClose, onOpenDay }: { store: JournalStor
   return createPortal(
     <>
       <div className="outline-backdrop" onClick={onClose} />
-      <aside className="routine-panel finance-panel" role="dialog" aria-label="Money">
+      <aside
+        ref={panel}
+        className="routine-panel finance-panel"
+        role="dialog"
+        aria-label="Money"
+        // Money came in from the left: a swipe right-to-left pushes it back (it follows the finger).
+        // Its touches stay its own, so the note's swipes (another day, the year) don't also happen.
+        onTouchStart={(e) => {
+          e.stopPropagation();
+          const t = e.target as HTMLElement;
+          swipe.current = t.closest("header nav, input, textarea, select, .finance-chart, svg") ? null : { x: e.touches[0].clientX, y: e.touches[0].clientY, on: false, dx: 0 };
+        }}
+        onTouchMove={(e) => {
+          e.stopPropagation();
+          const s = swipe.current;
+          const el = panel.current;
+          if (!s || !el) return;
+          const dx = e.touches[0].clientX - s.x;
+          const dy = e.touches[0].clientY - s.y;
+          if (!s.on) {
+            if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) return void (swipe.current = null);
+            if (dx > -12 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+            s.on = true;
+          }
+          s.dx = Math.min(0, dx);
+          el.style.animation = "none";
+          el.style.transition = "none";
+          el.style.transform = `translate3d(${s.dx}px,0,0)`;
+        }}
+        onTouchEnd={(e) => {
+          e.stopPropagation();
+          const s = swipe.current;
+          swipe.current = null;
+          const el = panel.current;
+          if (!s?.on || !el) return;
+          const close = s.dx < -Math.min(90, el.offsetWidth * 0.25);
+          el.style.transition = "transform 0.22s cubic-bezier(0.22, 1, 0.36, 1)";
+          el.style.transform = close ? "translate3d(calc(-100% - 16px),0,0)" : "";
+          if (close) window.setTimeout(onClose, 200);
+        }}
+        onTouchCancel={() => {
+          swipe.current = null;
+          if (panel.current) panel.current.style.transform = "";
+        }}
+      >
         <header>
           <strong>💰 Money</strong>
           <nav>

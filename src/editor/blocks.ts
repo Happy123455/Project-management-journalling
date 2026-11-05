@@ -368,7 +368,9 @@ export function blockDecorations(doc: PMNode): DecorationSet {
         );
       }
       const isBox = node.isTextblock && /\[\[[^\]]+\]\]/.test(node.textContent);
-      if (!node.attrs.collapsed && (range.end - i > 3 || isBox)) {
+      // Any block with lines under it gets them (it used to take four lines or more, so most bulleted
+      // or formatted blocks never showed a ⧉).
+      if (!node.attrs.collapsed && (range.end - i > 1 || isBox)) {
         // Copy and fold at the bottom right, on the block's lower edge (away from the line being
         // typed, so a tap at the end of the text doesn't hit them).
         const last = doc.child(range.end - 1);
@@ -383,7 +385,7 @@ export function blockDecorations(doc: PMNode): DecorationSet {
             row.className = inner ? "block-bottom-tools" : "block-bottom-tools inline";
             row.contentEditable = "false";
             row.append(copyButton(() => copyBlock(view, index)));
-            if (range.end - i > 3) {
+            if (range.end - i > 1) {
               const b = foldButton(false, "block-bottom-fold", fold);
               b.textContent = "▴";
               b.title = "Fold this block";
@@ -419,6 +421,24 @@ export function blockDecorations(doc: PMNode): DecorationSet {
             row.append(button);
             return row;
           }, { side: 1, key: `fold-${i}-${node.attrs.collapsed}-${JSON.stringify(node.attrs.info)}`, ignoreSelection: true }),
+        );
+      }
+    }
+    else if (LISTS.has(node.type.name) && i >= hiddenUntil && (node.childCount > 1 || node.firstChild?.childCount !== 1)) {
+      // A bulleted / numbered / task list is one block holding all its points: ⧉ on its last line.
+      const inner = lastTextblock(node, pos);
+      if (inner) {
+        const index = i;
+        bottomHosts.set(inner.pos, inner.node.nodeSize);
+        decos.push(
+          Decoration.widget(inner.pos + inner.node.nodeSize - 1, (view) => {
+            view0 = view;
+            const row = document.createElement("span");
+            row.className = "block-bottom-tools";
+            row.contentEditable = "false";
+            row.append(copyButton(() => copyBlock(view, index)));
+            return row;
+          }, { side: 1, key: `lcopy-${i}-${node.nodeSize}`, ignoreSelection: true, stopEvent: () => true }),
         );
       }
     }

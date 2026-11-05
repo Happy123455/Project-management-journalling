@@ -2203,9 +2203,9 @@ html.weather-cloudy.weather-night .ambience-layer::before, html.weather-cloudy.w
 .editor-modes button.active { background: var(--glass-strong, rgba(255,255,255,0.85)); color: var(--text, inherit); font-weight: 600; }
 @media (max-width: 480px) { .editor-modes .mode-label { display: none; } .editor-modes button { padding: 4px 11px; font-size: 14px; } }
 .editor.mode-source > .editor-body, .editor.mode-source > .toolbar { display: none; }
-.editor.mode-reading .block-handle, .editor.mode-reading .block-bottom-fold, .editor.mode-reading .code-bottom-fold { display: none !important; }
+.editor.mode-reading .block-handle { display: none !important; }
 .editor.mode-reading .tiptap { caret-color: transparent; font-size: 1.04em; line-height: 1.7; }
-.editor.mode-reading .tiptap .block-box-fold, .editor.mode-reading .tiptap .block-heading-fold { pointer-events: auto; }
+.editor.mode-reading .tiptap .block-box-fold, .editor.mode-reading .tiptap .block-heading-fold, .editor.mode-reading .tiptap .block-bottom-tools, .editor.mode-reading .tiptap .block-copy, .editor.mode-reading .tiptap .block-bottom-fold { pointer-events: auto; }
 .source-mode { display: flex; flex-direction: column; gap: 6px; }
 .source-text { width: 100%; box-sizing: border-box; min-height: 50vh; resize: none; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; font: inherit; font-size: 15px; line-height: 1.6; background: color-mix(in srgb, var(--panel) 60%, transparent); color: inherit; tab-size: 4; white-space: pre-wrap; overflow-wrap: anywhere; }
 .source-text:focus { outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent); }
@@ -2284,7 +2284,7 @@ html.weather-cloudy.weather-night .ambience-layer::before, html.weather-cloudy.w
 .block-copy:hover { opacity: 1; }
 .block-copy.copied { color: #22c55e; }
 .block-box-tools .block-copy { height: 24px; }
-.editor.mode-reading .block-copy, .editor.mode-reading .block-bottom-tools { display: none !important; }
+/* Reading view keeps ⧉ copy and the fold buttons (only the drag handle goes). */
 :where(html[data-theme="neu"]) .block-copy, :where(html[data-theme="neu"]) .block-bottom-tools .block-bottom-fold { background: var(--bg); box-shadow: var(--neu-out-xs); }
 
 /* Code block bar on a narrow note (deeply nested, small window): the language shrinks first and
@@ -2976,7 +2976,9 @@ html:has(.mac-tabbar) .page { padding-bottom: 46px; }
 
 /* ═════════════ Batch 14 ═════════════ */
 /* Week strip pulled down: the month follows the finger (max-height set inline while pulling). */
-.month-calendar.collapsed { touch-action: pan-x pan-up; }
+/* The week strip: a finger moving up still scrolls the note, a finger moving down is only the month opening
+   (touch-action names the scroll direction: pan-down = the finger going up). */
+.month-calendar.collapsed { touch-action: pan-x pan-down; }
 .month-calendar.pulling { overflow: hidden; }
 .month-calendar.pulling .month-grid { animation: none; }
 /* Holding the month name: a joystick for months. */
@@ -2985,13 +2987,14 @@ html:has(.mac-tabbar) .page { padding-bottom: 46px; }
 .scrub-arrow { display: inline-block; margin: 0 6px; font-size: 0.7em; opacity: 0.7; animation: scrub-nudge 0.9s ease-in-out infinite alternate; }
 @keyframes scrub-nudge { to { opacity: 0.25; } }
 
-/* Year view: twelve months in a 2 × 6 grid that fits one screen, days drawn like the month's. */
-.year-panel { display: flex; flex-direction: column; }
-.year-grid { flex: 1; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(6, auto); gap: 8px 14px; align-content: start; }
-.year-month h3 { margin: 0 0 3px; font-size: 13px; font-weight: 650; }
-.year-panel .month-grid.mini { gap: 2px; --yd: max(12px, calc((100dvh - env(safe-area-inset-top, 0px) - 300px) / 36)); }
+/* Year view: twelve months side by side in two columns, each day a square button that is easy to tap
+   (the panel scrolls; squeezing all twelve into one screen made the days thin slivers). */
+.year-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 14px; align-content: start; }
+.year-month { min-width: 0; }
+.year-month h3 { margin: 0 0 4px; font-size: 13px; font-weight: 650; }
+.year-panel .month-grid.mini { gap: 3px; }
 .year-panel .month-grid.mini .weekday { font-size: 8px; line-height: 1.1; }
-.year-panel .month-grid.mini .cal-day { aspect-ratio: auto; height: var(--yd); font-size: 8.5px; line-height: 1; border-radius: 4px; border-width: 1px; }
+.year-panel .month-grid.mini .cal-day { aspect-ratio: 1; height: auto; min-height: 0; font-size: 9px; line-height: 1; border-radius: 5px; border-width: 1px; }
 .year-panel .month-grid.mini .cal-day.today { border-color: rgb(var(--heat-rgb)); border-width: 1.5px; }
 .year-panel .month-grid.mini .cal-day.selected { outline: 1.5px solid var(--text); outline-offset: 0; }
 
@@ -3105,3 +3108,21 @@ html.booting *, html.booting *::before, html.booting *::after { transition: none
 .mindmap-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 0 12px 6px; }
 .mindmap-tools select { flex: 1 1 160px; min-width: 0; padding: 6px 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: inherit; font: inherit; }
 .mindmap-tools button { border-radius: 999px; padding: 6px 12px; font-size: 13px; white-space: nowrap; }
+
+/* A slider setting takes the row's full width under its name (in the 90px number column it ran off the phone). */
+.settings-number .settings-slider { grid-column: 1 / -1; min-width: 0; }
+.settings-slider input[type="range"] { min-width: 0; width: 100%; padding: 0; border: 0; background: none; }
+.settings-slider output { flex: none; }
+
+/* ✎ Edit counts: drag the number sideways, or tap − +. */
+.drag-counter { display: inline-flex; align-items: center; gap: 2px; margin: 0 6px; vertical-align: middle; }
+.drag-counter button { width: 28px; height: 28px; padding: 0; border-radius: 50%; font-size: 16px; line-height: 1; }
+.drag-counter-value { min-width: 4.2em; padding: 4px 8px; display: inline-flex; align-items: center; justify-content: space-between; gap: 4px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); font-weight: 700; font-variant-numeric: tabular-nums; cursor: ew-resize; touch-action: none; -webkit-user-select: none; user-select: none; }
+.drag-counter-value i { font-style: normal; font-weight: 400; font-size: 10px; color: var(--muted); }
+.drag-counter.dragging .drag-counter-value { border-color: rgb(var(--heat-rgb)); background: color-mix(in srgb, rgb(var(--heat-rgb)) 14%, var(--bg)); transform: scale(1.08); }
+.drag-counter-tip { color: var(--muted); font-size: 11px; }
+
+/* Coming up panel: a squeezed row keeps its place (see Upcoming); only its thin card takes touches. */
+.upcoming-scroll .upcoming li.squeezed { pointer-events: none; align-items: flex-start; }
+.upcoming-scroll .upcoming li.squeezed > * { pointer-events: auto; }
+.upcoming li .reminder-open { transition: none; }

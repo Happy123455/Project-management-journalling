@@ -32,7 +32,7 @@ export interface LocalState {
   fileIds: Set<string>;
   /**
    * For blocks that already have text here: the current document and every earlier document
-   * this device's log moved away from (event `before`s), both as `docKey`s. Lets a merge tell
+   * this device's log moved away from (event `before`s): current as a `docKey`, befores as `beforeKey(docKey)`. Lets a merge tell
    * "the other device built on my text" from "both devices wrote without seeing each other".
    */
   docs?: Map<string, { current: string; befores: Set<string> }>;
@@ -98,6 +98,23 @@ export function planMerge(local: LocalState, incoming: SyncRecord[]): MergePlan 
 /** A document as a comparable string, whatever event shape it came from. */
 export const docKey = (after: string) => JSON.stringify(eventDocument(after));
 
+/**
+ * A short fingerprint of a docKey (cyrb53), for LocalState.docs befores: a block's history can hold
+ * hundreds of whole documents, too many to keep in memory as text.
+ */
+export function beforeKey(key: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < key.length; i++) {
+    const c = key.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return `${(h2 >>> 0).toString(36)}.${(h1 >>> 0).toString(36)}.${key.length}`;
+}
+
 const isEmpty = (doc: JSONContent) => !doc.content?.some((n) => n.type !== "paragraph" || n.content?.length);
 
 /**
@@ -123,7 +140,7 @@ function keepBothSides(
   // They built on what this device has: their newest text already contains our changes.
   const theyContinued = remote.some((r) => (r.event.before && docKey(r.event.before) === mine.current) || docKey(r.event.after!) === mine.current);
   // This device built on their newest text.
-  const weContinued = mine.current === theirsKey || mine.befores.has(theirsKey);
+  const weContinued = mine.current === theirsKey || mine.befores.has(beforeKey(theirsKey));
   if (remoteWinner ? theyContinued : weContinued) return null;
   if (remoteWinner && weContinued) return { content: undefined, merged: false, updatedAt: theirs.event.createdAt };
   if (!remoteWinner && theyContinued) return null;
@@ -145,7 +162,7 @@ function commonBase(mine: { current: string; befores: Set<string> }, remote: Syn
   const known = (doc: string | null | undefined) => {
     if (!doc) return false;
     const k = docKey(doc);
-    return k === mine.current || mine.befores.has(k);
+    return k === mine.current || mine.befores.has(beforeKey(k));
   };
   for (let i = remote.length - 1; i >= 0; i--) {
     const e = remote[i].event;

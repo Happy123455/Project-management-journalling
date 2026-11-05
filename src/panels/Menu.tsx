@@ -197,6 +197,77 @@ function CountEdge({ value, min, max, onChange, rows }: { value: number; min: nu
   );
 }
 
+/**
+ * A number changed by dragging it sideways (right = more, one step per ~14 px, quicker the further it
+ * goes, a tick each step), or by tapping − / +. Replaces the typed number box, which jumped to 1 as
+ * soon as it was cleared to type a new number.
+ */
+function DragCounter({ value, min, max, onChange }: { value: number; min: number; max: number; onChange: (n: number) => void }) {
+  const drag = useRef<{ id: number; x: number; from: number } | null>(null);
+  const [live, setLive] = useState<number | null>(null);
+  const clamp = (n: number) => Math.max(min, Math.min(max, n));
+  const step = (by: number) => {
+    const n = clamp(value + by);
+    if (n !== value) {
+      haptic("tick", 0.5);
+      onChange(n);
+    }
+  };
+  return (
+    <span className={`drag-counter${live != null ? " dragging" : ""}`} title="Drag left or right to change">
+      <button type="button" onClick={() => step(-1)} aria-label="Fewer" disabled={value <= min}>−</button>
+      <span
+        className="drag-counter-value"
+        role="spinbutton"
+        tabIndex={0}
+        aria-valuemin={min}
+        aria-valuemax={max}
+        aria-valuenow={value}
+        aria-label="Drag left or right to change"
+        onKeyDown={(e) => {
+          if (e.key === "ArrowUp" || e.key === "ArrowRight") (e.preventDefault(), step(1));
+          if (e.key === "ArrowDown" || e.key === "ArrowLeft") (e.preventDefault(), step(-1));
+        }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          drag.current = { id: e.pointerId, x: e.clientX, from: value };
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+          setLive(value);
+          haptic("press", 0.6);
+        }}
+        onPointerMove={(e) => {
+          const d = drag.current;
+          if (!d || d.id !== e.pointerId) return;
+          const dx = e.clientX - d.x;
+          // Fine near the start, faster further out (for lists of hundreds).
+          const steps = Math.sign(dx) * Math.floor(Math.pow(Math.abs(dx) / 14, Math.abs(dx) > 120 ? 1.35 : 1));
+          const n = clamp(d.from + steps);
+          setLive((was) => {
+            if (was !== n) {
+              haptic("tick", 0.5);
+              onChange(n);
+            }
+            return n;
+          });
+        }}
+        onPointerUp={() => {
+          drag.current = null;
+          setLive(null);
+        }}
+        onPointerCancel={() => {
+          drag.current = null;
+          setLive(null);
+        }}
+      >
+        <i aria-hidden>◂</i>
+        {live ?? value}
+        <i aria-hidden>▸</i>
+      </span>
+      <button type="button" onClick={() => step(1)} aria-label="More" disabled={value >= max}>+</button>
+    </span>
+  );
+}
+
 /** ✎ Edit, Days: how many days the list shows. */
 function DaysEdit() {
   const [prefs, setPrefs] = useMenuPrefs();
@@ -205,9 +276,10 @@ function DaysEdit() {
     <div className="menu-projects-edit">
       <label>
         Show
-        <input type="number" inputMode="numeric" min={1} max={400} value={prefs.daysLimit} onChange={(e) => set(Number(e.target.value) || 1)} />
+        <DragCounter value={prefs.daysLimit} min={1} max={400} onChange={set} />
         days
       </label>
+      <small className="drag-counter-tip">Drag the number left or right (or tap − +) to change it.</small>
       <CountEdge value={prefs.daysLimit} min={1} max={400} onChange={set} rows=".day-list li" />
     </div>
   );
@@ -221,9 +293,10 @@ function ProjectsEdit() {
     <div className="menu-projects-edit">
       <label>
         Show up to
-        <input type="number" inputMode="numeric" min={1} max={30} value={prefs.projectLimit} onChange={(e) => set(Number(e.target.value) || 1)} />
+        <DragCounter value={prefs.projectLimit} min={1} max={30} onChange={set} />
         projects
       </label>
+      <small className="drag-counter-tip">Drag the number left or right (or tap − +) to change it.</small>
       <CountEdge value={prefs.projectLimit} min={1} max={30} onChange={set} rows=".project-list > li, .project-list li" />
       <label>
         <input type="checkbox" checked={prefs.projectTasks} onChange={(e) => setPrefs({ projectTasks: e.target.checked })} /> Show their tasks under each one

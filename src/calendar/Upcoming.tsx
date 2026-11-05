@@ -252,6 +252,10 @@ export function Upcoming({ pages, onPick, onAction, title = "Coming up", inMonth
       frame = requestAnimationFrame(() => {
         const top = scroller.getBoundingClientRect().top;
         let n = 0;
+        // A squeezed row keeps its full height in the list (only its card gets thin): otherwise the
+        // rows below jump up as it squeezes, cross the line themselves, and the list judders.
+        for (const li of Array.from(ul.children).slice(0, STACK_MAX) as HTMLElement[])
+          if (!li.classList.contains("squeezed")) li.style.minHeight = `${li.offsetHeight}px`;
         for (const li of ul.children) {
           if ((li as HTMLElement).getBoundingClientRect().top - top < 14 + n * 26) n++;
           else break;
@@ -269,12 +273,18 @@ export function Upcoming({ pages, onPick, onAction, title = "Coming up", inMonth
   // In the month: the month stays where it is. A swipe up inside Coming up folds only Coming up
   // (it then ends right under its last row, and scrolls by itself when the rows don't fit); a swipe
   // down at its top unfolds it. The month folds to its week only from a swipe on the month itself.
-  const touch = useRef<number | null>(null);
+  // A swipe only folds or unfolds once the list can't scroll that way any more: while it can, the
+  // finger just scrolls it (folding mid-scroll made the list jump and stutter).
+  const touch = useRef<{ y: number; top: boolean; end: boolean } | null>(null);
   const wheel = useRef(0);
-  const swipe = (dy: number) => {
+  const edges = () => {
     const el = box.current;
-    if (dy < 0 && !folded) setFolded(true);
-    else if (dy > 0 && folded && (!el || el.scrollTop <= 0)) setFolded(false);
+    if (!el) return { top: true, end: true };
+    return { top: el.scrollTop <= 1, end: el.scrollTop + el.clientHeight >= el.scrollHeight - 2 };
+  };
+  const swipe = (dy: number, at: { top: boolean; end: boolean }) => {
+    if (dy < 0 && !folded && at.end) setFolded(true);
+    else if (dy > 0 && folded && at.top) setFolded(false);
   };
   if (!pages.length) return null;
   const rows = (
@@ -303,20 +313,22 @@ export function Upcoming({ pages, onPick, onAction, title = "Coming up", inMonth
         className="upcoming-box"
         onTouchStart={(e) => {
           e.stopPropagation();
-          touch.current = e.touches[0].clientY;
+          touch.current = { y: e.touches[0].clientY, ...edges() };
         }}
         onTouchEnd={(e) => {
           e.stopPropagation();
           const start = touch.current;
           touch.current = null;
           if (start === null) return;
-          const dy = e.changedTouches[0].clientY - start;
-          if (Math.abs(dy) >= 24) swipe(dy);
+          const dy = e.changedTouches[0].clientY - start.y;
+          // At the edge both before and after the swipe: it was a pull past the end, not a scroll.
+          const now = edges();
+          if (Math.abs(dy) >= 24) swipe(dy, { top: start.top && now.top, end: start.end && now.end });
         }}
         onWheel={(e) => {
           e.stopPropagation();
           const el = box.current;
-          if (e.deltaY > 0 && !folded) {
+          if (e.deltaY > 0 && !folded && edges().end) {
             wheel.current += e.deltaY;
             if (wheel.current > 60) (wheel.current = 0), setFolded(true);
           } else if (e.deltaY < 0 && folded && (!el || el.scrollTop <= 0)) {

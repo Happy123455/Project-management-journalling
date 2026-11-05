@@ -165,6 +165,21 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
     }, 290);
     return true;
   };
+  // React's touch handlers can't stop the page scrolling, so a real listener does: while the strip is
+  // pulled down, the finger only opens the month (the note underneath stays where it is).
+  useEffect(() => {
+    const el = section.current;
+    if (!el) return;
+    const onMove = (e: TouchEvent) => {
+      const p = pull.current;
+      if (!p || !e.cancelable) return;
+      const dy = e.touches[0].clientY - p.y;
+      const dx = e.touches[0].clientX - p.x;
+      if (p.on || (dy > 2 && dy >= Math.abs(dx))) e.preventDefault();
+    };
+    el.addEventListener("touchmove", onMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onMove);
+  }, []);
   // Hold the month name: a joystick for months. Lean left or right, further = faster, a tick for each month.
   const [scrub, setScrub] = useState<number | null>(null);
   const scrubRef = useRef<{ timer: number; x0: number; x: number; on: boolean; at: number; acc: number; frame: number; m: number } | null>(null);
@@ -290,7 +305,8 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
             el.style.maxHeight = `${Math.max(p.base, p.base + p.dy)}px`;
           });
         }}
-        onTouchCancel={() => endPull(0, 0)}
+        // Cancelled mid-pull (the system took the touch): settle by how far it got, never left half open.
+        onTouchCancel={(e) => endPull(pull.current?.dy ?? 0, e.timeStamp + 1000)}
         onTouchEnd={(e) => {
           const start = drag.current;
           drag.current = null;
