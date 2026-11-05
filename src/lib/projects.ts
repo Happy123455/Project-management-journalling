@@ -59,20 +59,22 @@ export function extractTasks(doc: JSONContent): Task[] {
  * indented under it, as "📌 Project" makes it), a heading naming it (up to the next heading of the
  * same or a higher level), or a task that names it (its sub-tasks).
  */
-export function projectTasks(doc: JSONContent, name: string): Task[] {
+/** The top-level blocks that belong to a project: lines naming it, and its box or heading section under them. */
+function projectBlocks(doc: JSONContent, name: string): { names: (text: string) => boolean; named: Set<number>; inside: Set<number> } {
   const want = name.trim().toLowerCase();
   const tag = projectTag(name);
   const names = (text: string) => {
     const { wikilinks, tags } = extractLinks(text);
     return wikilinks.some((l) => l.toLowerCase() === want) || tags.some((x) => x.toLowerCase() === tag || x.toLowerCase().startsWith(`${tag}/`));
   };
-  // Top-level blocks inside a box or under a heading that names the project.
   const blocks = doc.content ?? [];
   const inside = new Set<number>();
+  const named = new Set<number>();
   const indent = (n: JSONContent) => Number(n.attrs?.indent ?? 0);
   blocks.forEach((b, i) => {
-    if (b.type !== "paragraph" && b.type !== "heading") return;
     if (!names(docText(b))) return;
+    named.add(i);
+    if (b.type !== "paragraph" && b.type !== "heading") return;
     const level = Number(b.attrs?.level ?? 0);
     for (let j = i + 1; j < blocks.length; j++) {
       const n = blocks[j];
@@ -84,6 +86,21 @@ export function projectTasks(doc: JSONContent, name: string): Task[] {
       inside.add(j);
     }
   });
+  return { names, named, inside };
+}
+
+/** Only the text of a note that belongs to the project (its box, its section, lines naming it), for its mind map. */
+export function projectText(doc: JSONContent, name: string): string {
+  const { named, inside } = projectBlocks(doc, name);
+  return (doc.content ?? [])
+    .filter((_, i) => named.has(i) || inside.has(i))
+    .map((b) => "  ".repeat(Number(b.attrs?.indent ?? 0)) + docText(b))
+    .filter((t) => t.trim())
+    .join("\n");
+}
+
+export function projectTasks(doc: JSONContent, name: string): Task[] {
+  const { names, inside } = projectBlocks(doc, name);
   const tasks = extractTasks(doc);
   // A task that names the project brings its sub-tasks along.
   const named = tasks.filter((t) => names(t.text)).map((t) => t.path.join("."));

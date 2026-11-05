@@ -29,7 +29,7 @@ import { repairLostLinks } from "./lib/repairLinks";
 import { mcpAvailable, mcpEnabled, setMcpServer } from "./mcp";
 import { MindMapView } from "./mindmap/MindMapView";
 import { isDesktopApp, macBubbleEnabled, setMacBubble } from "./bubble/macBubble";
-import { growMap } from "./mindmap/grow";
+import { growMap, growPending } from "./mindmap/grow";
 import { loadAiSettings } from "./ai/settings";
 import { entryFor, numberEntries, type ProjectEntry } from "./lib/projectDays";
 import { loadGestures, NO_SWIPE, type CanvasAction } from "./lib/gestures";
@@ -408,6 +408,14 @@ function App() {
     const t = window.setTimeout(() => void growMap(store, today, 50).catch(() => {}), 10 * 60 * 1000);
     return () => window.clearTimeout(t);
   }, [store, day, today, text]);
+  // And it reads the notes it hasn't read yet (or that grew a lot), a few each time the app sits idle.
+  useEffect(() => {
+    const ai = loadAiSettings();
+    if (!store || !ai.enabled || ai.mindmapAuto === false) return;
+    if (!isDesktopApp() && ai.macGrowsMap !== false) return;
+    const t = window.setTimeout(() => void growPending(store, today, 3).catch(() => {}), 3 * 60 * 1000);
+    return () => window.clearTimeout(t);
+  }, [store, today]);
 
   const [reminders, setReminders] = useState<DayPage[]>([]);
   const loadReminders = useCallback(() => {
@@ -1187,7 +1195,7 @@ function App() {
         />
       )}
       {mindOpen && store && (
-        <MindMapView store={store} today={today} onClose={() => setMindOpen(false)} onOpenDay={(d) => (setMindOpen(false), void goTo(d))} />
+        <MindMapView store={store} today={today} onClose={() => setMindOpen(false)} onOpenDay={(d) => (setMindOpen(false), void goTo(d))} onOpenPage={(t) => (setMindOpen(false), void handlers.onOpenLink(t))} />
       )}
       {graphOpen && store && (
         <GraphView

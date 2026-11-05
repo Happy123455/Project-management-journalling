@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { loadMap, ROOT_ID, type MindMap, type MindNode } from "../lib/mindmap";
+import { loadMap, MAP_PAGE, placeNew, projectMapPage, ROOT_ID, saveMap, type MindMap, type MindNode } from "../lib/mindmap";
 import { dayColor } from "../lib/projectDays";
 import { showError, showToast } from "../lib/toast";
-import type { JournalStore } from "../store";
-import { growMap } from "./grow";
+import type { JournalStore, NamedPage } from "../store";
+import { growMap, growPending, growProjectMap, MAP_SKILL, pendingDays, PROJECT_SKILL, tidyMap } from "./grow";
 
 interface Placed {
   node: MindNode;
@@ -11,33 +11,24 @@ interface Placed {
   y: number;
 }
 
-/** A radial tree from "Me": each branch gets a wedge sized by how many leaves it holds. */
+/** Every node where it was first placed (placeNew never moves one), so the map grows like a tree. */
 function layout(map: MindMap): Map<string, Placed> {
-  const kids = new Map<string, MindNode[]>();
-  for (const n of map.nodes) if (n.parent) kids.set(n.parent, [...(kids.get(n.parent) ?? []), n]);
-  const leaves = (id: string): number => (kids.get(id) ?? []).reduce((s, k) => s + leaves(k.id), 0) || 1;
   const out = new Map<string, Placed>();
-  const place = (n: MindNode, depth: number, from: number, to: number) => {
-    const a = (from + to) / 2;
-    out.set(n.id, { node: n, x: Math.cos(a) * depth * 130, y: Math.sin(a) * depth * 130 });
-    let at = from;
-    const total = leaves(n.id);
-    for (const k of kids.get(n.id) ?? []) {
-      const span = ((to - from) * leaves(k.id)) / total;
-      place(k, depth + 1, at, at + span);
-      at += span;
-    }
-  };
-  const root = map.nodes.find((n) => n.id === ROOT_ID);
-  if (root) place(root, 0, 0, Math.PI * 2);
+  for (const n of placeNew(map).nodes) out.set(n.id, { node: n, x: n.x ?? 0, y: n.y ?? 0 });
   return out;
 }
 
 const short = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
 /** 🧠 The evolving mind map: grows a day at a time from the journal; replay it with the slider. */
-export function MindMapView({ store, today, onClose, onOpenDay }: { store: JournalStore; today: string; onClose: () => void; onOpenDay: (day: string) => void }) {
+export function MindMapView({ store, today, onClose, onOpenDay, onOpenPage }: { store: JournalStore; today: string; onClose: () => void; onOpenDay: (day: string) => void; onOpenPage: (title: string) => void }) {
   const [map, setMap] = useState<MindMap | null>(null);
+  // Whose map: yours ("Me", from every note) or one project's (from its own text only).
+  const [projects, setProjects] = useState<NamedPage[]>([]);
+  const [which, setWhich] = useState<string>("");
+  const project = projects.find((p) => p.title === which) ?? null;
+  const [pending, setPending] = useState(0);
+  const [progress, setProgress] = useState("");
   const [upTo, setUpTo] = useState<number>(Infinity);
   const [playing, setPlaying] = useState(false);
   const [picked, setPicked] = useState<MindNode | null>(null);
@@ -48,8 +39,29 @@ export function MindMapView({ store, today, onClose, onOpenDay }: { store: Journ
   const pinch = useRef<number | null>(null);
   const moved = useRef(false);
 
-  const reload = () => void loadMap(store).then((m) => (setMap(m), setUpTo(m.processedDays.length)));
-  useEffect(reload, [store]);
+  const pageTitle = project ? projectMapPage(project.title) : MAP_PAGE;
+  const reload = () =>
+    void loadMap(store, pageTitle, project?.title ?? "Me").then(async (m) => {
+      // Maps from before places were kept: placed once now, then never moved.
+      if (m.nodes.some((n) => n.x == null)) {
+        m = placeNew(m);
+        if (m.nodes.length > 1) await saveMap(store, m, "me", pageTitle).catch(() => {});
+      }
+      setMap(m);
+      setUpTo(m.processedDays.length);
+      // The whole map in view to start with.
+      const c = canvas.current;
+      const xs = m.nodes.map((n) => n.x ?? 0);
+      const ys = m.nodes.map((n) => n.y ?? 0);
+      const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+      const scale = c ? Math.max(0.25, Math.min(1.2, (c.clientWidth - 80) / Math.max(1, maxX - minX), (c.clientHeight - 80) / Math.max(1, maxY - minY))) : 1;
+      view.current = { x: (-(minX + maxX) / 2) * scale, y: (-(minY + maxY) / 2) * scale, scale };
+    });
+  useEffect(reload, [store, pageTitle]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void store.projects().then((p) => setProjects(p.filter((x) => x.props.project?.status !== "done")), () => {});
+    void pendingDays(store, today).then((d) => setPending(d.length), () => {});
+  }, [store, today]);
   const placed = useMemo(() => (map ? layout(map) : new Map<string, Placed>()), [map]);
   const days = map?.processedDays ?? [];
   const lastDay = days[Math.min(upTo, days.length) - 1] ?? "";
@@ -71,7 +83,12 @@ export function MindMapView({ store, today, onClose, onOpenDay }: { store: Journ
     ctx.clearRect(0, 0, w, h);
     ctx.translate(w / 2 + x, h / 2 + y);
     ctx.scale(scale, scale);
-    const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+    // Light or dark as the page actually is (the theme can differ from the system).
+    const ink = getComputedStyle(c).color || "#222";
+    const dark = (() => {
+      const m = ink.match(/\d+/g);
+      return !!m && Number(m[0]) + Number(m[1]) + Number(m[2]) > 382;
+    })();
     // Cross-links, faint and dashed.
     ctx.setLineDash([4, 6]);
     ctx.strokeStyle = dark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.18)";
@@ -111,7 +128,12 @@ export function MindMapView({ store, today, onClose, onOpenDay }: { store: Journ
         ctx.lineWidth = 2;
         ctx.stroke();
       }
-      ctx.fillStyle = dark ? "#eee" : "#222";
+      // A halo in the page's colour, so the branch lines never run through the words.
+      ctx.lineJoin = "round";
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = dark ? "rgba(20,22,30,0.9)" : "rgba(255,255,255,0.9)";
+      ctx.strokeText(p.node.label, p.x, p.y - r - 6);
+      ctx.fillStyle = ink;
       ctx.fillText(p.node.label, p.x, p.y - r - 6);
     }
   };
@@ -170,26 +192,70 @@ export function MindMapView({ store, today, onClose, onOpenDay }: { store: Journ
     setPicked(best?.node ?? null);
   };
 
-  const grow = async () => {
+  const run = async (what: string, job: () => Promise<string>) => {
     setGrowing(true);
+    setProgress(what);
     try {
-      const added = await growMap(store, today);
-      showToast(added === null ? "Today is already in the map (or the note is empty)" : `Mind map grew by ${added} idea${added === 1 ? "" : "s"}`);
+      showToast(await job());
       reload();
     } catch (e) {
       showError("Couldn't grow the mind map", e);
     } finally {
       setGrowing(false);
+      setProgress("");
     }
   };
+  const ideas = (n: number | null) => `${n} idea${n === 1 ? "" : "s"}`;
+  const grow = () =>
+    run("Growing…", async () => {
+      if (project) {
+        // A first build can take a few rounds (each adds up to 12).
+        let total = 0;
+        for (let round = 0; round < 3; round++) {
+          const added = await growProjectMap(store, project, round > 0 || total > 0);
+          if (added == null) break;
+          total += added;
+          if (added < 12) break;
+        }
+        return total ? `${project.title}'s map grew by ${ideas(total)}` : "Nothing new in the project's text";
+      }
+      const added = await growMap(store, today, 1, true);
+      return added === null ? "Today's note is empty" : `Mind map grew by ${ideas(added)}`;
+    });
+  const readAll = () =>
+    run("Reading notes…", async () => {
+      const added = await growPending(store, today, 40, (done, total) => setProgress(`Reading notes ${done}/${total}…`));
+      setPending((await pendingDays(store, today)).length);
+      return `Read the notes: ${ideas(added)} added`;
+    });
+  const tidy = () =>
+    run("Tidying…", async () => {
+      const folded = await tidyMap(store, pageTitle, project ? PROJECT_SKILL : MAP_SKILL);
+      return folded ? `Folded ${folded} duplicate${folded === 1 ? "" : "s"} together` : "Already tidy";
+    });
 
   return (
     <div className="settings-view mindmap-view" role="dialog" aria-label="Mind map">
       <header className="graph-bar">
         <button type="button" onClick={onClose} aria-label="Close">✕</button>
         <h1 className="settings-title">🧠 Mind map</h1>
-        <button type="button" onClick={() => void grow()} disabled={growing}>{growing ? "Growing…" : "🌱 Grow map"}</button>
+        <button type="button" onClick={() => void grow()} disabled={growing}>{growing ? progress || "Growing…" : "🌱 Grow"}</button>
       </header>
+      <div className="mindmap-tools">
+        <select value={which} onChange={(e) => (setPicked(null), setWhich(e.target.value))} aria-label="Whose map">
+          <option value="">🧠 Me (every note)</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.title}>📌 {p.title}</option>
+          ))}
+        </select>
+        {!project && pending > 0 && (
+          <button type="button" onClick={() => void readAll()} disabled={growing} title="Read every note not in the map yet, oldest first">
+            📚 Read {pending} note{pending === 1 ? "" : "s"}
+          </button>
+        )}
+        <button type="button" onClick={() => void tidy()} disabled={growing} title="Fold duplicates together; the skill learns from the map">🧹 Tidy</button>
+        <button type="button" onClick={() => onOpenPage(project ? PROJECT_SKILL : MAP_SKILL)} title="The method the AI follows (you can change it)">📜 Skill</button>
+      </div>
       <canvas
         ref={canvas}
         className="mindmap-canvas"
@@ -203,7 +269,11 @@ export function MindMapView({ store, today, onClose, onOpenDay }: { store: Journ
         }}
       />
       {map && map.nodes.length <= 1 && (
-        <p className="hint mindmap-empty">Your map starts with “Me”. Tap 🌱 Grow map to add today's ideas, and it grows a little with every day you write.</p>
+        <p className="hint mindmap-empty">
+          {project
+            ? `Tap 🌱 Grow to build ${project.title}'s map from its own text only (its page and its boxes in your notes).`
+            : "Your map starts with “Me”. Tap 🌱 Grow for today's ideas, or 📚 Read to go through every note. It grows by itself as you write."}
+        </p>
       )}
       {picked && picked.id !== ROOT_ID && (
         <div className="mindmap-picked">

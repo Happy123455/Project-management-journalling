@@ -3102,3 +3102,6 @@ html.booting *, html.booting *::before, html.booting *::after { transition: none
 .count-edge-label { font-size: 11px; color: var(--muted); }
 .count-edge.dragging { background: color-mix(in srgb, rgb(var(--heat-rgb)) 14%, transparent); }
 .count-edge.dragging .count-edge-grip { background: rgb(var(--heat-rgb)); width: 60px; }
+.mindmap-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 0 12px 6px; }
+.mindmap-tools select { flex: 1 1 160px; min-width: 0; padding: 6px 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: inherit; font: inherit; }
+.mindmap-tools button { border-radius: 999px; padding: 6px 12px; font-size: 13px; white-space: nowrap; }
