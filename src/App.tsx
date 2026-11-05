@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
+import { closeTopPanel } from "./ui/useEscapeToClose";
 import type { Editor, JSONContent } from "@tiptap/react";
 import { MonthCalendar, YearPanel } from "./calendar/Calendar";
 import { Upcoming, UpcomingPanel, type ReminderAction, type UpcomingPage } from "./calendar/Upcoming";
@@ -113,6 +114,11 @@ function App() {
   const touch = useTouchDevice();
   const [tabs, setTabs] = useState<TabsState>(() => loadTabs({ kind: "day", day: dayKey(new Date()) }));
   const [titleSearchOpen, setTitleSearchOpen] = useState(false);
+  // Opened by holding / swiping up on 🔍 (history first, keyboard down).
+  const [titleHistory, setTitleHistory] = useState(false);
+  useEffect(() => {
+    if (!titleSearchOpen) setTitleHistory(false);
+  }, [titleSearchOpen]);
   const [tabsOpen, setTabsOpen] = useState(false);
   usePanelWidths();
   const [sidebarHidden, toggleSidebar] = useSidebarToggle();
@@ -650,6 +656,31 @@ function App() {
     setFind(null);
     void goTo(today);
   };
+  // The phone's Back (button or edge swipe): closes what's open on top, then goes back through the
+  // tab's notes, then to today. Only when there's nothing left does the app go to the background
+  // (MainActivity), instead of closing.
+  const backRef = useRef<() => boolean>(() => false);
+  backRef.current = () => {
+    if (closeTopPanel()) return true;
+    const open: [boolean, (v: false) => void][] = [
+      [!!dayPicker, () => setDayPicker(null)],
+      [tabsOpen, setTabsOpen], [titleSearchOpen, setTitleSearchOpen], [searchOpen, setSearchOpen],
+      [settingsOpen, setSettingsOpen], [chatOpen, setChatOpen], [mindOpen, setMindOpen], [graphOpen, setGraphOpen],
+      [!!nexus, () => setNexus(null)], [moneyOpen, setMoneyOpen], [routineOpen, setRoutineOpen],
+      [upcomingOpen, setUpcomingOpen], [yearOpen, setYearOpen], [drawerOpen, setDrawerOpen],
+    ];
+    const top = open.find(([on]) => on);
+    if (top) return top[1](false), true;
+    if (activeTab(tabs).index > 0) return step(-1), true;
+    if (route.kind !== "day" || day !== today) return goHome(), true;
+    return false;
+  };
+  useEffect(() => {
+    window.journalBack = () => backRef.current();
+    return () => {
+      window.journalBack = undefined;
+    };
+  }, []);
   const joyBase = useRef<string | null>(null);
   const joyShown = useRef<string | null>(null);
   const islandActions: MenuAction[] = [
@@ -1255,9 +1286,17 @@ function App() {
             if (same) return;
             (document.activeElement as HTMLElement | null)?.blur?.();
             window.JournalShare?.hideKeyboard?.();
+            // Opens to read, like a swipe to another day: no focus, no keyboard.
+            previewNext.current = true;
             void goTo(next);
           }}
           onSearch={() => setTitleSearchOpen(true)}
+          onSearchHistory={() => {
+            (document.activeElement as HTMLElement | null)?.blur?.();
+            window.JournalShare?.hideKeyboard?.();
+            setTitleHistory(true);
+            setTitleSearchOpen(true);
+          }}
           onTabs={() => setTabsOpen(true)}
           onSwitchTab={switchToTab}
           onNewTab={newTodayTab}
@@ -1289,6 +1328,12 @@ function App() {
           pages={pageNames}
           days={days}
           today={today}
+          history={titleHistory}
+          onTextSearch={(q) => {
+            setTitleSearchOpen(false);
+            setQuery(q);
+            setSearchOpen(true);
+          }}
           onClose={() => setTitleSearchOpen(false)}
           onOpen={(hit, newTab) => {
             setTitleSearchOpen(false);

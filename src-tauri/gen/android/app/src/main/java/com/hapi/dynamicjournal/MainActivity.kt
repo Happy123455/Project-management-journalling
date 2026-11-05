@@ -250,6 +250,17 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
+    // Back (button or edge swipe) is the journal's: it closes the panel on top or goes back a note.
+    // Only when the journal has nothing to go back to does the app go to the background (never
+    // closing it, which also lost the WebView's state).
+    onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        val view = this@MainActivity.webView ?: return
+        view.evaluateJavascript("(function(){try{return !!(window.journalBack&&window.journalBack());}catch(e){return false;}})()") { handled ->
+          if (handled != "true") moveTaskToBack(true)
+        }
+      }
+    })
     // Same colour as the window until the page paints (no white flash at start).
     val night = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
     webView.setBackgroundColor(if (night) 0xFF16171C.toInt() else 0xFFE6EAF0.toInt())

@@ -3140,3 +3140,4 @@ html.booting *, html.booting *::before, html.booting *::after { transition: none
 .nav-home { transform: translate(var(--joy-x, 0px), var(--joy, 0px)); position: relative; }
 .nav-joy-arrows > span { display: flex; align-items: center; gap: 3px; }
 .nav-joy-day { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; background: #7c3aed; box-shadow: 0 4px 12px rgba(124, 58, 237, 0.45); pointer-events: none; }
+.search-history-clear { margin: 8px auto 4px; display: block; font-size: 12px; border-radius: 999px; padding: 4px 12px; }

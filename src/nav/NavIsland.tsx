@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState, type ReactNode } from "react";
+import { loadRecent } from "../search/SearchPanel";
 import { createPortal } from "react-dom";
 import { dayTitle } from "../lib/timestamp";
-import { openOutline, setViewMode, useViewMode, type ViewMode } from "../editor/viewMode";
+import { openOutline, setViewMode, useViewMode, viewMode as currentViewMode, type ViewMode } from "../editor/viewMode";
 import { matchTitles, type TitleHit } from "./titleMatch";
 import { currentLoc, type Loc, type TabsState } from "./tabs";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
@@ -58,7 +59,7 @@ type Gesture = {
   y: number;
   t0: number;
   zone: string;
-  mode: "idle" | "swipe" | "up" | "joy" | "quick" | "previews";
+  mode: "idle" | "swipe" | "up" | "joy" | "quick" | "previews" | "searchHistory";
   timer: number;
   /** The finger moved after a long press opened the picker (else the picker stays for a tap). */
   movedAfter: boolean;
@@ -82,7 +83,7 @@ const QUICK: { key: ViewMode | "outline"; icon: string; label: string }[] = [
  * - swipe up from (or hold) the tabs: tab previews float up, slide onto one and let go to open it;
  * - hold the menu: View / Edit / Source / Outline fan out, slide onto one and let go.
  */
-export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onForward, onHome, onHomeDouble, onShiftDay, onSearch, onTabs, onSwitchTab, onNewTab, actions }: {
+export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onForward, onHome, onHomeDouble, onShiftDay, onSearchHistory, onSearch, onTabs, onSwitchTab, onNewTab, actions }: {
   /** A panel or sheet covers the page: the island tucks away. */
   away: boolean;
   tabs: TabsState;
@@ -95,6 +96,8 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   onHomeDouble: () => void;
   /** Home joystick leaned sideways: `days` from the day it started on (final: let go). */
   onShiftDay?: (days: number, final: boolean) => void;
+  /** Hold or swipe up on 🔍: the whole search history. */
+  onSearchHistory?: () => void;
   onSearch: () => void;
   onTabs: () => void;
   onSwitchTab: (id: string) => void;
@@ -115,6 +118,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   // lean (days), off: up/down lean (scrolling). days: days moved so far, acc: progress to the next one.
   const joyRun = useRef<{ frame: number; at: number; off: number; offX: number; travel: number; edge: boolean; armed: boolean; lift: number; days: number; acc: number; go: number } | null>(null);
   const [joyX, setJoyX] = useState(0);
+  const joyMode = useRef<ViewMode | null>(null);
   const [joyDays, setJoyDays] = useState(0);
   const atToday = (() => {
     const l = currentLoc(tabs.tabs.find((t) => t.id === tabs.active) ?? tabs.tabs[0]);
@@ -138,9 +142,17 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     setJoy(null);
     setJoyX(0);
     setJoyDays(0);
+    // Back to writing mode, without focusing the note (tap the text to type).
+    if (joyMode.current === "live" && currentViewMode() === "reading") window.setTimeout(() => setViewMode("live"), 80);
+    joyMode.current = null;
   };
   const startJoy = (homeEl: HTMLElement | null) => {
     haptic("press", 0.9);
+    // Read-only while the stick is held: the keyboard stays down (it shoved the whole window about).
+    joyMode.current = currentViewMode();
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    window.JournalShare?.hideKeyboard?.();
+    if (joyMode.current === "live") setViewMode("reading");
     setJoy(0);
     // Up to the middle of the lower third of the screen (never less than a thumb's width).
     const r = homeEl?.getBoundingClientRect();
@@ -151,11 +163,12 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
       const dt = Math.min(0.05, (now - j.at) / 1000);
       j.at = now;
       // Whichever way it leans more wins: sideways = days, up/down = scrolling.
-      const sideways = Math.abs(j.offX) > Math.abs(j.off);
-      const leanX = Math.abs(j.offX) - 22;
+      const sideways = Math.abs(j.offX) > Math.abs(j.off) * 1.4;
+      // A wide dead zone: a thumb wobbling while it scrolls never changes the day.
+      const leanX = Math.abs(j.offX) - 42;
       if (j.armed && sideways && leanX > 0) {
         // One day at a time near the middle, up to ~8 a second at full lean.
-        const rate = Math.min(8, 1.2 + Math.pow(leanX / 45, 1.7) * 3);
+        const rate = Math.min(5, 0.9 + Math.pow(leanX / 50, 1.8) * 2);
         if (j.acc === 0) j.acc = 1;
         else j.acc += rate * dt;
         while (j.acc >= 1) {
@@ -231,6 +244,13 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     }
     const zone = (e.target as HTMLElement).closest<HTMLElement>("[data-zone]")?.dataset.zone ?? "bar";
     const gesture: Gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: e.timeStamp, zone, mode: "idle", timer: 0, movedAfter: false };
+    if (zone === "search")
+      gesture.timer = window.setTimeout(() => {
+        if (g.current !== gesture || gesture.mode !== "idle") return;
+        gesture.mode = "searchHistory";
+        haptic("press", 0.8);
+        onSearchHistory?.();
+      }, 380);
     if (zone === "home" || zone === "tabs" || zone === "menu")
       gesture.timer = window.setTimeout(() => {
         if (g.current !== gesture || gesture.mode !== "idle") return;
@@ -255,7 +275,12 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     if (s.mode === "idle") {
       if (Math.hypot(dx, dy) < 12) return;
       window.clearTimeout(s.timer);
-      if (s.zone === "tabs" && dy < -14 && -dy > Math.abs(dx)) {
+      if (s.zone === "search" && dy < -14 && -dy > Math.abs(dx)) {
+        // Swipe up on 🔍: every search so far.
+        s.mode = "searchHistory";
+        haptic("press", 0.7);
+        onSearchHistory?.();
+      } else if (s.zone === "tabs" && dy < -14 && -dy > Math.abs(dx)) {
         s.mode = "previews";
         s.movedAfter = true;
         haptic("press", 0.7);
@@ -346,7 +371,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
           <button type="button" className="nav-btn" disabled={!canForward} onClick={press(onForward)} aria-label="Forward">
             <Icon d={FORWARD} />
           </button>
-          <button type="button" className="nav-btn" onClick={press(onSearch)} aria-label="Find a note by title">
+          <button type="button" className="nav-btn" data-zone="search" onClick={press(onSearch)} aria-label="Find a note by title (hold or swipe up: search history)">
             <Icon d={SEARCH} />
           </button>
         </div>
@@ -507,20 +532,53 @@ function ModeMenu({ mode, actions, onClose }: { mode: ViewMode; actions: MenuAct
 }
 
 /** Find a note by its title only (days and named pages), and open it here or in a new tab. */
-export function TitleSearch({ pages, days, today, onOpen, onClose }: {
+const TITLE_HISTORY = "journal.titleHistory";
+type Past = { kind: "day" | "page" | "text"; key: string; label: string; at: number };
+function pastSearches(): Past[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(TITLE_HISTORY) ?? "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+function rememberTitle(h: TitleHit) {
+  try {
+    const next = [{ kind: h.kind, key: h.key, label: h.label, at: Date.now() }, ...pastSearches().filter((p) => !(p.kind === h.kind && p.key === h.key))].slice(0, 100);
+    localStorage.setItem(TITLE_HISTORY, JSON.stringify(next));
+  } catch {
+    // Not kept.
+  }
+}
+
+export function TitleSearch({ pages, days, today, onOpen, onClose, history = false, onTextSearch }: {
   pages: () => Promise<string[]>;
   days: string[];
   today: string;
   onOpen: (hit: TitleHit, newTab: boolean) => void;
   onClose: () => void;
+  /** Opened by holding / swiping up on 🔍: the history shows first and the keyboard stays down. */
+  history?: boolean;
+  /** A past text search tapped: search the notes' text for it again. */
+  onTextSearch?: (q: string) => void;
 }) {
   const [q, setQ] = useState("");
+  const [past, setPast] = useState<Past[]>(() => {
+    // Notes opened from here, and text searches (the 🔎 panel's), newest first.
+    const titles = pastSearches();
+    const texts = loadRecent().map((t, i) => ({ kind: "text" as const, key: t, label: t, at: -i }));
+    return [...titles, ...texts];
+  });
+  const open = (h: TitleHit, newTab: boolean) => {
+    rememberTitle(h);
+    onOpen(h, newTab);
+  };
   const [names, setNames] = useState<string[]>([]);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     let live = true;
     void pages().then((p) => live && setNames(p), () => {});
-    input.current?.focus();
+    if (!history) input.current?.focus();
     return () => {
       live = false;
     };
@@ -539,22 +597,57 @@ export function TitleSearch({ pages, days, today, onOpen, onClose }: {
             onChange={(e) => setQ(e.target.value)}
             placeholder="Note title or date…"
             enterKeyHint="go"
-            onKeyDown={(e) => e.key === "Enter" && hits[0] && onOpen(hits[0], false)}
+            onKeyDown={(e) => e.key === "Enter" && hits[0] && open(hits[0], false)}
             aria-label="Note title"
           />
           <button type="button" className="search-clear" onClick={onClose} aria-label="Close">✕</button>
         </div>
-        <p className="search-summary">{q.trim() ? `${hits.length} ${hits.length === 1 ? "note" : "notes"} by title` : "Titles only: days and pages"}</p>
+        <p className="search-summary">{q.trim() ? `${hits.length} ${hits.length === 1 ? "note" : "notes"} by title` : past.length ? `Search history · ${past.length}` : "Titles only: days and pages"}</p>
+        {!q.trim() && past.length > 0 && (
+          <ul className="search-results search-history">
+            {past.map((p) => (
+              <li key={`${p.kind}:${p.key}`} className="title-hit">
+                <button
+                  type="button"
+                  className="search-result"
+                  onClick={() => (p.kind === "text" ? onTextSearch?.(p.key) : open({ kind: p.kind, key: p.key, label: p.label } as TitleHit, false))}
+                >
+                  <span className="search-where">
+                    <span>{p.kind === "text" ? "🔎 Text" : p.kind === "day" ? "📅 Day" : "📄 Page"}</span>
+                  </span>
+                  <span className="title-hit-label">{p.label}</span>
+                </button>
+              </li>
+            ))}
+            <li>
+              <button
+                type="button"
+                className="search-history-clear"
+                onClick={() => {
+                  try {
+                    localStorage.removeItem(TITLE_HISTORY);
+                    localStorage.removeItem("journal.recentSearches");
+                  } catch {
+                    // Nothing kept.
+                  }
+                  setPast([]);
+                }}
+              >
+                Clear search history
+              </button>
+            </li>
+          </ul>
+        )}
         <ul className="search-results">
           {hits.map((h) => (
             <li key={`${h.kind}:${h.key}`} className="title-hit">
-              <button type="button" className="search-result" onClick={() => onOpen(h, false)}>
+              <button type="button" className="search-result" onClick={() => open(h, false)}>
                 <span className="search-where">
                   <span>{h.kind === "day" ? (h.key === today ? "📅 Today" : "📅 Day") : "📄 Page"}</span>
                 </span>
                 <span className="title-hit-label">{h.label}</span>
               </button>
-              <button type="button" className="title-hit-tab" onClick={() => onOpen(h, true)} aria-label={`Open ${h.label} in a new tab`} title="Open in a new tab">
+              <button type="button" className="title-hit-tab" onClick={() => open(h, true)} aria-label={`Open ${h.label} in a new tab`} title="Open in a new tab">
                 ⧉
               </button>
             </li>

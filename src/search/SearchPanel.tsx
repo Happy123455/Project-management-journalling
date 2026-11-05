@@ -7,7 +7,7 @@ import { useEscapeToClose } from "../ui/useEscapeToClose";
 const MAX_LINES = 5;
 const RECENT_KEY = "journal.recentSearches";
 type Filter = "all" | "day" | "page" | "file";
-const loadRecent = (): string[] => {
+export const loadRecent = (): string[] => {
   try {
     const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
     return Array.isArray(v) ? v.slice(0, 8) : [];
@@ -19,7 +19,7 @@ const remember = (q: string) => {
   const t = q.trim();
   if (t.length < 2) return;
   try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify([t, ...loadRecent().filter((x) => x !== t)].slice(0, 8)));
+    localStorage.setItem(RECENT_KEY, JSON.stringify([t, ...loadRecent().filter((x) => x !== t)].slice(0, 60)));
   } catch {
     // Only a convenience.
   }
@@ -127,7 +127,7 @@ export function SearchPanel({ query, onQuery, results, onPick, onClose }: {
         {!draft.trim() && recent.length > 0 && (
           <div className="search-recent">
             <span>Recent</span>
-            {recent.map((q) => (
+            {recent.slice(0, 8).map((q) => (
               <button key={q} type="button" onClick={() => setDraft(q)}>{q}</button>
             ))}
             <button type="button" className="search-recent-clear" onClick={() => (localStorage.removeItem(RECENT_KEY), setRecent([]))} aria-label="Clear recent searches">✕</button>

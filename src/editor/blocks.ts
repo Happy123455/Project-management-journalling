@@ -340,6 +340,8 @@ export function blockDecorations(doc: PMNode): DecorationSet {
   let hiddenUntil = -1;
   // A [[Project]] / [[Person]] / [[Log]] line with lines nested under it is drawn as one box.
   let boxUntil = -1;
+  // Lines inside a block that already has its own ⧉ (top and bottom): no third one for a list in it.
+  let copiedUntil = -1;
   let pos = 0;
   /** Last lines that carry a block's bottom tools: position → size (they become position: relative). */
   const bottomHosts = new Map<number, number>();
@@ -371,6 +373,7 @@ export function blockDecorations(doc: PMNode): DecorationSet {
       // Any block with lines under it gets them (it used to take four lines or more, so most bulleted
       // or formatted blocks never showed a ⧉).
       if (!node.attrs.collapsed && (range.end - i > 1 || isBox)) {
+        copiedUntil = Math.max(copiedUntil, range.end);
         // Copy and fold at the bottom right, on the block's lower edge (away from the line being
         // typed, so a tap at the end of the text doesn't hit them).
         const last = doc.child(range.end - 1);
@@ -424,7 +427,7 @@ export function blockDecorations(doc: PMNode): DecorationSet {
         );
       }
     }
-    else if (LISTS.has(node.type.name) && i >= hiddenUntil && (node.childCount > 1 || node.firstChild?.childCount !== 1)) {
+    else if (LISTS.has(node.type.name) && i >= hiddenUntil && i >= copiedUntil && i >= boxUntil && (node.childCount > 1 || node.firstChild?.childCount !== 1)) {
       // A bulleted / numbered / task list is one block holding all its points: ⧉ on its last line.
       const inner = lastTextblock(node, pos);
       if (inner) {

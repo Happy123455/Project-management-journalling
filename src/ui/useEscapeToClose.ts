@@ -11,6 +11,13 @@ function onKey(e: KeyboardEvent) {
   stack[stack.length - 1].current();
 }
 
+/** Closes the panel on top, as Esc would (the phone's Back does this). False when none is open. */
+export function closeTopPanel(): boolean {
+  if (!stack.length) return false;
+  stack[stack.length - 1].current();
+  return true;
+}
+
 /**
  * Esc closes this panel (and nothing else: not full screen, not a panel under it). Pass
  * `active = false` while the panel is hidden.
