@@ -277,6 +277,8 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(PowerBridge(), "JournalPower")
     webView.addJavascriptInterface(HealthBridge(), "JournalHealth")
     webView.addJavascriptInterface(FinanceBridge(), "JournalFinance")
+    webView.addJavascriptInterface(WatchBridge(), "JournalWatch")
+    Watch.onInbox = { webView.post { webView.evaluateJavascript("window.dispatchEvent(new Event('journal:watch'))", null) } }
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->
       val split = payload.partition { it.uri != null }
@@ -445,6 +447,12 @@ class MainActivity : TauriActivity() {
 
   /** Lets the page take what was shared in, and open the keyboard for a quick note. */
   /** Settings → Floating bubble. */
+  inner class WatchBridge {
+    @JavascriptInterface fun publish(json: String) = Watch.publish(this@MainActivity, json)
+    @JavascriptInterface fun take(): String = try { Watch.take(this@MainActivity) } catch (e: Exception) { "[]" }
+    @JavascriptInterface fun pending(): Boolean = Watch.pending(this@MainActivity)
+  }
+
   inner class BubbleBridge {
     @JavascriptInterface fun enabled(): Boolean = BubbleService.enabled(this@MainActivity) && android.provider.Settings.canDrawOverlays(this@MainActivity)
     @JavascriptInterface fun canDraw(): Boolean = android.provider.Settings.canDrawOverlays(this@MainActivity)

@@ -281,7 +281,7 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
       }
       // Connected directly: Drive is only the backup, so it needn't be watched closely.
       // In the background nothing is watched at all on the phone: the loop starts again when the app is back.
-      if (!stopped && (canHost() || document.visibilityState !== "hidden")) timer = window.setTimeout(tick, liveRef.current && !directRef.current ? LIVE_POLL_MS : 15_000);
+      if (!stopped && (canHost() || document.visibilityState !== "hidden")) timer = window.setTimeout(tick, liveRef.current && !directRef.current ? LIVE_POLL_MS : directRef.current && !canHost() ? 60_000 : 15_000);
     };
     timer = window.setTimeout(tick, 4000);
     // Going to the background or closing: tell the other device right away.

@@ -87,6 +87,8 @@ dependencies {
     // Routine: exercise and sleep from Samsung Health, through Health Connect (read only).
     implementation("androidx.health.connect:connect-client:1.1.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    // Galaxy Watch app (watch/): the Wear OS Data Layer.
+    implementation("com.google.android.gms:play-services-wearable:19.0.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")

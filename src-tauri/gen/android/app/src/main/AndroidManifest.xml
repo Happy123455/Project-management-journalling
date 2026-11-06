@@ -179,5 +179,12 @@
             android:name="android.support.FILE_PROVIDER_PATHS"
             android:resource="@xml/file_paths" />
         </provider>
+        <!-- Galaxy Watch: taps, notes and voice recordings from the watch app (Watch.kt). -->
+        <service android:name=".WatchListenerService" android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/journal/inbox" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

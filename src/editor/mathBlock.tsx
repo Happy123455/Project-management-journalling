@@ -14,6 +14,7 @@ import { showError, showToast } from "../lib/toast";
 import { copyText } from "./codeBlock";
 import { CONTROL_KINDS, VariableControl, type ControlKind } from "./math/MathControls";
 import { MathPlot } from "./math/MathPlot";
+import { isFavourite, toggleFavourite } from "../watch/formulas";
 
 /**
  * A math block: an equation in plain maths ("(a+b+c+d)/2") or LaTeX, typed, picked from the
@@ -403,6 +404,8 @@ function MathView(props: NodeViewProps) {
   const [plotFrom, plotTo] = plotAt !== undefined ? niceRange(w.vars.get(plotVar) ?? plotAt) : [-10, 10];
   const conflictText = [...w.conflicts].map(([n, list]) => `${n} is set to ${[...new Set(list.map((d) => formatAnswer(d.value)))].join(" and ")}`).join("; ");
   const steps = worked?.steps ?? [];
+  const [fav, setFav] = useState(() => isFavourite(w.expr));
+  useEffect(() => setFav(isFavourite(w.expr)), [w.expr]);
   const tool = (label: string, onClick: () => void, on = false, title?: string) => (
     <button type="button" className={on ? "on" : ""} title={title} onMouseDown={(e) => e.preventDefault()} onClick={onClick}>{label}</button>
   );
@@ -475,6 +478,16 @@ function MathView(props: NodeViewProps) {
         {tool("🎚️", () => setOpen(open === "controls" ? null : "controls"), open === "controls", "Turn the variables")}
         {tool("🧮", () => setOpen(open === "work" ? null : "work"), open === "work", "Working and answer, to copy")}
         {tool("📈", () => setOpen(open === "plot" ? null : "plot"), open === "plot", "Chart")}
+        {tool(fav ? "⭐" : "☆", () => {
+          const on = toggleFavourite({
+            name: (w.lhs ? `${w.lhs} = ${w.expr.trim()}` : w.expr.trim()).slice(0, 40),
+            expr: w.expr,
+            lhs: w.lhs,
+            vars: w.used.map((n) => ({ name: n, value: live.get(n) ?? 1, label: w.defs.filter((d) => d.name === n).pop()?.label })),
+          });
+          setFav(on);
+          showToast(on ? "⭐ Favourite: on your watch, turn its values with the bezel" : "Removed from favourites");
+        }, fav, "Favourite (shows on the watch)")}
         {tool("📚", () => setPanel("library"), false, "Formulas")}
         {tool("🤖", () => setPanel("ask"), false, "Ask the math assistant")}
         {!editing && tool("✏️", () => setEditing(true), false, "Edit")}

@@ -389,6 +389,18 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store]);
 
+  // Galaxy Watch (Android): what the watch sent goes into the journal; the watch gets today's state.
+  useEffect(() => {
+    if (!store || !window.JournalWatch) return;
+    let stop = () => {};
+    let live = true;
+    void import("./watch/watch").then((w) => live && (stop = w.startWatch(store)));
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [store]);
+
   // After an AI edit is undone (Settings → AI changes), show the note as it is now.
   useEffect(() => {
     const reload = () => {
