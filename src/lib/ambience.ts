@@ -1,3 +1,4 @@
+import { atRest, REST_EVENT } from "./power";
 /**
  * Ambience (all optional, Settings › Look and feel):
  * - the colours brighten and dim with the time of day,
@@ -252,9 +253,14 @@ function startRain(): { stop: () => void } {
   let frame = 0;
   let last = 0;
   const tick = (t: number) => {
+    // At rest (no touch for a few seconds) or hidden, the drops hold still and no frames are asked for.
+    if (atRest() || document.hidden) {
+      frame = 0;
+      return;
+    }
     frame = requestAnimationFrame(tick);
     // ~30 fps is plenty for drops, and half the work on the phone.
-    if (t - last < 33 || document.hidden) return;
+    if (t - last < 33) return;
     last = t;
     ctx.clearRect(0, 0, w, h);
     const soft = softTheme();
@@ -314,9 +320,14 @@ function startRain(): { stop: () => void } {
     }
   };
   frame = requestAnimationFrame(tick);
+  const wake = () => !frame && !atRest() && (frame = requestAnimationFrame(tick));
+  window.addEventListener(REST_EVENT, wake);
+  document.addEventListener("visibilitychange", wake);
   return {
     stop: () => {
       cancelAnimationFrame(frame);
+      window.removeEventListener(REST_EVENT, wake);
+      document.removeEventListener("visibilitychange", wake);
       window.removeEventListener("resize", size);
       canvas.remove();
     },
@@ -400,8 +411,15 @@ function ctx(): AudioContext | null {
     }
   }
   if (audio.state === "suspended") void audio.resume();
+  // An open AudioContext keeps the phone's audio output (and Bluetooth audio) awake, playing
+  // silence, for as long as it runs: it's suspended a moment after the last sound.
+  window.clearTimeout(audioIdle);
+  audioIdle = window.setTimeout(() => audio?.state === "running" && void audio.suspend(), 1500);
   return audio;
 }
+let audioIdle = 0;
+if (typeof document !== "undefined")
+  document.addEventListener("visibilitychange", () => document.hidden && audio?.state === "running" && void audio.suspend());
 
 const haptic = (kind: "tap" | "tick" | "press" | "edge", strength: number) => {
   try {

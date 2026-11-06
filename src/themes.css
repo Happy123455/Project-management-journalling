@@ -536,3 +536,9 @@ html[data-theme="neu"] .ambience-rain { opacity: 0.7; }
 :where(html[data-theme="neu"]) .nav-preview { background: var(--bg); box-shadow: var(--neu-out-sm), var(--neu-overlay); }
 :where(html[data-theme="neu"]) .nav-quick button.hover,
 :where(html[data-theme="neu"]) .nav-preview.hover { background: #7c3aed; color: #fff; }
+
+/* Batch 16: soft shadows aren't cut at the edge of a scrolling list (search, search history, folded Coming up). */
+:where(html[data-theme="neu"]) .search-panel .search-results { padding: 8px 12px 14px; margin: -4px -12px 0; }
+:where(html[data-theme="neu"]) .upcoming.folded li,
+:where(html[data-theme="neu"]) .upcoming.folded li > .reminder-open { overflow: clip; overflow-clip-margin: 14px; }
+:where(html[data-theme="neu"]) .upcoming.folded li { padding-block: 3px; }

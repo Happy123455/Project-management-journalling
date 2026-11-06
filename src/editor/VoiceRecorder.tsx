@@ -30,6 +30,7 @@ export function VoiceRecorder() {
     let timer = 0;
     let frame = 0;
     let release = () => {};
+    let meter: AudioContext | null = null;
     keep.current = true;
     setSeconds(0);
     (async () => {
@@ -54,7 +55,7 @@ export function VoiceRecorder() {
       const started = Date.now();
       timer = window.setInterval(() => setSeconds((Date.now() - started) / 1000), 250);
       // A simple level meter so it's clear the microphone hears you.
-      const ctx = new AudioContext();
+      const ctx = (meter = new AudioContext());
       const analyser = ctx.createAnalyser();
       ctx.createMediaStreamSource(stream).connect(analyser);
       const data = new Uint8Array(analyser.fftSize);
@@ -71,6 +72,8 @@ export function VoiceRecorder() {
     return () => {
       window.clearInterval(timer);
       cancelAnimationFrame(frame);
+      // The level meter's audio graph is closed too: left open it kept the phone's audio output awake.
+      void meter?.close().catch(() => {});
       if (recorder.current?.state === "recording") {
         keep.current = false;
         recorder.current.stop();

@@ -49,8 +49,21 @@ function tokens(src: string, vars?: Vars): Tok[] | null {
       if (vars?.has(w)) push({ k: "n", v: vars.get(w)!, named: true });
       else if (w in FUNCS) push({ k: "f", v: FUNCS[w] });
       else if (w in CONSTS) push({ k: "n", v: CONSTS[w], named: true });
-      // An "x" that isn't a variable is a times sign ("3x4"); any other unknown word isn't maths.
+      // "10% of 200": "of" after a percent means times.
+      else if (w === "of" && out[out.length - 1]?.k === "op" && (out[out.length - 1] as { v: string }).v === "%") {
+        out.push({ k: "op", v: "*" });
+        i += 2;
+        continue;
+      }
+      // An "x" that isn't a variable is a times sign, but only between two numbers ("3x4", "3 x (2)");
+      // "3x+2" has an unknown x in it, so it isn't worked out. Any other unknown word isn't maths.
       else if (!/^[xX]/.test(w)) return null;
+      else {
+        const prev = out[out.length - 1];
+        const after = src.slice(i + 1).trimStart();
+        const between = !!prev && (prev.k === "n" || (prev.k === "op" && prev.v === ")")) && /^[\d.(]/.test(after);
+        if (!between) return null;
+      }
       if (vars?.has(w) || w in FUNCS || w in CONSTS) {
         i += w.length;
         continue;
@@ -300,6 +313,11 @@ export function namesIn(expr: string): string[] {
   for (const m of expr.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
     const w = m[0];
     if (w in FUNCS || w in CONSTS || out.includes(w)) continue;
+    // "10% of 200" and the times sign in "3x4" / "3 x 4" aren't names.
+    const before = expr.slice(0, m.index).trimEnd();
+    const after = expr.slice((m.index ?? 0) + w.length).trimStart();
+    if (w === "of" && before.endsWith("%")) continue;
+    if (/^[xX]\d*$/.test(w) && /[\d.)]$/.test(before) && (w.length > 1 || /^[\d.(]/.test(after))) continue;
     out.push(w);
   }
   return out;

@@ -53,6 +53,31 @@ function report() {
   }
 }
 
+/**
+ * At rest (batch 16): Hapi's phone, 2026-11-06, showed the WebView redrawing ~12 times a second
+ * with nobody touching it (CPU 3 h 7 min in a 4 h 13 min day on screen, 48% of the battery):
+ * endless CSS animations (sun rays, clouds, stars, the ⚡ Live pulse, scrolling titles) and looping
+ * clips each ask for a new frame, and every frame repaints the soft shadows and glass under them.
+ * A few seconds after the last touch, key or scroll, html gets .at-rest: every CSS animation is
+ * paused (App.css) and looping clips stop (usePlayWhenVisible); the next touch wakes them.
+ */
+export const REST_EVENT = "journal:rest";
+const REST_AFTER_MS = 6000;
+let resting = false;
+let restTimer = 0;
+export const atRest = () => resting;
+function setRest(v: boolean) {
+  if (v === resting) return;
+  resting = v;
+  document.documentElement.classList.toggle("at-rest", v);
+  window.dispatchEvent(new CustomEvent(REST_EVENT, { detail: v }));
+}
+function awake() {
+  if (resting) setRest(false);
+  window.clearTimeout(restTimer);
+  restTimer = window.setTimeout(() => !busyNow() && setRest(true), REST_AFTER_MS);
+}
+
 let started = false;
 /** Tells the Android side whether it may pause the page once it's in the background. */
 export function startPowerWatch() {
@@ -61,6 +86,9 @@ export function startPowerWatch() {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") report();
   });
+  for (const type of ["pointerdown", "keydown", "wheel", "touchstart", "scroll", "input", "focusin"]) window.addEventListener(type, awake, { capture: true, passive: true });
+  document.addEventListener("visibilitychange", () => (document.hidden ? setRest(true) : awake()));
+  awake();
   // Media starting or stopping while in the background (e.g. a clip ends) updates the answer.
   for (const type of ["play", "pause", "ended"]) document.addEventListener(type, () => document.hidden && report(), true);
 }

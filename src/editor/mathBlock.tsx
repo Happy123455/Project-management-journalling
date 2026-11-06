@@ -6,6 +6,9 @@ import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type Nod
 import { askAi, AiUnavailableError } from "../ai/client";
 import { blockLines, cleanLatex } from "../lib/latex";
 import { conflictsIn, definitionsIn, formatAnswer, namesIn, type Definition, type Vars } from "../lib/mathEval";
+
+/** "2", "-3.5", "1,000": a bare number (a definition, not a sum). */
+const evaluateIsNumber = (s: string) => /^\s*-?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?\s*$/.test(s);
 import { displayLatex, FORMULAS, looksLikeLatex, niceRange, workingFor } from "../lib/mathSmart";
 import { showError, showToast } from "../lib/toast";
 import { copyText } from "./codeBlock";
@@ -351,9 +354,39 @@ function MathView(props: NodeViewProps) {
     return v;
   }, [w, tweaks]);
   const worked = useMemo(() => (w.target ? workingFor(w.target, live) : null), [w, live]);
+  // Like Math Notes: every line gets its own answer (definitions above it count), not only the last.
+  const lineAnswers = useMemo(() => {
+    const plain = blockLines(shown);
+    if (plain.length < 2) return [];
+    const above = linesAbove(props);
+    return plain.map((line, i) => {
+      const vars: Vars = new Map();
+      for (const d of definitionsIn([...above, ...plain.slice(0, i)])) vars.set(d.name, d.value);
+      const r = workingFor(line, vars);
+      const lhs = line.split("=")[0].trim();
+      // "a = 2" already says its value.
+      const plainDef = r && /^[A-Za-z_][A-Za-z0-9_]*$/.test(lhs) && evaluateIsNumber(line.split("=")[1] ?? "");
+      return { line, answer: r && !plainDef ? r.answer : "" };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown, tick]);
   const tweaked = Object.keys(tweaks).some((k) => w.used.includes(k) && tweaks[k] !== w.vars.get(k));
   const commit = (v: string) => {
     if (v !== latex) props.updateAttributes({ latex: v });
+  };
+  /** The caret goes to the line under the block (a new one if the block is last or followed by something else). */
+  const writeBelow = () => {
+    const pos = typeof props.getPos === "function" ? props.getPos() : undefined;
+    if (pos === undefined) return;
+    window.setTimeout(() => {
+      const ed = props.editor;
+      const node = ed.state.doc.nodeAt(pos);
+      if (!node) return;
+      const after = pos + node.nodeSize;
+      const next = ed.state.doc.nodeAt(after);
+      if (next?.type.name === "paragraph" && !next.textContent) ed.chain().focus(after + 1).run();
+      else ed.chain().insertContentAt(after, { type: "paragraph" }).focus(after + 1).run();
+    }, 0);
   };
   const setTweak = (name: string, value: number) => {
     const next = { ...tweaks };
@@ -389,6 +422,16 @@ function MathView(props: NodeViewProps) {
           ))}
           {w.conflicts.size > 0 && <span className="math-warn" role="alert">⚠ {conflictText}: the latest is used</span>}
         </div>
+      )}
+      {lineAnswers.some((l) => l.answer) && (
+        <ol className="math-lines">
+          {lineAnswers.map((l, i) => (
+            <li key={i} className={i === lineAnswers.length - 1 ? "last" : ""}>
+              <span>{l.line}</span>
+              {l.answer && <b>{l.answer.includes("=") ? l.answer : `= ${l.answer}`}</b>}
+            </li>
+          ))}
+        </ol>
       )}
       {worked && <div className="math-result">{worked.answer.startsWith(`${w.lhs} =`) ? worked.answer : `= ${worked.answer}`}{tweaked && <small> (turned)</small>}</div>}
       {open === "controls" && (
@@ -441,16 +484,23 @@ function MathView(props: NodeViewProps) {
           <textarea
             value={draft}
             autoFocus={!latex}
-            rows={Math.min(6, Math.max(1, draft.split("\n").length))}
-            placeholder="Plain maths, e.g. A = pi*r^2 or (a+b+c+d)/2 (LaTeX works too)"
+            rows={Math.min(12, Math.max(2, draft.split("\n").length + 1))}
+            placeholder={"Plain maths, one per line:\nr = 3\npi*r^2\n(Enter on an empty line to finish)"}
             spellCheck={false}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={() => commit(draft)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              // Enter is a new line (define a = 2, then a*3 under it). Enter on an empty last line,
+              // or ⇧/⌘ Enter, finishes the block and carries on writing in a line below it.
+              const ta = e.currentTarget;
+              const atEnd = ta.selectionStart === ta.value.length;
+              if (e.key === "Enter" && (e.shiftKey || e.metaKey || e.ctrlKey || (atEnd && /\n\s*$/.test(ta.value)) || !ta.value.trim())) {
                 e.preventDefault();
-                commit(draft);
+                const v = draft.replace(/\s+$/, "");
+                commit(v);
+                setDraft(v);
                 setEditing(false);
+                writeBelow();
               }
               if (e.key === "Escape") {
                 setDraft(latex);
