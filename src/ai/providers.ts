@@ -23,7 +23,8 @@ export const DEFAULT_MODELS: Record<Provider, Record<AiTask, string>> = {
   // Chat journal: a cheap, fast model in the cloud; on the Mac the local model thinks first (free).
   gemini: { grammar: "gemini-3.8-flash", organise: "gemini-3.1-pro-preview", describe: "gemini-3.8-flash", chat: "gemini-3.5-flash-lite" },
   claude: { grammar: "claude-haiku-5-5", organise: "claude-sonnet-5-5", describe: "claude-haiku-5-5", chat: "claude-haiku-5-5" },
-  local: { grammar: "qwen3:14b", organise: "qwen3:14b", describe: "qwen3:14b", chat: "qwen3:14b" },
+  // On the Mac: the small llama3.2 for quick fixes, the qwen3:14b reasoning model where thinking pays off.
+  local: { grammar: "llama3.2", organise: "qwen3:14b", describe: "qwen3:14b", chat: "qwen3:14b" },
 };
 
 interface Price {

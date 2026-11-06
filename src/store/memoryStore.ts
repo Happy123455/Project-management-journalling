@@ -1,16 +1,17 @@
 import { idFromRef } from "../lib/embeds";
 import { safeFileName } from "../lib/files";
 import { extractLinks, uniqueNames } from "../lib/links";
-import { matchText, searchTerms } from "../lib/search";
+import { docMatches, matchText, searchTerms } from "../lib/search";
 import { dayKey } from "../lib/timestamp";
 import { countWords, docText } from "../lib/words";
 import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
 import { Serial } from "./serial";
-import { fileEventBody, fromBase64, newFileRecord, toBase64 } from "./files";
-import { docKey, eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
+import { fileEventBody, fileFromEvent, fromBase64, newFileRecord, toBase64 } from "./files";
+import { beforeKey, docKey, eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
 import { withPatch } from "./props";
 import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
 import type { JSONContent } from "@tiptap/react";
+import { notifyLogged } from "./logged";
 
 interface Snapshot {
   pages: Record<string, DayPage>;
@@ -45,6 +46,19 @@ export class MemoryStore implements JournalStore {
 
   completeReminder(day: string, actor?: string) {
     return this.writes.run(() => this.completeReminderNow(day, actor));
+  }
+
+  setDayProps(day: string, patch: Partial<DayProps>, actor = "me") {
+    return this.writes.run(async () => {
+      const page = await this.getDay(day);
+      if (!page) return;
+      const props: DayProps = { ...page.props, ...patch };
+      for (const k of Object.keys(props) as (keyof DayProps)[]) if (props[k] === undefined) delete props[k];
+      const now = new Date().toISOString();
+      this.logEvent(page.id, actor, "props", JSON.stringify(page.props), JSON.stringify(props), now);
+      this.data.pages[day] = { ...page, props, updatedAt: now };
+      this.storage?.setItem(KEY, JSON.stringify(this.data));
+    });
   }
 
   ensurePage(title: string, actor?: string) {
@@ -258,16 +272,26 @@ export class MemoryStore implements JournalStore {
     const days = Object.values(this.data.pages).sort((a, b) => b.day.localeCompare(a.day));
     for (const p of days) {
       const text = docText(p.content);
-      if (matchText(text, terms)) hits.push({ kind: "day", blockId: p.id, day: p.day, title: null, text });
+      if (matchText(text, terms) && docMatches(p.content, query)) hits.push({ kind: "day", blockId: p.id, day: p.day, title: null, text });
     }
     for (const p of Object.values(this.named)) {
       const text = `${p.title}\n${docText(p.content)}`;
-      if (matchText(text, terms)) hits.push({ kind: "page", blockId: p.id, day: null, title: p.title, text });
+      if (matchText(text, terms) && docMatches(p.content, query, p.title)) hits.push({ kind: "page", blockId: p.id, day: null, title: p.title, text });
     }
     for (const f of await this.listFiles()) {
       if (matchText(f.name, terms)) hits.push({ kind: "file", file: f });
     }
     return hits;
+  }
+
+  async missingFiles() {
+    const out = new Map<string, FileRecord>();
+    for (const e of this.data.events) {
+      if (e.op !== "create" || this.files[e.blockId] || out.has(e.blockId)) continue;
+      const f = fileFromEvent(e.blockId, e.after, e.createdAt);
+      if (f) out.set(f.id, f);
+    }
+    return [...out.values()];
   }
 
   async listFiles() {
@@ -308,10 +332,14 @@ export class MemoryStore implements JournalStore {
     });
   }
 
-  async syncRecords() {
+  async ownEventIds() {
+    return this.data.events.filter((e) => e.deviceId === this.device && e.op !== "restore").map((e) => e.id);
+  }
+
+  async syncRecords(skip?: Set<string>) {
     const records: SyncRecord[] = [];
     for (const event of this.data.events) {
-      if (event.deviceId !== this.device || event.op === "restore") continue;
+      if (event.deviceId !== this.device || event.op === "restore" || skip?.has(event.id)) continue;
       const meta = this.metaFor(event.blockId);
       if (meta) records.push({ event, meta });
     }
@@ -342,7 +370,7 @@ export class MemoryStore implements JournalStore {
       if (page) docs.set(id, { current: JSON.stringify(page.content), befores: new Set() });
     }
     for (const e of this.data.events) {
-      if (e.before && (e.op === "create" || e.op === "update")) docs.get(e.blockId)?.befores.add(docKey(e.before));
+      if (e.before && (e.op === "create" || e.op === "update")) docs.get(e.blockId)?.befores.add(beforeKey(docKey(e.before)));
     }
     return { eventIds: new Set(this.data.events.map((e) => e.id)), latest, fileIds: new Set(Object.keys(this.files)), docs };
   }
@@ -432,5 +460,6 @@ export class MemoryStore implements JournalStore {
       parentEventIds: last ? [last.id] : [],
       createdAt: now,
     });
+    notifyLogged();
   }
 }

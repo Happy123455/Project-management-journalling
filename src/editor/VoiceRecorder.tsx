@@ -3,6 +3,7 @@ import type { Editor } from "@tiptap/react";
 import { formatDuration, pickAudioType } from "../lib/capture";
 import { showError } from "../lib/toast";
 import { insertFiles } from "./attachments";
+import { holdAwake } from "../lib/power";
 
 /** Opens the recorder; what's recorded goes in at the cursor. `kind` "sound" makes a short clip. */
 export function openVoiceRecorder(editor: Editor, kind: "voice" | "sound" = "voice") {
@@ -28,6 +29,8 @@ export function VoiceRecorder() {
     let stream: MediaStream | null = null;
     let timer = 0;
     let frame = 0;
+    let release = () => {};
+    let meter: AudioContext | null = null;
     keep.current = true;
     setSeconds(0);
     (async () => {
@@ -48,10 +51,11 @@ export function VoiceRecorder() {
       };
       rec.start(1000);
       recorder.current = rec;
+      release = holdAwake(); // keep recording with the screen off
       const started = Date.now();
       timer = window.setInterval(() => setSeconds((Date.now() - started) / 1000), 250);
       // A simple level meter so it's clear the microphone hears you.
-      const ctx = new AudioContext();
+      const ctx = (meter = new AudioContext());
       const analyser = ctx.createAnalyser();
       ctx.createMediaStreamSource(stream).connect(analyser);
       const data = new Uint8Array(analyser.fftSize);
@@ -68,11 +72,14 @@ export function VoiceRecorder() {
     return () => {
       window.clearInterval(timer);
       cancelAnimationFrame(frame);
+      // The level meter's audio graph is closed too: left open it kept the phone's audio output awake.
+      void meter?.close().catch(() => {});
       if (recorder.current?.state === "recording") {
         keep.current = false;
         recorder.current.stop();
       }
       stream?.getTracks().forEach((t) => t.stop());
+      release();
     };
   }, [open]);
 

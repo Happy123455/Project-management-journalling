@@ -37,6 +37,49 @@ class MainActivity : TauriActivity() {
   /** Google Drive sign-in for sync. Drive's Android app doesn't offer its folders to other apps, so we use the Drive API. */
   private val driveScope = Scope("https://www.googleapis.com/auth/drive")
   private var driveRequest = ""
+  /** Weather: one quick, coarse location fix (asked once), answered through window.__journalLocation(id, json). */
+  private var locationWaiting: String? = null
+  private val askLocation = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    val id = locationWaiting ?: return@registerForActivityResult
+    locationWaiting = null
+    if (granted) fixLocation(id) else answerLocation(id, null)
+  }
+
+  private fun answerLocation(id: String, loc: android.location.Location?) {
+    val json = if (loc == null) "null" else JSONObject().put("lat", loc.latitude).put("lon", loc.longitude).toString()
+    val js = "window.__journalLocation && window.__journalLocation(${JSONObject.quote(id)}, $json)"
+    webView?.post { webView?.evaluateJavascript(js, null) }
+  }
+
+  private fun fixLocation(id: String) {
+    val lm = getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+    try {
+      val provider = listOf(android.location.LocationManager.NETWORK_PROVIDER, android.location.LocationManager.GPS_PROVIDER)
+        .firstOrNull { lm.isProviderEnabled(it) }
+      val last = listOf(android.location.LocationManager.NETWORK_PROVIDER, android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.PASSIVE_PROVIDER)
+        .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
+        .maxByOrNull { it.time }
+      // A recent fix is enough for the weather; otherwise ask for one now (the location turns off right after).
+      if (last != null && System.currentTimeMillis() - last.time < 30 * 60_000L || provider == null || android.os.Build.VERSION.SDK_INT < 30) {
+        return answerLocation(id, last)
+      }
+      lm.getCurrentLocation(provider, null, mainExecutor) { loc -> answerLocation(id, loc ?: last) }
+    } catch (e: SecurityException) {
+      answerLocation(id, null)
+    }
+  }
+
+  inner class LocationBridge {
+    @JavascriptInterface
+    fun request(id: String) = runOnUiThread {
+      if (checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) fixLocation(id)
+      else {
+        locationWaiting = id
+        askLocation.launch(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+      }
+    }
+  }
+
   private val authorizeDrive = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
     val token = try {
       Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(result.data).accessToken
@@ -66,6 +109,69 @@ class MainActivity : TauriActivity() {
     private const val MAX_SHARED_BYTES = 60L * 1024 * 1024
   }
 
+  /** A day page to open, from a tapped reminder or the Coming up widget. */
+  @Volatile private var pendingOpenDay: String? = null
+  private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+  /** Reminders: phone notifications, the Coming up widget and opening a day from them. Page: src/calendar/reminderBridge.ts. */
+  inner class ReminderBridge {
+    @JavascriptInterface fun schedule(json: String) = Reminders.schedule(this@MainActivity, json)
+    @JavascriptInterface fun setUpcoming(json: String) = Reminders.setUpcoming(this@MainActivity, json)
+    @JavascriptInterface fun takeOpenDay(): String {
+      val day = pendingOpenDay ?: return ""
+      pendingOpenDay = null
+      return day
+    }
+    @JavascriptInterface fun askNotify() = runOnUiThread {
+      if (android.os.Build.VERSION.SDK_INT >= 33 &&
+        checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+      ) askNotifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
+  }
+
+  /** Samsung Health (through Health Connect): asks for read access to exercise and sleep. */
+  private val askHealth = registerForActivityResult(androidx.health.connect.client.PermissionController.createRequestPermissionResultContract()) { }
+
+  /** Exercise and sleep for the routine. Page: src/routine/health.ts. */
+  inner class HealthBridge {
+    @JavascriptInterface fun status(): String = try { Health.status(this@MainActivity) } catch (e: Exception) { "unavailable" }
+    @JavascriptInterface fun askAccess() = runOnUiThread {
+      try {
+        when (androidx.health.connect.client.HealthConnectClient.getSdkStatus(this@MainActivity)) {
+          androidx.health.connect.client.HealthConnectClient.SDK_AVAILABLE -> askHealth.launch(Health.PERMISSIONS)
+          androidx.health.connect.client.HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED ->
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.google.android.apps.healthdata&url=healthconnect%3A%2F%2Fonboarding")))
+          else -> {}
+        }
+      } catch (e: Exception) {
+      }
+    }
+    @JavascriptInterface fun read(id: String, from: Long, to: Long) = Health.read(this@MainActivity, from, to) { json ->
+      val js = "window.__journalHealth && window.__journalHealth(${JSONObject.quote(id)}, ${JSONObject.quote(json)})"
+      webView?.post { webView?.evaluateJavascript(js, null) }
+    }
+  }
+
+  private val askSms = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    webView?.post { webView?.evaluateJavascript("window.dispatchEvent(new CustomEvent('journal:finance-access', { detail: ${if (granted) "true" else "false"} }))", null) }
+  }
+
+  /** Bank SMS and payment notifications for the money tracker. Page: src/finance/capture.ts. */
+  inner class FinanceBridge {
+    @JavascriptInterface fun smsStatus(): String = try { Finance.smsStatus(this@MainActivity) } catch (e: Exception) { "unavailable" }
+    @JavascriptInterface fun askSms() = runOnUiThread { try { askSms.launch(android.Manifest.permission.READ_SMS) } catch (e: Exception) { } }
+    @JavascriptInterface fun readSms(id: String, from: Long) = Finance.readSms(this@MainActivity, from) { json ->
+      val js = "window.__journalFinance && window.__journalFinance(${JSONObject.quote(id)}, ${JSONObject.quote(json)})"
+      webView?.post { webView?.evaluateJavascript(js, null) }
+    }
+    @JavascriptInterface fun notifyStatus(): String = try { Finance.notifyStatus(this@MainActivity) } catch (e: Exception) { "unavailable" }
+    @JavascriptInterface fun openNotifyAccess() = runOnUiThread {
+      try { startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) } catch (e: Exception) { }
+    }
+    @JavascriptInterface fun notifications(): String = try { Finance.peek(this@MainActivity) } catch (e: Exception) { "[]" }
+    @JavascriptInterface fun clearNotifications(upTo: Long) = try { Finance.clear(this@MainActivity, upTo) } catch (e: Exception) { }
+  }
+
   /** What was shared in (or a quick-note request), waiting for the page to take it. */
   @Volatile private var pendingShare: String? = null
 
@@ -74,6 +180,10 @@ class MainActivity : TauriActivity() {
     super.onCreate(savedInstanceState)
     current = java.lang.ref.WeakReference(this)
     if (BubbleService.enabled(this)) BubbleService.setEnabled(this, true)
+    // Instant sync talks to the Mac on the Wi-Fi; Android 17 needs this asked for once.
+    val localNetwork = "android.permission.ACCESS_LOCAL_NETWORK"
+    if (android.os.Build.VERSION.SDK_INT >= 37 && checkSelfPermission(localNetwork) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+      requestPermissions(arrayOf(localNetwork), 77)
     handleIntent(intent)
   }
 
@@ -88,6 +198,12 @@ class MainActivity : TauriActivity() {
   private fun handleIntent(intent: Intent?) {
     if (intent == null) return
     val action = intent.action
+    if (action == Reminders.OPEN_DAY) {
+      pendingOpenDay = intent.getStringExtra("day")
+      intent.action = null
+      webView?.post { webView?.evaluateJavascript("window.dispatchEvent(new Event('journal:open-day'))", null) }
+      return
+    }
     if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE && action != QUICK_NOTE && action != VOICE_NOTE) return
     val payload = JSONObject().put("quickNote", action == QUICK_NOTE || action == VOICE_NOTE).put("voice", action == VOICE_NOTE)
     val text = listOfNotNull(intent.getStringExtra(Intent.EXTRA_SUBJECT), intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString())
@@ -134,11 +250,35 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
+    // Back (button or edge swipe) is the journal's: it closes the panel on top or goes back a note.
+    // Only when the journal has nothing to go back to does the app go to the background (never
+    // closing it, which also lost the WebView's state).
+    onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        val view = this@MainActivity.webView ?: return
+        view.evaluateJavascript("(function(){try{return !!(window.journalBack&&window.journalBack());}catch(e){return false;}})()") { handled ->
+          if (handled != "true") moveTaskToBack(true)
+        }
+      }
+    })
+    // Same colour as the window until the page paints (no white flash at start).
+    val night = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+    webView.setBackgroundColor(if (night) 0xFF16171C.toInt() else 0xFFE6EAF0.toInt())
+    // A WebView left paused by an earlier journal window (see wakePage) would never run its timers.
+    webView.resumeTimers()
     webView.addJavascriptInterface(SyncBridge(), "JournalSync")
     webView.addJavascriptInterface(ShareBridge(), "JournalShare")
     webView.addJavascriptInterface(SecretsBridge(), "JournalSecrets")
     webView.addJavascriptInterface(speech, "JournalSpeech")
     webView.addJavascriptInterface(BubbleBridge(), "JournalBubble")
+    webView.addJavascriptInterface(HapticsBridge(), "JournalHaptics")
+    webView.addJavascriptInterface(LocationBridge(), "JournalLocation")
+    webView.addJavascriptInterface(ReminderBridge(), "JournalReminders")
+    webView.addJavascriptInterface(PowerBridge(), "JournalPower")
+    webView.addJavascriptInterface(HealthBridge(), "JournalHealth")
+    webView.addJavascriptInterface(FinanceBridge(), "JournalFinance")
+    webView.addJavascriptInterface(WatchBridge(), "JournalWatch")
+    Watch.onInbox = { webView.post { webView.evaluateJavascript("window.dispatchEvent(new Event('journal:watch'))", null) } }
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->
       val split = payload.partition { it.uri != null }
@@ -176,6 +316,50 @@ class MainActivity : TauriActivity() {
     return Pair(mime, Base64.encodeToString(bytes, Base64.NO_WRAP))
   }
 
+  /**
+   * Glass haptics: the phone's crisp predefined ticks (S23 supports composition primitives), so a
+   * touch feels like a light tap on glass and a swipe like a fine ripple, not a buzz.
+   */
+  inner class HapticsBridge {
+    private val vibrator by lazy {
+      if (android.os.Build.VERSION.SDK_INT >= 31)
+        (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+      else getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+    }
+
+    /** kind: "tap" (touching an element), "tick" (each step of a swipe), "press" (a button down), "edge" (end of a swipe). */
+    @JavascriptInterface
+    fun play(kind: String, strength: Float) {
+      val v = vibrator
+      if (!v.hasVibrator()) return
+      val s = strength.coerceIn(0.05f, 1f)
+      // The typing speed guide: a short double buzz, clearly more than a tap.
+      if (kind == "warn") {
+        val amp = (80 + 175 * s).toInt().coerceIn(1, 255)
+        v.vibrate(android.os.VibrationEffect.createWaveform(longArrayOf(0, 35, 60, 35), intArrayOf(0, amp, 0, amp), -1))
+        return
+      }
+      if (android.os.Build.VERSION.SDK_INT >= 30) {
+        val primitive = when (kind) {
+          "tick" -> android.os.VibrationEffect.Composition.PRIMITIVE_LOW_TICK
+          "press" -> android.os.VibrationEffect.Composition.PRIMITIVE_CLICK
+          "edge" -> android.os.VibrationEffect.Composition.PRIMITIVE_TICK
+          else -> android.os.VibrationEffect.Composition.PRIMITIVE_TICK
+        }
+        if (v.areAllPrimitivesSupported(primitive)) {
+          v.vibrate(android.os.VibrationEffect.startComposition().addPrimitive(primitive, s).compose())
+          return
+        }
+      }
+      if (android.os.Build.VERSION.SDK_INT >= 29) {
+        val effect = if (kind == "press") android.os.VibrationEffect.EFFECT_CLICK else android.os.VibrationEffect.EFFECT_TICK
+        v.vibrate(android.os.VibrationEffect.createPredefined(effect))
+      } else {
+        v.vibrate(if (kind == "press") 12L else 6L)
+      }
+    }
+  }
+
   inner class ClipboardBridge {
     /**
      * The clipboard as text, as JSON {focused, text}. Android only shares the clipboard with
@@ -204,6 +388,39 @@ class MainActivity : TauriActivity() {
       }
       return ""
     }
+
+    /**
+     * What's on the clipboard without reading it (no "pasted from your clipboard" notice), as JSON
+     * {t: when it was copied, mimes: [...]}: the shared clipboard only reads it when this changed.
+     */
+    @JavascriptInterface
+    fun stamp(): String {
+      val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+      val d = try { clipboard.primaryClipDescription } catch (e: Exception) { null }
+      val mimes = JSONArray()
+      if (d != null) for (i in 0 until d.mimeTypeCount) mimes.put(d.getMimeType(i))
+      val t = if (d != null && android.os.Build.VERSION.SDK_INT >= 26) d.timestamp else 0L
+      return JSONObject().put("t", t).put("mimes", mimes).toString()
+    }
+
+    /** Puts an image (base64 bytes) on the clipboard, e.g. one copied on the Mac. */
+    @JavascriptInterface
+    fun setImage(mime: String, data: String): Boolean = try {
+      val bytes = Base64.decode(data, Base64.DEFAULT)
+      val dir = java.io.File(cacheDir, "shared-clip")
+      dir.mkdirs()
+      dir.listFiles()?.forEach { it.delete() }
+      val ext = mime.substringAfter('/').substringBefore('+').ifEmpty { "png" }
+      val file = java.io.File(dir, "clip-${System.currentTimeMillis()}.$ext")
+      file.writeBytes(bytes)
+      val uri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", file)
+      val clip = android.content.ClipData.newUri(contentResolver, "Image from your Mac", uri)
+      val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+      runOnUiThread { try { clipboard.setPrimaryClip(clip) } catch (e: Exception) { } }
+      true
+    } catch (e: Exception) {
+      false
+    }
   }
 
   /** An access token for Google Drive, answered through window.__journalDriveToken(id, token or ""). */
@@ -230,6 +447,12 @@ class MainActivity : TauriActivity() {
 
   /** Lets the page take what was shared in, and open the keyboard for a quick note. */
   /** Settings → Floating bubble. */
+  inner class WatchBridge {
+    @JavascriptInterface fun publish(json: String) = Watch.publish(this@MainActivity, json)
+    @JavascriptInterface fun take(): String = try { Watch.take(this@MainActivity) } catch (e: Exception) { "[]" }
+    @JavascriptInterface fun pending(): Boolean = Watch.pending(this@MainActivity)
+  }
+
   inner class BubbleBridge {
     @JavascriptInterface fun enabled(): Boolean = BubbleService.enabled(this@MainActivity) && android.provider.Settings.canDrawOverlays(this@MainActivity)
     @JavascriptInterface fun canDraw(): Boolean = android.provider.Settings.canDrawOverlays(this@MainActivity)
@@ -245,6 +468,54 @@ class MainActivity : TauriActivity() {
       BubbleService.setEnabled(this@MainActivity, on)
       return on
     }
+  }
+
+  // ───── Battery: let the page sleep in the background (page side: src/lib/power.ts) ─────
+  // A WebView keeps running its JavaScript timers after the app leaves the screen. Once the app has
+  // been out of sight for a while (the page has saved and sent its edits by then), its timers are
+  // paused until it comes back, unless the page says something is playing or recording.
+  private val sleepHandler = android.os.Handler(android.os.Looper.getMainLooper())
+  @Volatile private var pageBusy = false
+  private var pageAsleep = false
+  private var inBackground = false
+  private val sleepAfter = 30_000L
+  private val sleepNow = Runnable {
+    if (inBackground && !pageBusy && !pageAsleep) {
+      webView?.pauseTimers()
+      pageAsleep = true
+    }
+  }
+
+  inner class PowerBridge {
+    @JavascriptInterface fun setBusy(busy: Boolean) = runOnUiThread {
+      pageBusy = busy
+      if (busy && pageAsleep) wakePage()
+      if (!busy && inBackground) {
+        sleepHandler.removeCallbacks(sleepNow)
+        sleepHandler.postDelayed(sleepNow, sleepAfter)
+      }
+    }
+  }
+
+  private fun wakePage() {
+    sleepHandler.removeCallbacks(sleepNow)
+    // Always: pauseTimers() holds every WebView in the process, so when the journal was closed
+    // while asleep, the next one started with its timers stopped (a blank screen on opening).
+    webView?.resumeTimers()
+    pageAsleep = false
+  }
+
+  override fun onStart() {
+    super.onStart()
+    inBackground = false
+    wakePage()
+  }
+
+  override fun onStop() {
+    super.onStop()
+    inBackground = true
+    sleepHandler.removeCallbacks(sleepNow)
+    sleepHandler.postDelayed(sleepNow, sleepAfter)
   }
 
   override fun onResume() {
@@ -367,8 +638,9 @@ class MainActivity : TauriActivity() {
           // Utterance ids are "<run>:<offset of this chunk>:<last?>".
           override fun onStart(utteranceId: String) {}
           override fun onRangeStart(utteranceId: String, start: Int, end: Int, frame: Int) {
-            val (run, offset) = utteranceId.split(":")
-            emit("range", run, offset.toInt() + start)
+            val parts = utteranceId.split(":")
+            val offset = parts.getOrNull(1)?.toIntOrNull() ?: return
+            emit("range", parts[0], offset + start)
           }
           override fun onDone(utteranceId: String) {
             val parts = utteranceId.split(":")
@@ -433,10 +705,14 @@ class MainActivity : TauriActivity() {
           val cut = maxOf(text.lastIndexOf(". ", end), text.lastIndexOf("\n", end), text.lastIndexOf(' ', end))
           if (cut > start) end = cut + 1
         }
-        val last = if (end >= text.length) "1" else "0"
-        engine.speak(text.substring(start, end), TextToSpeech.QUEUE_ADD, null, "$id:$start:$last")
+        var piece = text.substring(start, end)
+        // The system voice drops the end of a last word with no closing punctuation ("Understand").
+        if (end >= text.length && piece.trimEnd().lastOrNull()?.isLetterOrDigit() == true) piece = piece.trimEnd() + "."
+        engine.speak(piece, TextToSpeech.QUEUE_ADD, null, "$id:$start:0")
         start = end
       }
+      // A moment of silence after the text, so the device plays the last sound out before "done".
+      engine.playSilentUtterance(350, TextToSpeech.QUEUE_ADD, "$id:end:1")
     }
 
     @JavascriptInterface

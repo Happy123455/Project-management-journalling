@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
+import { useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
 import { clampPan, toggleZoom, zoomAt, type View } from "../lib/zoom";
+import { useEscapeToClose } from "../ui/useEscapeToClose";
 
 const DOUBLE_TAP_MS = 300;
 const DISMISS_DRAG_PX = 120;
@@ -15,11 +16,7 @@ export function PhotoViewer({ url, onClose }: { url: string; onClose: () => void
   const gesture = useRef<{ view: View; dist: number; mid: Point; start: Point } | null>(null);
   const lastTap = useRef(0);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeToClose(onClose);
 
   /** A screen point relative to the centre of the stage. */
   const local = (p: Point): Point => {

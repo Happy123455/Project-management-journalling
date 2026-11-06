@@ -1,0 +1,283 @@
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import type { Editor } from "@tiptap/react";
+import { TextSelection } from "@tiptap/pm/state";
+import { loadAiSettings } from "../ai/settings";
+import { OLLAMA_URL } from "../ai/providers";
+import { isDesktopApp } from "../bubble/macBubble";
+import { journalStore, useFileUrl } from "../editor/attachments";
+import { showError, showToast } from "../lib/toast";
+import type { FileRecord, JournalStore, NamedPage } from "../store";
+
+/** A quick-log button: the project it logs into and its icon. */
+export interface QuickLog {
+  id: string;
+  title: string;
+  icon: string | null;
+  /** A GIF or clip from the journal shown instead of the emoji. */
+  iconFile: string | null;
+}
+
+export const QUICK_LOG_CHANGED = "journal:quick-log";
+
+export async function quickLogs(store: JournalStore): Promise<QuickLog[]> {
+  return (await store.projects())
+    .filter((p) => p.props.project?.quickLog && p.props.project.status !== "done")
+    .map((p) => ({ id: p.id, title: p.title, icon: p.props.project?.icon ?? null, iconFile: p.props.project?.iconFile ?? null }));
+}
+
+/**
+ * One tap: a [[Project]] box with an indented line under it, the cursor in that line. Goes in the
+ * empty line the cursor is on, or right after the block it's in (never splitting a sentence).
+ */
+export function insertQuickLog(editor: Editor, title: string) {
+  const { state } = editor;
+  const { $from } = state.selection;
+  const top = $from.depth >= 1 ? $from.before(1) : 0;
+  const block = state.doc.nodeAt(top);
+  const emptyLine = block?.type.name === "paragraph" && block.content.size === 0;
+  const at = emptyLine ? top : block ? top + block.nodeSize : state.doc.content.size;
+  const nodes = [
+    { type: "paragraph", content: [{ type: "text", text: `[[${title}]]` }] },
+    { type: "paragraph", attrs: { indent: 1 } },
+  ];
+  const range = emptyLine && block ? { from: top, to: top + block.nodeSize } : at;
+  editor.chain().focus().insertContentAt(range, nodes).run();
+  // Into the indented line: the first paragraph after the inserted title.
+  const doc = editor.state.doc;
+  const titleNode = doc.nodeAt(at);
+  if (!titleNode) return;
+  const line = at + titleNode.nodeSize + 1;
+  if (line <= doc.content.size) editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(doc, line)).scrollIntoView());
+}
+
+const EMOJI = [
+  "🏋️", "🏃", "🧘", "🚴", "🏊", "⚽", "🥗", "💧", "☕", "🍳", "😴", "💊",
+  "📚", "✍️", "🎸", "🎨", "📷", "🎮", "💻", "🧠", "🗣️", "🌱", "🧹", "🛒",
+  "💰", "📈", "🧾", "✈️", "🚗", "🏠", "👨‍👩‍👧", "❤️", "🙏", "🎯", "⏱️", "📌",
+];
+
+/** Asks the Mac's quick local model (llama3.2) for one emoji that fits the project. */
+export async function suggestIcon(title: string): Promise<string | null> {
+  if (!isDesktopApp()) return null;
+  const s = loadAiSettings();
+  const model = s.models.local?.grammar || "llama3.2";
+  try {
+    const http = (await import("@tauri-apps/plugin-http")).fetch;
+    const res = await http(`${OLLAMA_URL}/api/chat`, {
+      method: "POST",
+      signal: AbortSignal.timeout(60_000),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        format: { type: "object", properties: { emoji: { type: "string" } }, required: ["emoji"] },
+        options: { temperature: 0.2 },
+        messages: [
+          { role: "system", content: "You pick one emoji that best stands for a habit or project someone logs in their journal. Answer as JSON {\"emoji\": \"…\"} with exactly one emoji." },
+          { role: "user", content: title },
+        ],
+      }),
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    const emoji = String(JSON.parse(body.message?.content ?? "{}").emoji ?? "").trim();
+    // One emoji (with its joiners and variation marks), nothing else.
+    return /\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|\u200D\p{Extended_Pictographic}\uFE0F?)*/u.exec(emoji)?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Mac: gives every quick log waiting for an AI icon its icon (as the model's own edit, so it can be undone). */
+export async function assignQuickLogIcons(store: JournalStore): Promise<number> {
+  if (!isDesktopApp()) return 0;
+  let n = 0;
+  for (const p of await store.projects()) {
+    const info = p.props.project;
+    if (!info?.quickLog || !info.iconAuto || info.icon) continue;
+    const icon = await suggestIcon(p.title);
+    if (!icon) continue;
+    const model = loadAiSettings().models.local?.grammar || "llama3.2";
+    await store.setPageProps(p.id, { project: { ...info, icon } }, `Local (${model.split(":")[0]})`);
+    n++;
+  }
+  if (n) window.dispatchEvent(new Event(QUICK_LOG_CHANGED));
+  return n;
+}
+
+/** The quick-log buttons for the tool bar, kept current. */
+/** The last list loaded, so a toolbar drawn again (each time the keyboard opens) starts with it. */
+let lastQuick: QuickLog[] = [];
+export function useQuickLogs(): QuickLog[] {
+  const [list, setList] = useState<QuickLog[]>(lastQuick);
+  useEffect(() => {
+    let live = true;
+    const load = () => {
+      const store = journalStore();
+      if (store)
+        void quickLogs(store)
+          .then((l) => {
+            // Same buttons: keep the same array (the bar doesn't redraw or jump).
+            if (JSON.stringify(l) === JSON.stringify(lastQuick)) return;
+            lastQuick = l;
+            if (live) setList(l);
+          })
+          .catch(() => {});
+    };
+    load();
+    window.addEventListener(QUICK_LOG_CHANGED, load);
+    window.addEventListener("journal:synced", load);
+    return () => {
+      live = false;
+      window.removeEventListener(QUICK_LOG_CHANGED, load);
+      window.removeEventListener("journal:synced", load);
+    };
+  }, []);
+  return list;
+}
+
+/** GIFs and looping clips in the journal: what a quick-log button can show as its icon. */
+const isGifLike = (f: FileRecord) => f.mime === "image/gif" || /^(gif|meme|greenscreen)-/.test(f.name) || f.mime === "image/webp";
+
+/** A small, looping GIF or clip as a button icon. */
+export function GifIcon({ fileId, mime }: { fileId: string; mime?: string }) {
+  const [file, setFile] = useState<FileRecord | null>(null);
+  useEffect(() => {
+    if (!mime) void journalStore()?.getFile(fileId).then(setFile);
+  }, [fileId, mime]);
+  const type = mime ?? file?.mime ?? "";
+  const video = type.startsWith("video/");
+  const { url } = useFileUrl(type ? fileId : null, video);
+  if (!url) return <span className="gif-icon loading">🎞</span>;
+  return video ? <video className="gif-icon" src={url} autoPlay loop muted playsInline aria-hidden /> : <img className="gif-icon" src={url} alt="" draggable={false} />;
+}
+
+export const openQuickLogSetup = () => window.dispatchEvent(new Event("journal:quick-log-setup"));
+
+/** Which projects get a quick-log button, and their icons (picked by hand, or by the Mac's AI). */
+const latest = new Map<string, NonNullable<NamedPage["props"]["project"]>>();
+let saving: Promise<void> = Promise.resolve();
+
+export function QuickLogSetup() {
+  const [open, setOpen] = useState(false);
+  const [projects, setProjects] = useState<NamedPage[]>([]);
+  const [picking, setPicking] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [gifs, setGifs] = useState<FileRecord[] | null>(null);
+  const store = journalStore();
+  const reload = () =>
+    void store?.projects().then((all) => {
+      latest.clear();
+      setProjects(all.filter((p) => p.props.project?.status !== "done"));
+    });
+  useEffect(() => {
+    const onOpen = () => {
+      setOpen(true);
+      setPicking(null);
+    };
+    window.addEventListener("journal:quick-log-setup", onOpen);
+    return () => window.removeEventListener("journal:quick-log-setup", onOpen);
+  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => (open ? reload() : undefined), [open]);
+  if (!open || !store) return null;
+
+  // The switch flips at once (it used to wait for the save and the reload, and jumped back
+  // meanwhile); saves go one after another, each from the newest settings, so quick taps never undo
+  // each other.
+  const save = (p: NamedPage, patch: Partial<NonNullable<NamedPage["props"]["project"]>>) => {
+    const next = { ...(latest.get(p.id) ?? p.props.project!), ...patch };
+    latest.set(p.id, next);
+    setProjects((all) => all.map((x) => (x.id === p.id ? { ...x, props: { ...x.props, project: next } } : x)));
+    saving = saving.then(async () => {
+      try {
+        await store.setPageProps(p.id, { project: next });
+        window.dispatchEvent(new Event(QUICK_LOG_CHANGED));
+      } catch (e) {
+        showError("Couldn't save the quick log", e);
+        reload();
+      }
+    });
+    return saving;
+  };
+  const aiPick = async (p: NamedPage) => {
+    setPicking(null);
+    if (!isDesktopApp()) {
+      await save(p, { iconAuto: true, icon: undefined, quickLog: true });
+      showToast("The Mac's AI will pick its icon; it arrives with the next sync");
+      return;
+    }
+    setBusy(p.id);
+    const icon = await suggestIcon(p.title);
+    setBusy(null);
+    if (!icon) return showToast("The local model didn't answer; is Ollama running?");
+    await save(p, { icon, iconAuto: true, quickLog: true });
+  };
+
+  return createPortal(
+    <>
+      <div className="search-backdrop" onClick={() => setOpen(false)} />
+      <div className="confirm-card quick-log-setup" role="dialog" aria-label="Quick log buttons">
+        <h2>⚡ Quick log buttons</h2>
+        <p className="hint">A button on the tool bar adds the project's box with one tap, ready to write in.</p>
+        {projects.length === 0 && <p className="hint">No projects yet: make one from the “/” menu (Project or Log).</p>}
+        <ul className="quick-log-list">
+          {projects.map((p) => {
+            const info = p.props.project!;
+            return (
+              <li key={p.id}>
+                <button type="button" className="quick-log-icon" onClick={() => setPicking(picking === p.id ? null : p.id)} aria-label={`Icon for ${p.title}`}>
+                  {busy === p.id ? "…" : info.iconFile ? <GifIcon fileId={info.iconFile} /> : info.icon ?? (info.iconAuto ? "✨" : "＋")}
+                </button>
+                <span className="quick-log-title">
+                  {p.title}
+                  {info.iconAuto && !info.icon && <small>Icon: the Mac's AI picks it</small>}
+                </span>
+                <label className="settings-toggle quick-log-toggle">
+                  <input type="checkbox" checked={!!info.quickLog} onChange={(e) => void save(p, { quickLog: e.target.checked })} />
+                </label>
+                {picking === p.id && (
+                  <div className="quick-log-emoji">
+                    <button type="button" className="quick-log-ai" onClick={() => void aiPick(p)}>✨ Let the Mac's AI pick</button>
+                    <button
+                      type="button"
+                      className="quick-log-ai"
+                      onClick={() => void store.listFiles().then((all) => setGifs(all.filter(isGifLike)))}
+                    >
+                      🎞 Use a GIF
+                    </button>
+                    {info.iconFile && (
+                      <button type="button" className="quick-log-ai" onClick={() => void save(p, { iconFile: undefined })}>
+                        ✕ Remove GIF
+                      </button>
+                    )}
+                    {gifs && (
+                      <div className="quick-log-gifs">
+                        {gifs.length === 0 && <p className="hint">No GIFs in the journal yet: add one from the meme kit or paste one from the keyboard.</p>}
+                        {gifs.map((g) => (
+                          <button key={g.id} type="button" onClick={() => (setPicking(null), setGifs(null), void save(p, { iconFile: g.id, quickLog: true }))}>
+                            <GifIcon fileId={g.id} mime={g.mime} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {EMOJI.map((e) => (
+                      <button key={e} type="button" onClick={() => (setPicking(null), void save(p, { icon: e, iconAuto: false, iconFile: undefined, quickLog: true }))}>
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        <div className="confirm-actions">
+          <button type="button" onClick={() => setOpen(false)}>Done</button>
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+}

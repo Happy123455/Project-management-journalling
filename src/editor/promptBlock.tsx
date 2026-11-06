@@ -3,7 +3,7 @@ import { askAi } from "../ai/client";
 import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { fillPrompt, promptFields } from "../lib/prompt";
 import { showToast } from "../lib/toast";
-import { copyText } from "./codeBlock";
+import { copyText, FoldButton } from "./codeBlock";
 
 const EXAMPLE = "Write a {{tone}} message to {{person}} about {{topic}}. Keep it under {{length}} words.";
 
@@ -94,8 +94,9 @@ function PromptBuilder({ node, updateAttributes, editor }: NodeViewProps) {
     }
   };
   return (
-    <NodeViewWrapper className="prompt-block prompt-builder" data-drag-handle="">
+    <NodeViewWrapper className={node.attrs.collapsed ? `${"prompt-block prompt-builder"} collapsed` : "prompt-block prompt-builder"} data-drag-handle="">
       <div className="prompt-head" contentEditable={false}>
+        <FoldButton collapsed={!!node.attrs.collapsed} onToggle={() => updateAttributes({ collapsed: !node.attrs.collapsed })} />
         <span aria-hidden>🧩</span>
         <LazyInput className="prompt-title" value={title} placeholder="Prompt name" readOnly={readOnly} onCommit={(v) => updateAttributes({ title: v })} />
       </div>
@@ -158,8 +159,9 @@ function PromptTemplateView({ node, updateAttributes, editor }: NodeViewProps) {
   const readOnly = !editor.isEditable;
 
   return (
-    <NodeViewWrapper className="prompt-block" data-drag-handle="">
+    <NodeViewWrapper className={node.attrs.collapsed ? `${"prompt-block"} collapsed` : "prompt-block"} data-drag-handle="">
       <div className="prompt-head" contentEditable={false}>
+        <FoldButton collapsed={!!node.attrs.collapsed} onToggle={() => updateAttributes({ collapsed: !node.attrs.collapsed })} />
         <span aria-hidden>🧩</span>
         <LazyInput className="prompt-title" value={title} placeholder="Prompt name" readOnly={readOnly} onCommit={(v) => updateAttributes({ title: v })} />
         <button type="button" onClick={() => setEditing(!editing)}>{editing ? "Done" : "Edit template"}</button>
@@ -186,6 +188,7 @@ function PromptTemplateView({ node, updateAttributes, editor }: NodeViewProps) {
       )}
       {!editing && <pre className="prompt-preview">{finished || "Tap Edit template and write your prompt, with {{fields}} for the parts that change."}</pre>}
       <div className="prompt-actions" contentEditable={false}>
+        <button type="button" className="block-bottom-fold" title="Collapse" onClick={() => updateAttributes({ collapsed: true })}>▴</button>
         <span className="hint">{fields.length ? (missing.length ? `${missing.length} field${missing.length === 1 ? "" : "s"} empty` : "Ready") : "Add {{fields}} for the parts that change"}</span>
         <button
           type="button"
@@ -216,6 +219,7 @@ export const PromptBlock = Node.create({
   draggable: true,
   addAttributes() {
     return {
+      collapsed: { default: false, parseHTML: (el) => el.getAttribute("data-collapsed") === "true", renderHTML: (a) => (a.collapsed ? { "data-collapsed": "true" } : {}) },
       title: { default: "", parseHTML: (el) => el.getAttribute("data-title") ?? "" },
       template: { default: "", parseHTML: (el) => el.getAttribute("data-template") ?? el.textContent ?? "" },
       raw: { default: "", parseHTML: (el) => el.getAttribute("data-raw") ?? "" },

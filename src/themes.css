@@ -1,0 +1,544 @@
+/* ───────────── Themes ─────────────
+   Liquid glass is the base look (App.css). Other themes are layers chosen in Settings → Appearance
+   and set as data-theme on <html> (src/lib/theme.ts).
+
+   Every rule here is prefixed with `:where(html[data-theme="…"])`, which adds no specificity, so a
+   rule wins only over the App.css rule it mirrors (this file loads after App.css) and never over a
+   more specific one. That keeps special buttons (flat icons, coloured actions, heat-map days) as
+   they are while the generic surfaces change. */
+
+/* ═══════════ Soft UI (neumorphism) ═══════════
+   One soft colour for the page and everything on it. Shapes come out of the surface with two
+   shadows (light from the top left, shade to the bottom right) and press into it with the same
+   shadows inset. Text and focus rings stay high-contrast: soft shapes, never soft text. */
+/* The light and the surface colour glide when they change (the sun moving, sunset, clouds). */
+@property --neu-base { syntax: "<color>"; inherits: true; initial-value: #e4e8ee; }
+@property --text { syntax: "<color>"; inherits: true; initial-value: #1e2430; }
+@property --muted { syntax: "<color>"; inherits: true; initial-value: #4f5a6b; }
+@property --neu-x { syntax: "<length>"; inherits: true; initial-value: 7px; }
+@property --neu-y { syntax: "<length>"; inherits: true; initial-value: 7px; }
+@property --neu-blur { syntax: "<length>"; inherits: true; initial-value: 16px; }
+@property --neu-strength { syntax: "<number>"; inherits: true; initial-value: 1; }
+:root[data-theme="neu"] {
+  transition: --neu-base 4s ease, --text 4s ease, --muted 4s ease, --neu-x 4s ease, --neu-y 4s ease, --neu-blur 4s ease, --neu-strength 4s ease;
+}
+:root[data-theme="neu"].neu-instant { transition: none; }
+@media (prefers-reduced-motion: reduce) { :root[data-theme="neu"] { transition: none; } }
+:root[data-theme="neu"] {
+  /* The light (src/lib/softLight.ts sets these on <html> when shadows follow the sun; these are the
+     resting values: light from the top left, white). */
+  --neu-x: 7px;
+  --neu-y: 7px;
+  --neu-blur: 16px;
+  --neu-strength: 1;
+  --neu-tint: 255, 255, 255;
+  --neu-tint-amt: 0%;
+  --neu-glow: 0%;
+  --neu-tint-k: 1;
+  --sun-x: 20%;
+  --sun-y: -10%;
+
+  --neu-base: #e4e8ee;
+  --neu-shade-rgb: 150, 163, 184;
+  --neu-shade-a: 0.62;
+  --neu-hi-a: 0.95;
+  /* The page takes a little of the light's colour; text contrast stays above 5:1 at the strongest tint. */
+  --bg: color-mix(in srgb, var(--neu-base), rgb(var(--neu-tint)) calc(var(--neu-tint-amt) * var(--neu-tint-k)));
+  --panel: color-mix(in srgb, var(--bg) 93%, #7d8ba3);
+  --heat-empty: color-mix(in srgb, var(--bg) 90%, #7d8ba3);
+  --text: #1e2430;
+  --muted: #4f5a6b;
+  --border: #c9d0da;
+  --accent: #3451d1;
+  --tag: #8a4b00;
+  --reminder: #9a4706;
+  --mark: #fde68a;
+
+  --neu-dark: rgba(var(--neu-shade-rgb), calc(var(--neu-shade-a) * var(--neu-strength)));
+  --neu-light: color-mix(in srgb, color-mix(in srgb, #fff, rgb(var(--neu-tint)) var(--neu-glow)) calc(var(--neu-hi-a) * var(--neu-strength) * 100%), transparent);
+  --neu-knob: #f4f6f9;
+  --neu-out: var(--neu-x) var(--neu-y) var(--neu-blur) var(--neu-dark), calc(-1 * var(--neu-x)) calc(-1 * var(--neu-y)) var(--neu-blur) var(--neu-light);
+  --neu-out-sm: calc(0.57 * var(--neu-x)) calc(0.57 * var(--neu-y)) calc(0.56 * var(--neu-blur)) var(--neu-dark), calc(-0.57 * var(--neu-x)) calc(-0.57 * var(--neu-y)) calc(0.56 * var(--neu-blur)) var(--neu-light);
+  --neu-out-xs: calc(0.29 * var(--neu-x)) calc(0.29 * var(--neu-y)) calc(0.31 * var(--neu-blur)) var(--neu-dark), calc(-0.29 * var(--neu-x)) calc(-0.29 * var(--neu-y)) calc(0.31 * var(--neu-blur)) var(--neu-light);
+  --neu-in: inset calc(0.71 * var(--neu-x)) calc(0.71 * var(--neu-y)) calc(0.62 * var(--neu-blur)) var(--neu-dark), inset calc(-0.71 * var(--neu-x)) calc(-0.71 * var(--neu-y)) calc(0.62 * var(--neu-blur)) var(--neu-light);
+  --neu-in-sm: inset calc(0.43 * var(--neu-x)) calc(0.43 * var(--neu-y)) calc(0.375 * var(--neu-blur)) var(--neu-dark), inset calc(-0.43 * var(--neu-x)) calc(-0.43 * var(--neu-y)) calc(0.375 * var(--neu-blur)) var(--neu-light);
+  --neu-in-xs: inset calc(0.15 * var(--neu-x)) calc(0.15 * var(--neu-y)) calc(0.125 * var(--neu-blur)) var(--neu-dark), inset calc(-0.15 * var(--neu-x)) calc(-0.15 * var(--neu-y)) calc(0.125 * var(--neu-blur)) var(--neu-light);
+  --neu-side: calc(0.85 * var(--neu-x)) calc(0.5 * var(--neu-y)) 14px -8px var(--neu-dark);
+  --neu-overlay: 0 18px 50px rgba(30, 40, 60, 0.28);
+  --neu-sun-a: 0.07;
+
+  /* The glass tokens become the soft surface, so every glass panel in App.css turns soft too. */
+  --glass: var(--bg);
+  --glass-strong: var(--bg);
+  --glass-rim: transparent;
+  --glass-edge: transparent;
+  --glass-shadow: var(--neu-out);
+  --glass-blur: none;
+  --wash-1: transparent;
+  --wash-2: transparent;
+  --wash-3: transparent;
+  --lg-fill: linear-gradient(var(--bg), var(--bg));
+  --lg-sheen: linear-gradient(transparent, transparent);
+  --lg-rim: 0 0 0 transparent;
+  --lg-drop: var(--neu-out);
+  --lg-panel: var(--bg);
+  --block-edge: var(--border);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="neu"] {
+    --neu-base: #2a2d34;
+    --neu-tint-k: 0.5;
+    --panel: color-mix(in srgb, var(--bg) 92%, #fff);
+    --heat-empty: color-mix(in srgb, var(--bg) 93%, #fff);
+    --text: #e8eaef;
+    --muted: #a9b0bd;
+    --border: #3d424c;
+    --accent: #9db0ff;
+    --tag: #f0a54a;
+    --reminder: #f59e0b;
+    --mark: rgba(250, 204, 21, 0.35);
+    --neu-shade-rgb: 0, 0, 0;
+    --neu-shade-a: 0.75;
+    --neu-hi-a: 0.12;
+    --neu-knob: #e8eaef;
+    --neu-overlay: 0 18px 50px rgba(0, 0, 0, 0.55);
+    --neu-sun-a: 0.05;
+    color-scheme: dark;
+  }
+}
+
+/* No colour wash, daylight tint or weather on the page: soft UI needs the page and the shapes on
+   it to be exactly the same colour, or the shadows stop reading as depth. */
+:where(html[data-theme="neu"]) body::after { display: none; }
+/* Light and weather on the soft surface (src/lib/softLight.ts): a faint glow from where the sun or
+   moon is, and when it's cloudy, soft cloud shadows drifting over everything. It sits above the
+   page but is so faint that text contrast doesn't change. Glass rays, moon and stars are off. */
+html[data-theme="neu"] .ambience-layer {
+  z-index: 3;
+  background: radial-gradient(90vmax 90vmax at var(--sun-x) var(--sun-y), rgba(var(--neu-tint), calc(var(--neu-sun-a) * var(--neu-strength))), transparent 55%);
+  transition: background 1.5s ease;
+}
+html[data-theme="neu"]:not([data-light]) .ambience-layer { background: none; }
+html[data-theme="neu"].ambience-daylight.sun-low .ambience-layer,
+html[data-theme="neu"].weather-rain .ambience-layer { background-color: transparent; }
+html[data-theme="neu"] .ambience-layer::before,
+html[data-theme="neu"] .ambience-layer::after { display: none !important; }
+html[data-theme="neu"].weather-cloudy .ambience-layer::before,
+html[data-theme="neu"].weather-cloudy .ambience-layer::after {
+  display: block !important; opacity: 1 !important; background: rgba(40, 52, 75, 0.06) !important; filter: blur(60px);
+}
+@media (prefers-color-scheme: dark) {
+  html[data-theme="neu"]:not([data-tone="light"]).weather-cloudy .ambience-layer::before,
+  html[data-theme="neu"]:not([data-tone="light"]).weather-cloudy .ambience-layer::after { background: rgba(0, 0, 0, 0.14) !important; }
+}
+html[data-theme="neu"][data-tone="dark"].weather-cloudy .ambience-layer::before,
+html[data-theme="neu"][data-tone="dark"].weather-cloudy .ambience-layer::after { background: rgba(0, 0, 0, 0.14) !important; }
+html[data-theme="neu"] .ambience-rain { opacity: 0.7; }
+:where(html[data-theme="neu"]) body { background: var(--bg); }
+
+/* Keyboard focus is always visible (soft shapes alone don't show it). */
+:where(html[data-theme="neu"]) :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:where(html[data-theme="neu"]) .editor-body .tiptap:focus-visible { outline: none; }
+
+/* ── Buttons: raised; pressed or switched on = pushed in ── */
+:where(html[data-theme="neu"]) button {
+  background: var(--bg);
+  border: 1px solid transparent;
+  box-shadow: var(--neu-out-sm);
+}
+:where(html[data-theme="neu"]) button:hover { background: var(--bg); box-shadow: var(--neu-out); }
+:where(html[data-theme="neu"]) button:active {
+  box-shadow: var(--neu-in-sm);
+  transform: scale(0.98);
+  transition-duration: 0.08s;
+}
+:where(html[data-theme="neu"]) button:disabled { box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) button.active,
+:where(html[data-theme="neu"]) button[aria-pressed="true"],
+:where(html[data-theme="neu"]) button[aria-checked="true"],
+:where(html[data-theme="neu"]) button[aria-selected="true"] {
+  box-shadow: var(--neu-in-sm);
+  color: var(--accent);
+}
+/* Small tool buttons are flat until pressed or on. */
+:where(html[data-theme="neu"]) .tool { box-shadow: none; }
+:where(html[data-theme="neu"]) .tool:hover { box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .tool:active,
+:where(html[data-theme="neu"]) .tool.active { box-shadow: var(--neu-in-sm); background: var(--bg); color: var(--accent); border-color: transparent; }
+:where(html[data-theme="neu"]) .tool:disabled { box-shadow: none; }
+
+/* ── Panels and cards: raised out of the page ── */
+:where(html[data-theme="neu"]) .sidebar,
+:where(html[data-theme="neu"]) .links-panel { background: var(--bg); border-color: transparent; box-shadow: none; }
+:where(html[data-theme="neu"]) .sidebar { box-shadow: 6px 0 14px -8px var(--neu-dark); position: relative; z-index: 1; }
+:where(html[data-theme="neu"]) .links-panel { box-shadow: -6px 0 14px -8px var(--neu-dark); }
+:where(html[data-theme="neu"]) .month-calendar,
+:where(html[data-theme="neu"]) .slash-menu,
+:where(html[data-theme="neu"]) .paste-chip,
+:where(html[data-theme="neu"]) .reminder-open,
+:where(html[data-theme="neu"]) .project-panel,
+:where(html[data-theme="neu"]) .sync-status,
+:where(html[data-theme="neu"]) .prompt-builder,
+:where(html[data-theme="neu"]) .pull-today {
+  background: var(--bg);
+  border-color: transparent;
+  box-shadow: var(--neu-out);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:where(html[data-theme="neu"]) .reminder-open { box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .reminders.due .reminder-open { background: color-mix(in srgb, var(--reminder) 12%, var(--bg)); }
+:where(html[data-theme="neu"]) .reminder-open:active { box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .pull-today { box-shadow: var(--neu-out), var(--neu-overlay); }
+:where(html[data-theme="neu"]) .keyboard-bar {
+  background: var(--bg);
+  border-color: transparent;
+  border-bottom-color: var(--bg);
+  box-shadow: 0 -6px 14px -6px var(--neu-dark);
+}
+
+/* Things that float over the page (menus, sheets, popups, toasts): the soft shape plus a real drop
+   shadow, so they stay clearly above what's under them, also over a dimmed backdrop. */
+:where(html[data-theme="neu"]) .toast,
+:where(html[data-theme="neu"]) .search-panel,
+:where(html[data-theme="neu"]) .confirm-card,
+:where(html[data-theme="neu"]) .block-menu,
+:where(html[data-theme="neu"]) .outline-panel,
+:where(html[data-theme="neu"]) .routine-panel,
+:where(html[data-theme="neu"]) .arrange-tools,
+:where(html[data-theme="neu"]) .entry-popup,
+:where(html[data-theme="neu"]) .meme-kit,
+:where(html[data-theme="neu"]) .upcoming-panel,
+:where(html[data-theme="neu"]) .year-panel,
+:where(html[data-theme="neu"]) .drawer,
+:where(html[data-theme="neu"]) .mac-capture {
+  background: var(--bg);
+  border-color: transparent;
+  box-shadow: var(--neu-out-xs), var(--neu-overlay);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:where(html[data-theme="neu"]) .toast.error { box-shadow: inset 4px 0 0 #dc2626, var(--neu-out-xs), var(--neu-overlay); }
+:where(html[data-theme="neu"]) .year-backdrop.open { -webkit-backdrop-filter: none; backdrop-filter: none; }
+:where(html[data-theme="neu"]) .entry-popup header { background: color-mix(in srgb, var(--row-sky, var(--panel)) 45%, var(--bg)); }
+@media (pointer: coarse) {
+  :where(html[data-theme="neu"]) .month-calendar { background: var(--bg); box-shadow: var(--neu-out); }
+  :where(html[data-theme="neu"]) .drawer,
+  :where(html[data-theme="neu"]) .year-panel { background: var(--bg); box-shadow: var(--neu-overlay); }
+  :where(html[data-theme="neu"]) .toast,
+  :where(html[data-theme="neu"]) .slash-menu,
+  :where(html[data-theme="neu"]) .meme-kit { background: var(--bg); }
+  :where(html[data-theme="neu"]) .reminder-open { background: var(--bg); }
+}
+:where(html[data-theme="neu"]) .upcoming li.squeezed .reminder-open { background: var(--bg); box-shadow: var(--neu-out-xs); }
+
+/* ── Inputs: pressed into the surface ── */
+:where(html[data-theme="neu"]) .search-bar {
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border-radius: 14px;
+  box-shadow: var(--neu-in-sm);
+}
+:where(html[data-theme="neu"]) .project-name-input,
+:where(html[data-theme="neu"]) .chat-compose textarea,
+:where(html[data-theme="neu"]) .settings-row input,
+:where(html[data-theme="neu"]) .settings-section > label.settings-row select,
+:where(html[data-theme="neu"]) .settings-section select,
+:where(html[data-theme="neu"]) .prompt-template,
+:where(html[data-theme="neu"]) .prompt-fields input,
+:where(html[data-theme="neu"]) .block-day-input,
+:where(html[data-theme="neu"]) .mac-capture textarea,
+:where(html[data-theme="neu"]) .outline-panel header input,
+:where(html[data-theme="neu"]) .day-pick-custom input,
+:where(html[data-theme="neu"]) .source-text {
+  background: var(--bg);
+  border-color: transparent;
+  box-shadow: var(--neu-in-sm);
+}
+:where(html[data-theme="neu"]) .chat-compose { background: var(--bg); border-top-color: transparent; box-shadow: 0 -6px 14px -6px var(--neu-dark); }
+
+/* Switches: an inset track and a raised knob. */
+:where(html[data-theme="neu"]) .settings-toggle input[type="checkbox"] { background: var(--bg); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .settings-toggle input[type="checkbox"]:checked { background: rgb(var(--heat-rgb)); box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.3); }
+:where(html[data-theme="neu"]) .settings-toggle input[type="checkbox"]::after { background: var(--neu-knob); box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.25); }
+
+/* ── Segmented choices (Live / Source / Reading, entry modes, panel tabs): an inset well with the
+   chosen one raised. ── */
+:where(html[data-theme="neu"]) .editor-modes,
+:where(html[data-theme="neu"]) .entries-modes { background: var(--bg); box-shadow: var(--neu-in-sm); padding: 3px; }
+:where(html[data-theme="neu"]) .editor-modes button.active,
+:where(html[data-theme="neu"]) .entries-modes button.active { background: var(--bg); box-shadow: var(--neu-out-xs); color: var(--text); }
+:where(html[data-theme="neu"]) .panel-tabs button.active,
+:where(html[data-theme="neu"]) .media-scope button.active { background: var(--bg); box-shadow: var(--neu-in-sm); color: var(--accent); border-color: transparent; }
+
+/* ── Lists and menus ── */
+:where(html[data-theme="neu"]) .day-list button.active,
+:where(html[data-theme="neu"]) .drawer .day-list button.active { background: var(--bg); box-shadow: var(--neu-in-sm); color: var(--accent); }
+:where(html[data-theme="neu"]) .settings-nav { background: var(--bg); border-right-color: transparent; box-shadow: 6px 0 14px -8px var(--neu-dark); }
+:where(html[data-theme="neu"]) .settings-nav-item.active { background: var(--bg); box-shadow: var(--neu-in-sm); color: var(--accent); }
+@media (max-width: 760px) {
+  /* Phone settings list: one raised row per category. */
+  :where(html[data-theme="neu"]) .settings-nav { box-shadow: none; }
+  :where(html[data-theme="neu"]) .settings-nav-item,
+  :where(html[data-theme="neu"]) .settings-nav-item:first-of-type,
+  :where(html[data-theme="neu"]) .settings-nav-item:last-of-type {
+    background: var(--bg); border-radius: 16px; border-bottom: none; margin-bottom: 12px; box-shadow: var(--neu-out-sm);
+  }
+  :where(html[data-theme="neu"]) .settings-nav-item:active { box-shadow: var(--neu-in-sm); }
+}
+:where(html[data-theme="neu"]) .outline-panel li button:hover,
+:where(html[data-theme="neu"]) .outline-panel li button:active { background: var(--bg); box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .reminder-menu { background: var(--bg); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .reminder-more { background: var(--bg); box-shadow: var(--neu-out-xs); }
+
+/* "/" grid: raised tiles; the highlighted one pressed in with the accent ring. */
+:where(html[data-theme="neu"]) .slash-tile { background: var(--bg); box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .slash-tile.selected { background: var(--bg); box-shadow: var(--neu-in-sm), 0 0 0 2px rgb(var(--heat-rgb)); }
+:where(html[data-theme="neu"]) .slash-label { color: var(--muted); }
+
+/* ── Calendar: days sit slightly pressed in; the heat-map purple still fills them ── */
+:where(html[data-theme="neu"]) .cal-day { box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .cal-day:hover { border-color: rgb(var(--heat-rgb)); }
+:where(html[data-theme="neu"]) .month-calendar.compact .cal-day { box-shadow: none; }
+
+/* ── Note content ── */
+:where(html[data-theme="neu"]) .code-block { background: var(--panel); border-color: transparent; box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .ts-chip { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1), 1px 1px 3px var(--neu-dark); }
+:where(html[data-theme="neu"]) .audio-note,
+:where(html[data-theme="neu"]) .audio-pill { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .timeline-gap-label { background: var(--bg); box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .relative-time { background: var(--bg); border-color: transparent; box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .doc-link-card { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .attach-image img,
+:where(html[data-theme="neu"]) .pdf-preview canvas { box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .media-ghost { background: var(--bg); box-shadow: var(--neu-out), var(--neu-overlay); }
+:where(html[data-theme="neu"]) .chat-bubble { box-shadow: var(--neu-out-sm); }
+@media (prefers-color-scheme: dark) {
+  :where(html[data-theme="neu"]) .editor-body .tiptap > .block-box-body.block-box-end,
+  :where(html[data-theme="neu"]) .editor-body .tiptap > .block-box-head.block-box-end { box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.6); }
+}
+
+/* Live sync pill: darker text on light so it stays readable. */
+:where(html[data-theme="neu"]) .sync-live { color: #854d0e; }
+@media (prefers-color-scheme: dark) { :where(html[data-theme="neu"]:not([data-tone="light"])) .sync-live { color: #fde047; } }
+:where(html[data-theme="neu"][data-tone="dark"]) .sync-live { color: #fde047; }
+:where(html[data-theme="neu"][data-tone="light"]) .sync-live { color: #854d0e; }
+
+/* Neumorphism moves by pressing, not by bouncing: no hover lift, no squish. */
+@media (prefers-reduced-motion: no-preference) {
+  :where(html[data-theme="neu"]) button:hover { transform: none; }
+  :where(html[data-theme="neu"]) button,
+  :where(html[data-theme="neu"]) .ts-chip { transition: box-shadow 0.18s ease, transform 0.12s ease, background-color 0.2s, color 0.2s; }
+}
+
+/* ═══════════ Theme picker (Settings → Appearance) ═══════════
+   Each card shows a fixed preview of its theme, whatever theme is on. */
+.theme-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; margin: 10px 0 4px; }
+.theme-card {
+  display: grid; gap: 8px; padding: 10px; text-align: left; border-radius: 18px; height: auto;
+  border: 2px solid transparent;
+}
+.theme-card[aria-checked="true"] { border-color: rgb(var(--heat-rgb)); }
+.theme-card-name { font-weight: 650; display: flex; align-items: center; gap: 6px; }
+.theme-card-name .theme-check { margin-left: auto; color: rgb(var(--heat-rgb)); font-weight: 800; }
+.theme-card-hint { font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.theme-preview {
+  position: relative; height: 92px; border-radius: 12px; overflow: hidden; display: grid;
+  grid-template-columns: 1fr 1fr; align-items: center; justify-items: center; gap: 8px; padding: 12px;
+}
+.theme-preview i { display: block; font-style: normal; }
+.theme-preview .tp-card { grid-column: 1 / -1; width: 100%; height: 26px; border-radius: 10px; }
+.theme-preview .tp-button { width: 70%; height: 24px; border-radius: 12px; }
+.theme-preview .tp-well { width: 70%; height: 24px; border-radius: 12px; }
+/* Glass preview */
+.theme-preview.glass {
+  background:
+    radial-gradient(80% 90% at 0% 0%, rgba(167, 139, 250, 0.55), transparent 70%),
+    radial-gradient(70% 80% at 100% 100%, rgba(125, 211, 252, 0.55), transparent 70%),
+    #f6f4fb;
+}
+.theme-preview.glass .tp-card,
+.theme-preview.glass .tp-button,
+.theme-preview.glass .tp-well {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.5));
+  box-shadow: inset 0 1px 0 #fff, 0 4px 12px rgba(60, 40, 110, 0.18);
+  border: 1px solid rgba(120, 100, 160, 0.2);
+}
+/* Soft UI preview */
+.theme-preview.neu { background: #e4e8ee; }
+.theme-preview.neu .tp-card,
+.theme-preview.neu .tp-button { background: #e4e8ee; box-shadow: 4px 4px 9px rgba(150, 163, 184, 0.62), -4px -4px 9px #fff; }
+.theme-preview.neu .tp-well { background: #e4e8ee; box-shadow: inset 3px 3px 6px rgba(150, 163, 184, 0.62), inset -3px -3px 6px #fff; }
+@media (prefers-color-scheme: dark) {
+  .theme-preview.glass {
+    background:
+      radial-gradient(80% 90% at 0% 0%, rgba(124, 58, 237, 0.45), transparent 70%),
+      radial-gradient(70% 80% at 100% 100%, rgba(14, 116, 144, 0.45), transparent 70%),
+      #1b1a22;
+  }
+  .theme-preview.glass .tp-card,
+  .theme-preview.glass .tp-button,
+  .theme-preview.glass .tp-well {
+    background: linear-gradient(180deg, rgba(70, 66, 92, 0.7), rgba(38, 36, 52, 0.6));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 6px 16px rgba(0, 0, 0, 0.4);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  .theme-preview.neu { background: #2a2d34; }
+  .theme-preview.neu .tp-card,
+  .theme-preview.neu .tp-button { background: #2a2d34; box-shadow: 4px 4px 9px rgba(0, 0, 0, 0.5), -4px -4px 9px rgba(255, 255, 255, 0.07); }
+  .theme-preview.neu .tp-well { background: #2a2d34; box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.5), inset -3px -3px 6px rgba(255, 255, 255, 0.07); }
+}
+
+/* ── Routine, habits, money and the math block: the same soft language (raised controls, pressed-in
+   wells and inputs, no hairline borders or glass blur) ── */
+:where(html[data-theme="neu"]) .routine-panel header { border-bottom-color: transparent; box-shadow: 0 6px 10px -8px var(--neu-dark); }
+:where(html[data-theme="neu"]) .routine-panel header nav,
+:where(html[data-theme="neu"]) .trend-picks,
+:where(html[data-theme="neu"]) .trend-range,
+:where(html[data-theme="neu"]) .math-control-kinds { background: var(--bg); box-shadow: var(--neu-in-sm); border-radius: 999px; padding: 3px; }
+:where(html[data-theme="neu"]) .trend-picks,
+:where(html[data-theme="neu"]) .math-control-kinds { border-radius: 16px; }
+:where(html[data-theme="neu"]) .routine-panel header nav button,
+:where(html[data-theme="neu"]) .trend-picks button,
+:where(html[data-theme="neu"]) .trend-range button,
+:where(html[data-theme="neu"]) .math-control-kinds button { box-shadow: none; background: transparent; border-color: transparent; }
+:where(html[data-theme="neu"]) .routine-panel header nav button.active,
+:where(html[data-theme="neu"]) .trend-picks button.active,
+:where(html[data-theme="neu"]) .trend-range button.active,
+:where(html[data-theme="neu"]) .math-control-kinds button.on { background: var(--bg); box-shadow: var(--neu-out-xs); color: var(--accent); border-color: transparent; }
+:where(html[data-theme="neu"]) .routine-panel header > button,
+:where(html[data-theme="neu"]) .phase-list button { box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .routine-care { background: color-mix(in srgb, #1baf7a 10%, var(--bg)); border-color: transparent; box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .habit-tap { border-radius: 18px; box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .habit-tap:active { box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .routine-steps li { background: var(--bg); box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .routine-steps li.going { background: var(--bg); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .routine-steps li.going .step-label { color: var(--accent); font-weight: 600; }
+:where(html[data-theme="neu"]) .trend-stats div { background: var(--bg); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .day-timeline::before { background: var(--bg); box-shadow: var(--neu-in-xs); width: 4px; left: 49px; border-radius: 2px; }
+:where(html[data-theme="neu"]) .day-timeline .tl-icon { background: var(--bg); box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .day-timeline .tl-now .tl-now-line { box-shadow: none; }
+:where(html[data-theme="neu"]) .agenda-next { border-top: 0; box-shadow: 0 -1px 0 var(--neu-light), 0 -2px 0 color-mix(in srgb, var(--neu-dark) 40%, transparent); }
+:where(html[data-theme="neu"]) .phase-table th,
+:where(html[data-theme="neu"]) .phase-table td { border-bottom-color: color-mix(in srgb, var(--neu-dark) 35%, transparent); }
+:where(html[data-theme="neu"]) .setup-list li { background: var(--bg); box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .setup-save { background: var(--bg); margin: 12px -14px 0; padding: 8px 14px; box-shadow: 0 -6px 10px -8px var(--neu-dark); z-index: 2; }
+:where(html[data-theme="neu"]) .trend-chart .ahead-dot { fill: var(--bg); }
+:where(html[data-theme="neu"]) .fc-bar { background: var(--bg); box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .finance-list button:active { background: var(--bg); box-shadow: var(--neu-in-xs); }
+
+/* Inputs in these panels and the math block: pressed into the surface. */
+:where(html[data-theme="neu"]) .routine-panel input:not([type="checkbox"]):not([type="range"]),
+:where(html[data-theme="neu"]) .routine-panel select,
+:where(html[data-theme="neu"]) .routine-panel textarea,
+:where(html[data-theme="neu"]) .math-edit textarea,
+:where(html[data-theme="neu"]) .math-ask textarea,
+:where(html[data-theme="neu"]) .math-library-search,
+:where(html[data-theme="neu"]) .mc-value,
+:where(html[data-theme="neu"]) .reminder-menu-row input {
+  background: var(--bg);
+  border-color: transparent;
+  box-shadow: var(--neu-in-sm);
+  color: var(--text);
+}
+/* Checkboxes: a small pressed-in well, filled when ticked. */
+:where(html[data-theme="neu"]) .routine-panel input[type="checkbox"],
+:where(html[data-theme="neu"]) .confirm-card input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; width: 20px; height: 20px; flex: none; margin: 1px 0 0; border-radius: 6px;
+  background: var(--bg); box-shadow: var(--neu-in-sm); display: inline-grid; place-content: center; cursor: pointer;
+}
+:where(html[data-theme="neu"]) .routine-panel input[type="checkbox"]:checked,
+:where(html[data-theme="neu"]) .confirm-card input[type="checkbox"]:checked { background: rgb(var(--heat-rgb)); box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.3); }
+:where(html[data-theme="neu"]) .routine-panel input[type="checkbox"]:checked::after,
+:where(html[data-theme="neu"]) .confirm-card input[type="checkbox"]:checked::after { content: "✓"; color: #fff; font-size: 13px; font-weight: 700; line-height: 1; }
+:where(html[data-theme="neu"]) .routine-panel input[type="checkbox"]:disabled { opacity: 0.5; cursor: default; }
+
+/* Sliders everywhere: a pressed-in groove and a raised round knob. */
+:where(html[data-theme="neu"]) input[type="range"] { -webkit-appearance: none; appearance: none; height: 22px; background: transparent; }
+:where(html[data-theme="neu"]) input[type="range"]::-webkit-slider-runnable-track { height: 8px; border-radius: 4px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, var(--bg)) var(--fill, 0%), var(--bg) var(--fill, 0%)); box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; margin-top: -7px; border-radius: 50%; background: var(--neu-knob); box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) input[type="range"]:active::-webkit-slider-thumb { box-shadow: var(--neu-out-xs); transform: scale(0.96); }
+:where(html[data-theme="neu"]) input[type="range"]::-moz-range-track { height: 8px; border-radius: 4px; background: var(--bg); box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; border: 0; border-radius: 50%; background: var(--neu-knob); box-shadow: var(--neu-out-sm); }
+
+/* The math block: a raised card; its parts pressed in or raised like everything else. */
+:where(html[data-theme="neu"]) .math-block { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-sm); border-radius: 18px; padding: 8px 12px; }
+:where(html[data-theme="neu"]) .math-block.selected { outline: 2px solid var(--accent); }
+:where(html[data-theme="neu"]) .math-var { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .math-var.missing { box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .math-var.clash { box-shadow: var(--neu-in-xs), 0 0 0 1.5px var(--reminder); }
+:where(html[data-theme="neu"]) .math-bar button { box-shadow: none; background: transparent; }
+:where(html[data-theme="neu"]) .math-bar button:hover { box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .math-bar button.on { background: var(--bg); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .math-copy { background: var(--bg); border-color: transparent; box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .mc-wheel { background: var(--bg); border-color: transparent; box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .mc-dial { background: var(--bg); border-color: transparent; box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .mc-digit { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .mc-digit:active { box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .math-library-item { background: var(--bg); box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .math-library-item:active { box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .handwriting-canvas { border-color: transparent; box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .math-plot .mp-dot { stroke: var(--bg); }
+
+/* ═══════════ Soft UI: the phone's navigation island, its menu and tabs ═══════════ */
+:where(html[data-theme="neu"]) .nav-island {
+  color: var(--text);
+  background: var(--bg);
+  border-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--neu-out), var(--neu-overlay);
+}
+:where(html[data-theme="neu"]) .nav-island .nav-btn { background: transparent; box-shadow: none; }
+:where(html[data-theme="neu"]) .nav-island .nav-btn:active { background: var(--bg); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .nav-home {
+  color: var(--accent);
+  background: var(--bg);
+  border-color: var(--bg);
+  box-shadow: var(--neu-out-sm), 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+:where(html[data-theme="neu"]) .nav-home.at-today { color: #fff; background: var(--accent); }
+:where(html[data-theme="neu"]) .nav-home:active { box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .nav-mode-icon { background: var(--accent); }
+:where(html[data-theme="neu"]) .nav-menu,
+:where(html[data-theme="neu"]) .nav-tabs-sheet {
+  background: var(--bg);
+  border-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--neu-out), var(--neu-overlay);
+}
+:where(html[data-theme="neu"]) .nav-modes button.active { color: #fff; background: var(--accent); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .nav-tab-list li.active .nav-tab-card { box-shadow: var(--neu-in-sm); color: var(--accent); }
+:where(html[data-theme="neu"]) .hot-caret { box-shadow: 0 0 6px 2px rgba(255, 59, 48, 0.75), 0 0 14px 5px rgba(255, 120, 40, 0.4); }
+:where(html[data-theme="neu"]) .mac-tabbar { background: var(--bg); border-top-color: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: 0 -6px 14px -8px var(--neu-dark); }
+:where(html[data-theme="neu"]) .mac-tabbar button { box-shadow: none; background: transparent; }
+:where(html[data-theme="neu"]) .mac-tab.active { background: var(--bg); border-color: transparent; box-shadow: var(--neu-in-xs); color: var(--accent); }
+
+/* ═══════════ Batch 14 ═══════════ */
+/* Home stays purple in Soft UI too. */
+:where(html[data-theme="neu"]) .nav-home { color: #7c3aed; box-shadow: var(--neu-out-sm), 0 0 0 1.5px rgba(124, 58, 237, 0.35); }
+:where(html[data-theme="neu"]) .nav-home.at-today { color: #fff; background: radial-gradient(circle at 35% 30%, #a77bff, #7c3aed 72%); }
+@media (prefers-color-scheme: dark) { :where(html[data-theme="neu"]) .nav-home { color: #b794ff; } }
+/* Coming up: room for the soft shadows (the scroll box cut them), the reminder colour as a slim inner
+   stripe instead of a hard border, and rounder, airier rows. */
+:where(html[data-theme="neu"]) .upcoming-box { padding: 6px 10px 12px; margin: 0 -10px; }
+:where(html[data-theme="neu"]) .reminders ul { gap: 12px; }
+:where(html[data-theme="neu"]) .reminder-open { border: 0; border-radius: 16px; padding: 8px 12px 8px 18px; box-shadow: var(--neu-out-sm); background-image: linear-gradient(var(--reminder), var(--reminder)); background-size: 3px calc(100% - 24px); background-position: 8px center; background-repeat: no-repeat; }
+:where(html[data-theme="neu"]) .reminder-open:active { box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .upcoming li.squeezed .reminder-open { border-radius: 12px; box-shadow: var(--neu-out-xs); background-size: 3px 12px; }
+:where(html[data-theme="neu"]) .reminder-more { top: 6px; right: 8px; color: var(--muted); }
+:where(html[data-theme="neu"]) .reminder-done { border-color: transparent; background: var(--bg); box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .reminders h2 { letter-spacing: 0.04em; }
+:where(html[data-theme="neu"]) .year-panel .cal-day { box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .nav-quick button,
+:where(html[data-theme="neu"]) .nav-preview { background: var(--bg); box-shadow: var(--neu-out-sm), var(--neu-overlay); }
+:where(html[data-theme="neu"]) .nav-quick button.hover,
+:where(html[data-theme="neu"]) .nav-preview.hover { background: #7c3aed; color: #fff; }
+
+/* Batch 16: soft shadows aren't cut at the edge of a scrolling list (search, search history, folded Coming up). */
+:where(html[data-theme="neu"]) .search-panel .search-results { padding: 8px 12px 14px; margin: -4px -12px 0; }
+:where(html[data-theme="neu"]) .upcoming.folded li,
+:where(html[data-theme="neu"]) .upcoming.folded li > .reminder-open { overflow: clip; overflow-clip-margin: 14px; }
+:where(html[data-theme="neu"]) .upcoming.folded li { padding-block: 3px; }

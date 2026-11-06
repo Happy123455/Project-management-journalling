@@ -1,8 +1,84 @@
-/** Search words: split on spaces, lower-cased; "quoted phrases" stay together. */
-export function searchTerms(query: string): string[] {
+import type { JSONContent } from "@tiptap/react";
+
+/** Words that must be found together: on one line, in one block (paragraph) or one section (under one heading). */
+export interface QueryGroup {
+  scope: "line" | "block" | "section";
+  terms: string[];
+}
+
+const plainTerms = (q: string) => {
   const terms: string[] = [];
-  for (const m of query.matchAll(/"([^"]+)"|(\S+)/g)) terms.push((m[1] ?? m[2]).toLowerCase());
+  for (const m of q.matchAll(/"([^"]+)"|(\S+)/g)) terms.push((m[1] ?? m[2]).toLowerCase());
   return terms.filter(Boolean);
+};
+
+/**
+ * A search, like Obsidian's: words (anywhere in the note), "quoted phrases", and
+ * line:(alphabet microsoft) / block:(…) / section:(…) for words that must be on the same line,
+ * in the same paragraph or under the same heading. line:alphabet (one word) works too.
+ */
+export function parseQuery(query: string): { terms: string[]; groups: QueryGroup[] } {
+  const groups: QueryGroup[] = [];
+  const rest = query.replace(/\b(line|block|section):(?:\(([^)]*)\)?|"([^"]*)"|(\S+))/gi, (_m, scope: string, paren?: string, quoted?: string, word?: string) => {
+    const terms = quoted != null ? [quoted.toLowerCase()].filter(Boolean) : plainTerms(paren ?? word ?? "");
+    if (terms.length) groups.push({ scope: scope.toLowerCase() as QueryGroup["scope"], terms });
+    return " ";
+  });
+  return { terms: plainTerms(rest), groups };
+}
+
+/** Every word of a search (its groups' words too), lower-cased; "quoted phrases" stay together. */
+export function searchTerms(query: string): string[] {
+  const { terms, groups } = parseQuery(query);
+  return [...new Set([...terms, ...groups.flatMap((g) => g.terms)])];
+}
+
+export interface DocLine {
+  text: string;
+  /** Which heading's part it's in (0 before the first heading). */
+  section: number;
+  /** Which paragraph (text block) it belongs to. */
+  block: number;
+}
+
+/** A note's lines, each with its section and block, for line:/block:/section: searches. */
+export function docLines(doc: JSONContent | null | undefined, title?: string): DocLine[] {
+  const out: DocLine[] = [];
+  let section = 0;
+  let block = 0;
+  if (title) out.push({ text: title, section: 0, block: block++ });
+  const inline = (n: JSONContent): string => (n.type === "hardBreak" ? "\n" : (n.text ?? "") + (n.content ?? []).map(inline).join(""));
+  const walk = (n: JSONContent, top: boolean) => {
+    if (top && n.type === "heading") section++;
+    const isText = n.type === "paragraph" || n.type === "heading" || n.type === "codeBlock";
+    if (isText) {
+      const b = block++;
+      for (const line of inline(n).split("\n")) out.push({ text: line, section, block: b });
+      return;
+    }
+    for (const c of n.content ?? []) walk(c, false);
+  };
+  for (const b of doc?.content ?? []) walk(b, true);
+  return out;
+}
+
+/** True when every group's words are found together (on one line, in one block or one section). */
+export function fitsGroups(lines: DocLine[], groups: QueryGroup[]): boolean {
+  return groups.every((g) => {
+    if (g.scope === "line") return lines.some((l) => g.terms.every((t) => l.text.toLowerCase().includes(t)));
+    const parts = new Map<number, string>();
+    for (const l of lines) {
+      const k = g.scope === "block" ? l.block : l.section;
+      parts.set(k, `${parts.get(k) ?? ""}\n${l.text.toLowerCase()}`);
+    }
+    return [...parts.values()].some((text) => g.terms.every((t) => text.includes(t)));
+  });
+}
+
+/** Does a note (its document, and a page's title) fit the search? */
+export function docMatches(doc: JSONContent | null | undefined, query: string, title?: string): boolean {
+  const { groups } = parseQuery(query);
+  return !groups.length || fitsGroups(docLines(doc, title), groups);
 }
 
 export interface Range {

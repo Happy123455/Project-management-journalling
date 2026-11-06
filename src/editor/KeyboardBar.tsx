@@ -44,8 +44,25 @@ function useVisibleBottom(): { bottom: number; keyboardOpen: boolean } {
   return state;
 }
 
-/** Slim formatting bar pinned just above the phone keyboard while the editor has focus. */
-export function KeyboardBar({ editor, children }: { editor: Editor; children: ReactNode }) {
+/**
+ * While a formatting bar is up (typing with the keyboard open), <html> carries `kb-bar-on`, and the
+ * navigation island steps aside for it (App.css). Counted, so two bars never fight over the class.
+ */
+let barsUp = 0;
+export function useBarShown(shown: boolean) {
+  useEffect(() => {
+    if (!shown) return;
+    barsUp++;
+    document.documentElement.classList.add("kb-bar-on");
+    return () => {
+      barsUp = Math.max(0, barsUp - 1);
+      if (!barsUp) document.documentElement.classList.remove("kb-bar-on");
+    };
+  }, [shown]);
+}
+
+/** Slim formatting bar pinned just above the phone keyboard while typing (the editor has focus and the keyboard is up). */
+export function KeyboardBar({ editor, children, layout }: { editor: Editor; children: ReactNode; layout?: { rows?: 1 | 2; style?: "rows" | "strip"; big?: boolean } }) {
   const [focused, setFocused] = useState(editor.isFocused);
   const { bottom, keyboardOpen } = useVisibleBottom();
 
@@ -65,10 +82,13 @@ export function KeyboardBar({ editor, children }: { editor: Editor; children: Re
     if (focused && keyboardOpen) editor.commands.scrollIntoView();
   }, [focused, keyboardOpen, bottom, editor]);
 
-  if (!focused) return null;
+  // Only while typing: with the keyboard down, the navigation island has this place.
+  const shown = focused && keyboardOpen;
+  useBarShown(shown);
+  if (!shown) return null;
   return (
     <div
-      className={keyboardOpen ? "keyboard-bar keyboard-open" : "keyboard-bar"}
+      className={`keyboard-bar${keyboardOpen ? " keyboard-open" : ""}${layout?.style === "strip" ? " strip" : layout?.rows === 2 ? " rows-2" : ""}${layout?.big ? " big" : ""}`}
       role="toolbar"
       aria-label="Formatting"
       style={{ top: `${bottom}px` }}

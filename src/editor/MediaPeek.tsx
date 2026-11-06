@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import type { JSONContent } from "@tiptap/react";
 import { youtubeId } from "../lib/linkPreview";
 import { showPhoto, useFileUrl } from "./attachments";
@@ -31,9 +31,24 @@ export function mediaItemsIn(nodes: JSONContent[] | JSONContent | null | undefin
 // Taps inside the strip play or open the media, not the card around it.
 const keep = (e: MouseEvent) => e.stopPropagation();
 
+/** True once the element has come near the screen (previews far down a list never load). */
+function useNearScreen<T extends Element>() {
+  const ref = useRef<T>(null);
+  const [near, setNear] = useState(typeof IntersectionObserver === "undefined");
+  useEffect(() => {
+    const el = ref.current;
+    if (near || !el) return;
+    const seen = new IntersectionObserver(([e]) => e.isIntersecting && setNear(true), { rootMargin: "200px" });
+    seen.observe(el);
+    return () => seen.disconnect();
+  }, [near]);
+  return [ref, near] as const;
+}
+
 function FilePeek({ item }: { item: Extract<PeekItem, { fileId: string }> }) {
-  const { url } = useFileUrl(item.fileId);
-  if (!url) return <span className="peek-item peek-loading" />;
+  const [ref, near] = useNearScreen<HTMLSpanElement>();
+  const { url } = useFileUrl(near ? item.fileId : null, item.kind !== "image");
+  if (!url) return <span ref={ref} className="peek-item peek-loading" />;
   if (item.kind === "image")
     return (
       <span className="peek-item" role="button" tabIndex={0} onClick={(e) => (keep(e), showPhoto(url))}>

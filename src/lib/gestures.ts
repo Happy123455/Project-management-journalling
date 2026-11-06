@@ -41,4 +41,4 @@ export function saveGestures(g: Gestures) {
 }
 
 /** Swipes that start here are someone using that control, not a gesture. */
-export const NO_SWIPE = ".slash-popup, .link-suggest, .block-menu, .block-handle, .search-panel, .paste-chip, .arrange-tools, .keyboard-bar, .attach-toolbar, .attach-resize, .year-panel, .drawer, input, textarea, video, audio, canvas, iframe, img, .yt-embed, .attach-image, .attach-file, .pdf-preview, .link-card, .yt-card, pre, .month-calendar.floating";
+export const NO_SWIPE = ".nav-island, .nav-quick, .nav-previews, .nav-joystick, .slash-popup, .link-suggest, .block-menu, .block-handle, .search-panel, .paste-chip, .arrange-tools, .keyboard-bar, .attach-toolbar, .attach-resize, .year-panel, .drawer, .routine-panel, .outline-backdrop, input, textarea, video, audio, canvas, iframe, img, .yt-embed, .attach-image, .attach-file, .pdf-preview, .link-card, .yt-card, pre";

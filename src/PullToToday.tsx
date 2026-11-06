@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 const THRESHOLD_PX = 110;
 
 const atBottom = () => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
-const typing = () => !!document.activeElement?.closest?.(".tiptap");
+const typing = () => !!document.activeElement?.closest?.(".tiptap, .source-text");
 
 /**
  * Pulling up past the end of the page (phone) shows "↑ Today" filling up; letting go past the

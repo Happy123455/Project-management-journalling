@@ -74,6 +74,12 @@ mod kokoro;
 #[cfg(desktop)]
 mod mcp;
 
+/// Instant sync between the phone and the Mac over Wi-Fi (both listen: see direct.rs).
+mod direct;
+
+#[cfg(desktop)]
+mod youtube;
+
 #[cfg(desktop)]
 mod secrets {
     const SERVICE: &str = "com.hapi.dynamicjournal";
@@ -107,6 +113,7 @@ mod secrets {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    log_panics();
     let builder = tauri::Builder::default();
     // Mac: the floating bubble's keyboard shortcut.
     #[cfg(desktop)]
@@ -127,6 +134,28 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+/// Writes every panic (message, place, thread) to ~/Library/Logs/Dynamic Journal/panic.log, then lets
+/// the default report run: a crash report alone doesn't say which line failed.
+fn log_panics() {
+    #[cfg(target_os = "macos")]
+    {
+        let default = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if let Ok(home) = std::env::var("HOME") {
+                let dir = std::path::Path::new(&home).join("Library/Logs/Dynamic Journal");
+                let _ = std::fs::create_dir_all(&dir);
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("panic.log")) {
+                    use std::io::Write;
+                    let when = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                    let thread = std::thread::current().name().unwrap_or("?").to_string();
+                    let _ = writeln!(f, "[{when}] thread {thread}: {info}\n{}", std::backtrace::Backtrace::force_capture());
+                }
+            }
+            default(info);
+        }));
+    }
+}
+
 #[cfg(desktop)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
@@ -142,11 +171,15 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         kokoro::stop_speech,
         mcp::mcp_start,
         mcp::mcp_stop,
-        mcp::mcp_reply
+        mcp::mcp_reply,
+        direct::direct_start,
+        direct::direct_reply,
+        direct::direct_scan,
+        youtube::youtube_port
     ]
 }
 
 #[cfg(mobile)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![]
+    tauri::generate_handler![direct::direct_start, direct::direct_reply, direct::direct_scan]
 }

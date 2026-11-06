@@ -4,7 +4,7 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { NodeSelection } from "@tiptap/pm/state";
 import { qrContent } from "../lib/capture";
 import { AlphaVideo } from "./AlphaVideo";
-import { AudioPill, PeekOnDoubleTap, TapVideo } from "./MediaBits";
+import { AudioPill, leaveText, PeekOnDoubleTap, TapVideo } from "./MediaBits";
 import { usePlayWhenVisible } from "./usePlayWhenVisible";
 import { embedText, parseEmbeds } from "../lib/embeds";
 import { placeBar } from "../lib/placement";
@@ -33,22 +33,55 @@ export function fileUrl(id: string): Promise<string> {
       if (!file || !bytes) throw new Error("missing file");
       return URL.createObjectURL(new Blob([bytes as BlobPart], { type: file.mime }));
     })();
+    // Not cached when it fails: the bytes may still arrive by sync.
+    url.catch(() => urls.get(id) === url && urls.delete(id));
     urls.set(id, url);
   }
   return url;
 }
 
-export function useFileUrl(id: string | null) {
+/** Streamed from disk, never read whole into memory (videos, sounds), once the app's file server works. */
+let streaming: Promise<boolean> | null = null;
+export function mediaUrl(id: string): Promise<string> {
+  const ready = urls.get(id);
+  if (ready || !store?.fileSrc) return ready ?? fileUrl(id);
+  const s = store;
+  return (async () => {
+    const src = await s.fileSrc!(id);
+    if (!src) throw new Error("missing file");
+    // Checked once: if the file server isn't reachable, every file goes the old way.
+    streaming ??= fetch(src, { method: "HEAD" }).then((r) => r.ok, () => false);
+    return (await streaming) ? src : fileUrl(id);
+  })();
+}
+
+/** Remembers a file that was just added, so showing it doesn't read it back from disk. */
+function primeUrl(id: string, blob: Blob) {
+  if (!urls.has(id)) urls.set(id, Promise.resolve(URL.createObjectURL(blob)));
+}
+
+/** A displayable URL for a stored file; `stream` for players (see mediaUrl), not for canvases or images. */
+export function useFileUrl(id: string | null, stream = false) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!id) return;
     let live = true;
-    fileUrl(id).then((u) => live && setUrl(u)).catch(() => live && setFailed(true));
+    (stream ? mediaUrl(id) : fileUrl(id))
+      .then((u) => live && (setUrl(u), setFailed(false)))
+      .catch(() => live && setFailed(true));
     return () => {
       live = false;
     };
-  }, [id]);
+  }, [id, stream, attempt]);
+  // Sync brought files in: a missing one may be here now.
+  useEffect(() => {
+    if (!failed) return;
+    const retry = () => setAttempt((n) => n + 1);
+    window.addEventListener("journal:files-arrived", retry);
+    return () => window.removeEventListener("journal:files-arrived", retry);
+  }, [failed]);
   return { url, failed };
 }
 
@@ -79,7 +112,7 @@ export function mediaNode(r: FileRecord) {
 /** data-* attributes that let a copied photo, video, PDF or file be pasted back as itself. */
 function mediaData(attrs: Record<string, unknown>) {
   const data: Record<string, string> = {};
-  for (const key of ["fileId", "width", "align", "name", "mime", "size"]) {
+  for (const key of ["fileId", "width", "units", "align", "name", "mime", "size"]) {
     if (attrs[key] != null && attrs[key] !== "") data[`data-${key === "fileId" ? "file-id" : key}`] = String(attrs[key]);
   }
   return data;
@@ -89,7 +122,9 @@ function mediaData(attrs: Record<string, unknown>) {
 export function mediaLeafText(node: PMNode): string {
   if (node.type.name === "youtubeEmbed") return `![${node.attrs.width ? `|${node.attrs.width}` : ""}](${node.attrs.url})`;
   if (!["attachmentImage", "attachmentMedia", "attachmentFile"].includes(node.type.name)) return "";
-  return embedText(node.attrs.fileId, node.attrs.name || "file", node.attrs.width);
+  // Shares of the note's width become pixels of a phone-wide note (Obsidian's embeds use pixels).
+  const width = node.attrs.units === "note" && node.attrs.width ? Math.round(node.attrs.width * 400) : node.attrs.width;
+  return embedText(node.attrs.fileId, node.attrs.name || "file", width);
 }
 
 /**
@@ -144,7 +179,11 @@ export function upgradeOldMedia(editor: Editor) {
 export async function insertFiles(editor: Editor, files: File[]) {
   if (!store || !files.length) return;
   const records: FileRecord[] = [];
-  for (const f of files) records.push(await store.saveFile({ name: f.name || "file", mime: f.type, bytes: new Uint8Array(await f.arrayBuffer()) }));
+  for (const f of files) {
+    const record = await store.saveFile({ name: f.name || "file", mime: f.type, bytes: new Uint8Array(await f.arrayBuffer()) });
+    primeUrl(record.id, f);
+    records.push(record);
+  }
   const nodes = records.map(mediaNode);
   editor.chain().focus().insertContent(nodes).run();
 }
@@ -237,12 +276,13 @@ export const mediaNodeViewOptions = {
   stopEvent: ({ event }: { event: Event }) =>
     // Taps on a video or audio player go to the player: they play it without moving the cursor or
     // opening the keyboard.
-    !!(event.target as HTMLElement | null)?.closest?.(".attach-resize, .attach-toolbar, .attach-draggable, video, audio, canvas, iframe, .audio-pill, .peek-host, .tap-video, .yt-embed"),
+    !!(event.target as HTMLElement | null)?.closest?.(".attach-resize, .attach-toolbar, .attach-draggable, video, audio, canvas, iframe, .audio-pill, .peek-host, .tap-video, .yt-embed, .looping-clip"),
 };
 
 /** Shared frame for photos, videos and PDFs: width, placement, the resize handle and the placement toolbar. */
 export function PlacedMedia({ node, updateAttributes, selected, editor, getPos, children, wide }: NodeViewProps & { children: ReactNode; wide?: boolean }) {
-  const { width, align, x, y } = node.attrs as { width: number | null; align: Align; x: number; y: number };
+  const { width, align, x, y, units } = node.attrs as { width: number | null; align: Align; x: number; y: number; units: "note" | null };
+  const rel = units === "note";
   const box = useRef<HTMLSpanElement>(null);
   const bar = useRef<HTMLSpanElement>(null);
   const editable = editor.isEditable;
@@ -258,7 +298,19 @@ export function PlacedMedia({ node, updateAttributes, selected, editor, getPos, 
     if (typeof pos === "number") editor.commands.setNodeSelection(pos);
   };
 
-  const noteWidth = () => box.current?.closest<HTMLElement>(".tiptap")?.clientWidth ?? window.innerWidth - 32;
+  const noteWidth = () => box.current?.closest<HTMLElement>(".tiptap")?.clientWidth || window.innerWidth - 32;
+  /** Saves a size and/or spot as shares of the note's width (older pixel values are converted). */
+  const commitRel = (next: { width?: number | null; x?: number; y?: number }) => {
+    const w = noteWidth();
+    const share = (px: number) => Math.round((px / w) * 10000) / 10000;
+    commit({
+      units: "note",
+      width: next.width === undefined ? (width == null ? null : rel ? width : share(width)) : next.width,
+      x: next.x === undefined ? (rel ? x : share(x)) : next.x,
+      y: next.y === undefined ? (rel ? y : share(y)) : next.y,
+    });
+  };
+  const toPx = (v: number) => (rel ? v * noteWidth() : v);
   // From the right corner, or the left one (for media placed on the right): never wider than the note.
   const resize = (e: ReactPointerEvent, fromLeft = false) => {
     const start = box.current?.getBoundingClientRect().width ?? 200;
@@ -272,7 +324,7 @@ export function PlacedMedia({ node, updateAttributes, selected, editor, getPos, 
       },
       () => {
         setLive(null);
-        commit({ width: next });
+        commitRel({ width: Math.round((next / noteWidth()) * 10000) / 10000 });
       },
     );
   };
@@ -287,7 +339,8 @@ export function PlacedMedia({ node, updateAttributes, selected, editor, getPos, 
       },
       () => {
         setLive(null);
-        if (moved.dx || moved.dy) commit({ x: x + moved.dx, y: y + moved.dy });
+        const w = noteWidth();
+        if (moved.dx || moved.dy) commitRel({ x: Math.round(((toPx(x) + moved.dx) / w) * 10000) / 10000, y: Math.round(((toPx(y) + moved.dy) / w) * 10000) / 10000 });
       },
     );
   };
@@ -321,17 +374,20 @@ export function PlacedMedia({ node, updateAttributes, selected, editor, getPos, 
     };
   }, [showTools, width, align, x, y, live]);
 
-  const shownWidth = live?.width ?? width;
-  const dx = x + (live?.dx ?? 0);
-  const dy = y + (live?.dy ?? 0);
+  // Shares of the note's width are drawn with container units (the note is the container), so
+  // they follow the note's width on any screen without measuring it.
+  const unit = (v: number) => (rel ? `${(v * 100).toFixed(3)}cqw` : `${v}px`);
+  const shownWidth = live?.width != null ? `${live.width}px` : width ? unit(width) : undefined;
+  const offset = (v: number, d = 0) => (d ? `calc(${unit(v)} + ${d}px)` : unit(v));
   return (
     <NodeViewWrapper
       as="span"
-      className={`attach-image align-${align}${selected ? " selected" : ""}${live ? " dragging" : ""}`}
-      style={{ width: shownWidth ? `${shownWidth}px` : undefined, transform: align === "free" ? `translate(${dx}px, ${dy}px)` : undefined }}
+      className={`attach-image align-${align}${selected ? " selected" : ""}${live ? " dragging" : ""}${shownWidth ? " sized" : ""}`}
+      style={{ width: shownWidth, transform: align === "free" ? `translate(${offset(x, live?.dx)}, ${offset(y, live?.dy)})` : undefined }}
       data-drag-handle={align === "free" ? undefined : ""}
     >
-      <span ref={box} className={draggable ? "attach-image-box attach-draggable" : "attach-image-box"} onPointerDown={move}>
+      {/* Captured: clips and GIFs keep presses for themselves, which stopped Free ones from moving. */}
+      <span ref={box} className={draggable ? "attach-image-box attach-draggable" : "attach-image-box"} onPointerDownCapture={move}>
         {children}
         {showTools && align !== "full" && <span className="attach-resize" onPointerDown={(e) => resize(e)} aria-label="Resize" />}
         {showTools && align !== "full" && <span className="attach-resize left" onPointerDown={(e) => resize(e, true)} aria-label="Resize" />}
@@ -365,13 +421,28 @@ export function PlacedMedia({ node, updateAttributes, selected, editor, getPos, 
               Full
             </button>
           )}
+          <button
+            type="button"
+            className="attach-remove"
+            title="Remove from the note"
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => {
+              const pos = getPos();
+              if (typeof pos === "number") editor.chain().focus().deleteRange({ from: pos, to: pos + node.nodeSize }).run();
+            }}
+          >
+            🗑
+          </button>
           <span className="attach-sizes">
             {SIZES.map((z) => (
               <button
                 key={z.label}
                 type="button"
                 onPointerDown={(e) => e.preventDefault()}
-                onClick={() => commit({ width: z.share ? Math.round(noteWidth() * z.share) : null, ...(align === "full" ? { align: "center" } : {}) })}
+                onClick={() => {
+                  if (align === "full") updateAttributes({ align: "center" });
+                  commitRel({ width: z.share });
+                }}
               >
                 {z.label}
               </button>
@@ -420,6 +491,11 @@ export const placementAttributes = () => ({
   align: { default: "inline", parseHTML: (el: HTMLElement) => el.getAttribute("data-align") ?? "inline" },
   x: { default: 0 },
   y: { default: 0 },
+  /**
+   * "note": width, x and y are shares of the note's width, so a photo is the same size and in
+   * the same spot on the phone and the Mac. Older media (null) kept pixels.
+   */
+  units: { default: null, parseHTML: (el: HTMLElement) => el.getAttribute("data-units") },
 });
 
 /** A stored photo (or GIF) in the page, with width and placement kept in the document. */
@@ -499,16 +575,37 @@ export function selectMedia({ editor, getPos }: NodeViewProps) {
   if (typeof pos === "number" && editor.isEditable) editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)));
 }
 
-/** A meme/GIF clip: loops silently, and only while on screen. */
-function LoopingClip({ src }: { src: string }) {
+/** A meme/GIF clip: loops silently, and only while on screen. Tap: from the start with sound (and selected); tap again to mute. */
+function LoopingClip({ src, onTap }: { src: string; onTap?: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
+  const [muted, setMuted] = useState(true);
   usePlayWhenVisible(video, [src]);
-  return <video ref={video} src={src} autoPlay loop muted playsInline />;
+  // Taps land on a plain layer over the video: Android's web view hands taps on a playing <video>
+  // to the player, so some clips (the face palm) could never be selected and resized on the phone.
+  return (
+    <span className="looping-clip">
+      <video ref={video} src={src} autoPlay loop muted={muted} playsInline preload="metadata" aria-hidden />
+      <span
+        className="clip-tap"
+        title={muted ? "Tap for sound" : "Tap to mute"}
+        // Never focus the text (that would open the keyboard and scroll).
+        onPointerDown={(e) => (e.preventDefault(), leaveText())}
+        onClick={() => {
+          const v = video.current;
+          if (v && muted) v.currentTime = 0;
+          setMuted((m) => !m);
+          void v?.play().catch(() => {});
+          onTap?.();
+        }}
+      />
+    </span>
+  );
 }
 
 function MediaView(props: NodeViewProps) {
   const { fileId, kind, name } = props.node.attrs as { fileId: string; kind: "video" | "pdf" | "audio"; name: string };
-  const { url, failed } = useFileUrl(kind === "video" || kind === "audio" ? fileId : null);
+  // Green-screen clips are drawn on a canvas, which needs the file in memory; other players stream it.
+  const { url, failed } = useFileUrl(kind === "video" || kind === "audio" ? fileId : null, !name.startsWith("greenscreen-"));
   return (
     <PlacedMedia {...props}>
       {kind === "pdf" ? (
@@ -527,7 +624,7 @@ function MediaView(props: NodeViewProps) {
           </PeekOnDoubleTap>
         ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
           <PeekOnDoubleTap peek={() => <video src={url} autoPlay loop playsInline controls />}>
-            <LoopingClip src={url} />
+            <LoopingClip src={url} onTap={() => selectMedia(props)} />
           </PeekOnDoubleTap>
         ) : (
           <TapVideo src={url} onSelect={() => selectMedia(props)} />
@@ -572,7 +669,7 @@ function FileView(props: NodeViewProps) {
   const { node } = props;
   const { fileId, name, mime, size } = node.attrs as { fileId: string; name: string; mime: string; size: number };
   const kind = fileKind(mime);
-  const { url } = useFileUrl(kind === "video" ? fileId : null);
+  const { url } = useFileUrl(kind === "video" ? fileId : null, !name.startsWith("greenscreen-"));
   return (
     <NodeViewWrapper className={`attach-file kind-${kind}`} data-drag-handle="">
       {kind === "video" && url ? (
@@ -583,7 +680,7 @@ function FileView(props: NodeViewProps) {
           </PeekOnDoubleTap>
         ) : name.startsWith("meme-") || /^gif-/.test(name) ? (
           <PeekOnDoubleTap peek={() => <video src={url} autoPlay loop playsInline controls />}>
-            <LoopingClip src={url} />
+            <LoopingClip src={url} onTap={() => selectMedia(props)} />
           </PeekOnDoubleTap>
         ) : (
           <TapVideo src={url} onSelect={() => selectMedia(props)} />

@@ -32,7 +32,7 @@ export interface LocalState {
   fileIds: Set<string>;
   /**
    * For blocks that already have text here: the current document and every earlier document
-   * this device's log moved away from (event `before`s), both as `docKey`s. Lets a merge tell
+   * this device's log moved away from (event `before`s): current as a `docKey`, befores as `beforeKey(docKey)`. Lets a merge tell
    * "the other device built on my text" from "both devices wrote without seeing each other".
    */
   docs?: Map<string, { current: string; befores: Set<string> }>;
@@ -98,6 +98,23 @@ export function planMerge(local: LocalState, incoming: SyncRecord[]): MergePlan 
 /** A document as a comparable string, whatever event shape it came from. */
 export const docKey = (after: string) => JSON.stringify(eventDocument(after));
 
+/**
+ * A short fingerprint of a docKey (cyrb53), for LocalState.docs befores: a block's history can hold
+ * hundreds of whole documents, too many to keep in memory as text.
+ */
+export function beforeKey(key: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < key.length; i++) {
+    const c = key.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return `${(h2 >>> 0).toString(36)}.${(h1 >>> 0).toString(36)}.${key.length}`;
+}
+
 const isEmpty = (doc: JSONContent) => !doc.content?.some((n) => n.type !== "paragraph" || n.content?.length);
 
 /**
@@ -123,34 +140,149 @@ function keepBothSides(
   // They built on what this device has: their newest text already contains our changes.
   const theyContinued = remote.some((r) => (r.event.before && docKey(r.event.before) === mine.current) || docKey(r.event.after!) === mine.current);
   // This device built on their newest text.
-  const weContinued = mine.current === theirsKey || mine.befores.has(theirsKey);
+  const weContinued = mine.current === theirsKey || mine.befores.has(beforeKey(theirsKey));
   if (remoteWinner ? theyContinued : weContinued) return null;
   if (remoteWinner && weContinued) return { content: undefined, merged: false, updatedAt: theirs.event.createdAt };
   if (!remoteWinner && theyContinued) return null;
   const newer = remoteWinner ? eventDocument(theirs.event.after!) : mineDoc;
   const older = remoteWinner ? mineDoc : eventDocument(theirs.event.after!);
-  const both = mergeDocs(newer, older);
+  const both = mergeDocs(newer, older, commonBase(mine, remote));
   const key = JSON.stringify(both);
   if (key === mine.current) return remoteWinner ? { content: undefined, merged: false, updatedAt: theirs.event.createdAt } : null;
   if (key === theirsKey) return remoteWinner ? null : { content: theirs.event.after!, merged: false, updatedAt: theirs.event.createdAt };
   return { content: key, merged: true, updatedAt: [theirs.event.createdAt, new Date().toISOString()].sort().pop()! };
 }
 
-/** `newer`'s blocks, plus each block only `older` has, placed after its neighbour from `older`. */
-export function mergeDocs(newer: JSONContent, older: JSONContent): JSONContent {
-  const out = [...(newer.content ?? [])];
-  const keys = out.map((n) => JSON.stringify(n));
-  let after = -1; // index in `out` of the last `older` block we placed or found
-  for (const node of older.content ?? []) {
+/**
+ * The last document both devices had: the newest one the other device started an edit from (or
+ * reached) that this device also had. A three-way merge from it keeps deletions and edits from
+ * both sides instead of adding every changed block back as a copy.
+ */
+function commonBase(mine: { current: string; befores: Set<string> }, remote: SyncRecord[]): JSONContent | undefined {
+  const known = (doc: string | null | undefined) => {
+    if (!doc) return false;
+    const k = docKey(doc);
+    return k === mine.current || mine.befores.has(beforeKey(k));
+  };
+  for (let i = remote.length - 1; i >= 0; i--) {
+    const e = remote[i].event;
+    if (known(e.after)) return eventDocument(e.after!);
+    if (known(e.before)) return eventDocument(e.before!);
+  }
+  return undefined;
+}
+
+const CONTAINERS = new Set(["bulletList", "orderedList", "taskList", "blockquote", "listItem", "taskItem"]);
+
+/** How many children two container blocks share. */
+function overlap(a: JSONContent, b: JSONContent): number {
+  const keys = new Set((a.content ?? []).map((n) => JSON.stringify(n)));
+  return (b.content ?? []).filter((n) => keys.has(JSON.stringify(n))).length;
+}
+
+/** Two versions of the same list or quote: same kind, and at least half their items in common. */
+function similar(a: JSONContent, b: JSONContent): boolean {
+  if (a.type !== b.type || !CONTAINERS.has(a.type ?? "") || !a.content?.length || !b.content?.length) return false;
+  return overlap(a, b) * 2 >= Math.min(a.content.length, b.content.length);
+}
+
+/** Attributes that only say how a block looks (size, placement, folded, preview details), not what it is. */
+const LOOK = new Set(["width", "height", "align", "x", "y", "units", "collapsed", "status", "title", "site", "image"]);
+const identity = (n: JSONContent) => {
+  const a = n.attrs ?? {};
+  // A link card's title/site/image come from its url; a prompt's title is part of what it is.
+  const keys = Object.keys(a).filter((k) => !LOOK.has(k) || (n.type === "promptBlock" && k === "title")).sort();
+  return keys.length ? keys.map((k) => [k, a[k]]) : undefined;
+};
+
+/**
+ * A block without its look: the same text or media, whatever its size or placement. What it is
+ * stays in the key (a photo's file, a link card's url): before 31 Oct every link card (and every
+ * photo) looked the same here, so a merge kept only one and dropped the rest.
+ */
+export function looseKey(node: JSONContent): string {
+  const strip = (n: JSONContent): unknown => ({
+    t: n.type,
+    a: identity(n),
+    x: n.text,
+    m: n.marks?.map((m) => (m.attrs?.href ? `${m.type}:${m.attrs.href}` : m.type)),
+    c: n.content?.map(strip),
+  });
+  return JSON.stringify(strip(node));
+}
+
+/**
+ * `newer`'s blocks, plus each block only `older` added, placed after its neighbour from `older`.
+ * With `base` (the last version both had), blocks `older` deleted or changed are dropped from
+ * `newer` too, unless `newer` changed them as well. A block that only differs in attributes
+ * (a resized clip, a moved photo) is never added twice: the 30 Oct face palm clip came back as
+ * four copies, one per size it had been given on the two devices.
+ */
+export function mergeDocs(newer: JSONContent, older: JSONContent, base?: JSONContent): JSONContent {
+  const count = (nodes: JSONContent[]) => {
+    const m = new Map<string, number>();
+    for (const n of nodes) {
+      const k = JSON.stringify(n);
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return m;
+  };
+  const olderNodes = older.content ?? [];
+  const baseCount = base ? count(base.content ?? []) : new Map<string, number>();
+  const olderCount = count(olderNodes);
+  // Blocks `older` deleted or changed since the base, and `newer` left as they were.
+  const drop = new Map<string, number>();
+  if (base) for (const [k, n] of baseCount) if (n > (olderCount.get(k) ?? 0)) drop.set(k, n - (olderCount.get(k) ?? 0));
+  const out: JSONContent[] = [];
+  for (const node of newer.content ?? []) {
     const k = JSON.stringify(node);
-    const at = keys.indexOf(k);
+    const d = drop.get(k) ?? 0;
+    if (d > 0) {
+      drop.set(k, d - 1);
+      continue;
+    }
+    out.push(node);
+  }
+  const keys = out.map((n) => JSON.stringify(n));
+  const loose = new Set(out.map(looseKey));
+  const seen = new Map<string, number>();
+  let after = -1; // index in `out` of the last `older` block we placed or found
+  for (const node of olderNodes) {
+    const k = JSON.stringify(node);
+    const nth = (seen.get(k) ?? 0) + 1;
+    seen.set(k, nth);
+    // The nth copy of this block in `out`, if there is one.
+    let at = -1;
+    for (let i = 0, found = 0; i < keys.length; i++) if (keys[i] === k && ++found === nth) { at = i; break; }
     if (at >= 0) {
       after = at;
       continue;
     }
+    // In the base: `newer` deleted or changed it on purpose.
+    if (base && nth <= (baseCount.get(k) ?? 0)) continue;
     if (node.type === "paragraph" && !node.content?.length) continue;
+    // Same text or media as a block `newer` has, only resized or moved: `newer`'s version stays.
+    const lk = looseKey(node);
+    if (loose.has(lk)) {
+      const i = out.findIndex((n) => looseKey(n) === lk);
+      if (i > after) after = i;
+      continue;
+    }
+    // A list (or quote) both sides changed, e.g. a point moved on one device and another added on
+    // the other: merge its items instead of keeping two copies of the whole list.
+    const twin = out.findIndex((n, i) => i > after - 1 && similar(n, node));
+    const same = twin >= 0 ? twin : out.findIndex((n) => similar(n, node));
+    if (same >= 0) {
+      const baseTwin = base?.content?.filter((b) => similar(b, node)).sort((a, b) => overlap(b, node) - overlap(a, node))[0];
+      out[same] = mergeDocs(out[same], node, baseTwin);
+      keys[same] = JSON.stringify(out[same]);
+      loose.add(looseKey(out[same]));
+      after = same;
+      continue;
+    }
     out.splice(after + 1, 0, node);
     keys.splice(after + 1, 0, k);
+    loose.add(looseKey(node));
     after += 1;
   }
   return { ...newer, content: out };

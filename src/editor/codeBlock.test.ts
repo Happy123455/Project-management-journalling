@@ -1,5 +1,8 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
-import { FENCE_RE } from "./codeBlock";
+import { Editor } from "@tiptap/core";
+import StarterKit from "@tiptap/starter-kit";
+import { codeBlockFromSelection, FENCE_RE } from "./codeBlock";
 
 describe("FENCE_RE", () => {
   it("matches a bare fence or a fence with a language", () => {
@@ -11,5 +14,18 @@ describe("FENCE_RE", () => {
   it("ignores fences with other text on the line", () => {
     expect(FENCE_RE.test("see ```")).toBe(false);
     expect(FENCE_RE.test("```js and more")).toBe(false);
+  });
+});
+
+describe("codeBlockFromSelection", () => {
+  it("turns several selected lines, lists included, into one code block", () => {
+    const editor = new Editor({ extensions: [StarterKit], content: "<p>one</p><ul><li><p>two</p></li></ul><p>three</p><p>after</p>" });
+    const end = editor.state.doc.child(0).nodeSize + editor.state.doc.child(1).nodeSize + editor.state.doc.child(2).nodeSize;
+    editor.commands.setTextSelection({ from: 2, to: end - 2 });
+    codeBlockFromSelection(editor);
+    expect(editor.getJSON().content).toEqual([
+      { type: "codeBlock", attrs: { language: null }, content: [{ type: "text", text: "one\ntwo\nthree" }] },
+      { type: "paragraph", content: [{ type: "text", text: "after" }] },
+    ]);
   });
 });

@@ -1,4 +1,6 @@
+import type { JSONContent } from "@tiptap/react";
 import { mentionsWithChildren } from "./links";
+import { mentionBlocks } from "./mentionBlocks";
 
 /** Month palette, light (1st) → dark (31st): Hapi's colours. */
 export const MONTH_PALETTE: [string, string][] = [
@@ -36,6 +38,8 @@ export interface ProjectEntry {
   manual?: number;
   /** The blocks those lines come from (for their photos and videos). */
   blocks?: Block[];
+  /** The entry as it looks in the note: its blocks with their structure (lists, headings, media). */
+  doc?: JSONContent[];
 }
 
 /** Day N per entry (not per calendar day): a hand-set Day wins, otherwise one more than the entry before. */
@@ -69,5 +73,5 @@ export function entryFor(day: string, content: Block | null, title: string): Pro
     b.content?.forEach(find);
   };
   if (content) find(content);
-  return { day, lines, manual, blocks: taken };
+  return { day, lines, manual, blocks: taken, doc: mentionBlocks(content as JSONContent, "wikilink", title) };
 }

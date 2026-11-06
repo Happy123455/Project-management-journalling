@@ -1,7 +1,7 @@
 export type SlashId =
-  | "heading" | "task" | "bullet" | "numbered" | "quote" | "code"
-  | "divider" | "timestamp" | "link" | "tag" | "reminder"
-  | "attach" | "capture" | "project" | "log" | "voice" | "meme" | "sound" | "inspiration" | "prompt" | "logproject";
+  | "heading" | "task" | "bullet" | "numbered" | "quote" | "code" | "math"
+  | "divider" | "timestamp" | "link" | "embed" | "tag" | "reminder"
+  | "attach" | "capture" | "project" | "voice" | "meme" | "sound" | "prompt" | "logproject";
 
 export interface SlashItem {
   id: SlashId;
@@ -19,20 +19,20 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: "numbered", label: "Numbers", icon: "1.", keywords: ["list", "ordered"] },
   { id: "quote", label: "Quote", icon: "❝", keywords: ["blockquote", "cite"] },
   { id: "code", label: "Code", icon: "</>", keywords: ["codeblock", "snippet"] },
+  { id: "math", label: "Math", icon: "∑", keywords: ["equation", "latex", "formula", "handwriting", "calculate", "variable"] },
   { id: "divider", label: "Divider", icon: "—", keywords: ["line", "hr", "separator"] },
-  { id: "timestamp", label: "Timestamp", icon: "🕒", keywords: ["time", "now", "clock"] },
-  { id: "link", label: "Link page", icon: "[[ ]]", keywords: ["wikilink", "page", "person"] },
+  { id: "timestamp", label: "Log / Time", icon: "🕒", keywords: ["timestamp", "stamp", "time", "now", "clock", "log", "entries", "diary"] },
+  { id: "link", label: "Link page", icon: "[[ ]]", keywords: ["wikilink", "page", "person", "day", "date", "section"] },
+  { id: "embed", label: "Embed note", icon: "⧉", keywords: ["transclude", "preview", "inline", "day", "section", "show"] },
   { id: "tag", label: "Tag", icon: "#", keywords: ["hashtag", "label"] },
   { id: "reminder", label: "Reminder", icon: "🔔", keywords: ["future", "remind", "later", "date"] },
   { id: "attach", label: "Attach", icon: "📎", keywords: ["file", "pdf", "photo", "image", "upload", "document"] },
   { id: "voice", label: "Voice", icon: "🎙", keywords: ["audio", "record", "voice note", "mic"] },
   { id: "meme", label: "Meme", icon: "😂", keywords: ["gif", "funny", "reaction", "sticker"] },
   { id: "sound", label: "Sound", icon: "🔊", keywords: ["audio", "effect", "clip", "sfx"] },
-  { id: "inspiration", label: "Inspiration", icon: "✨", keywords: ["save", "idea", "quote", "collect"] },
   { id: "prompt", label: "Prompt", icon: "🧩", keywords: ["template", "ai", "chatgpt", "claude", "fields", "copy"] },
   { id: "logproject", label: "Logging project", icon: "🪵", keywords: ["log", "habit", "streak", "daily", "tracker"] },
   { id: "project", label: "Project", icon: "📌", keywords: ["tracker", "goal", "plan", "todo"] },
-  { id: "log", label: "Log", icon: "🪵", keywords: ["timestamp", "entries", "diary", "time"] },
   { id: "capture", label: "Capture", icon: "📷", keywords: ["camera", "photo", "picture", "video", "record", "qr", "scan", "barcode"] },
 ];
 

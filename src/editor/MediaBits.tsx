@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useEscapeToClose } from "../ui/useEscapeToClose";
 
 const time = (s: number) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}` : "0:00");
 
@@ -127,12 +128,7 @@ export function PeekOnDoubleTap({ children, peek }: { children: ReactNode; peek:
   const host = useRef<HTMLSpanElement>(null);
   const [from, setFrom] = useState<DOMRect | null>(null);
   const [closing, setClosing] = useState(false);
-  useEffect(() => {
-    if (!from) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
+  useEscapeToClose(() => close(), !!from);
   const close = () => {
     setClosing(true);
     window.setTimeout(() => (setFrom(null), setClosing(false)), 220);

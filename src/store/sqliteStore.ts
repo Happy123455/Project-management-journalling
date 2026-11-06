@@ -2,16 +2,17 @@ import Database from "@tauri-apps/plugin-sql";
 import { idFromRef } from "../lib/embeds";
 import { safeFileName } from "../lib/files";
 import { extractLinks, uniqueNames } from "../lib/links";
-import { matchText, searchTerms } from "../lib/search";
+import { docMatches, matchText, searchTerms } from "../lib/search";
 import { dayKey } from "../lib/timestamp";
 import { countWords, docText } from "../lib/words";
 import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
 import { Serial } from "./serial";
 import type { JSONContent } from "@tiptap/react";
-import { fileEventBody, newFileRecord } from "./files";
-import { docKey, eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
+import { fileEventBody, fileFromEvent, newFileRecord } from "./files";
+import { beforeKey, docKey, eventDocument, eventKey, type BlockMeta, type LocalState, type MergePlan, type SyncRecord } from "../sync/merge";
 import { withPatch } from "./props";
 import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
+import { notifyLogged } from "./logged";
 
 interface BlockRow {
   id: string;
@@ -20,6 +21,9 @@ interface BlockRow {
   props: string;
   updated_at: string;
 }
+
+/** Most bytes of events asked for in one go (see eventsInParts). */
+const PART_BYTES = 6_000_000;
 
 interface EventRow {
   id: string;
@@ -98,6 +102,16 @@ export class SqliteStore implements JournalStore {
 
   completeReminder(day: string, actor?: string) {
     return this.writes.run(() => this.completeReminderNow(day, actor));
+  }
+
+  setDayProps(day: string, patch: Partial<DayProps>, actor = "me") {
+    return this.writes.run(async () => {
+      const page = await this.getDay(day);
+      if (!page) return;
+      const props: DayProps = { ...page.props, ...patch };
+      for (const k of Object.keys(props) as (keyof DayProps)[]) if (props[k] === undefined) delete props[k];
+      await this.setProps(page.id, actor, page.props, props, new Date().toISOString());
+    });
   }
 
   ensurePage(title: string, actor?: string) {
@@ -349,14 +363,16 @@ export class SqliteStore implements JournalStore {
     );
     const hits: SearchHit[] = [];
     for (const r of rows.filter((r) => r.type === "day")) {
-      const text = docText(JSON.parse(r.content));
-      if (matchText(text, terms)) hits.push({ kind: "day", blockId: r.id, day: r.day, title: null, text });
+      const doc = JSON.parse(r.content);
+      const text = docText(doc);
+      if (matchText(text, terms) && docMatches(doc, query)) hits.push({ kind: "day", blockId: r.id, day: r.day, title: null, text });
     }
     // Pages also match on their title, which isn't in the content, so check every page.
     for (const r of await this.db.select<{ id: string; props: string; content: string }[]>("SELECT id, props, content FROM blocks WHERE type = 'page'")) {
       const title = JSON.parse(r.props).title as string;
-      const text = `${title}\n${docText(JSON.parse(r.content))}`;
-      if (matchText(text, terms)) hits.push({ kind: "page", blockId: r.id, day: null, title, text });
+      const doc = JSON.parse(r.content);
+      const text = `${title}\n${docText(doc)}`;
+      if (matchText(text, terms) && docMatches(doc, query, title)) hits.push({ kind: "page", blockId: r.id, day: null, title, text });
     }
     for (const f of await this.listFiles()) {
       if (matchText(f.name, terms)) hits.push({ kind: "file", file: f });
@@ -384,6 +400,13 @@ export class SqliteStore implements JournalStore {
     if (!file) return null;
     const fs = await import("@tauri-apps/plugin-fs");
     return fs.readFile(file.path, { baseDir: fs.BaseDirectory.AppData });
+  }
+
+  async fileSrc(id: string) {
+    const file = await this.getFile(id);
+    if (!file) return null;
+    const [{ convertFileSrc }, { appDataDir, join }] = await Promise.all([import("@tauri-apps/api/core"), import("@tauri-apps/api/path")]);
+    return convertFileSrc(await join(await appDataDir(), file.path));
   }
 
   restore(entries: { name: string; bytes: Uint8Array }[], source: string) {
@@ -417,15 +440,64 @@ export class SqliteStore implements JournalStore {
     });
   }
 
-  async syncRecords() {
-    const rows = await this.db.select<(EventRow & { type: string | null; day: string | null; props: string | null; file_path: string | null })[]>(
-      `SELECT e.*, b.type, b.day, b.props, f.path AS file_path FROM events e
+  /**
+   * Events in full, a few at a time. One event can hold a whole page twice (before and after), and
+   * on the phone every answer from the database is copied into one Java array: a block's whole
+   * history in one answer grew past Android's 256 MB limit and closed the app while typing.
+   * `where` (with `params`) picks the events, on table alias e; `select` is the full query without
+   * parameters, ending in a WHERE clause that `AND e.id IN (...)` extends; ids come first with sizes.
+   */
+  private async eventsInParts<T>(where: string, params: unknown[], select: string, order = "e.created_at, e.rowid"): Promise<T[]> {
+    const ids = await this.db.select<{ id: string; size: number }[]>(
+      `SELECT e.id, coalesce(length(e.before), 0) + coalesce(length(e.after), 0) AS size FROM events e WHERE ${where} ORDER BY ${order}`,
+      params,
+    );
+    const out: T[] = [];
+    let part: string[] = [];
+    let bytes = 0;
+    const flush = async () => {
+      if (!part.length) return;
+      const marks = part.map((_, j) => `$${j + 1}`).join(", ");
+      const rows = await this.db.select<(T & { id: string })[]>(`${select} AND e.id IN (${marks})`, part);
+      const at = new Map(rows.map((r) => [r.id, r]));
+      for (const id of part) if (at.has(id)) out.push(at.get(id)!);
+      part = [];
+      bytes = 0;
+    };
+    for (const r of ids) {
+      if (part.length && (bytes + r.size > PART_BYTES || part.length >= 200)) await flush();
+      part.push(r.id);
+      bytes += r.size;
+    }
+    await flush();
+    return out;
+  }
+
+  async ownEventIds() {
+    const ids = await this.db.select<{ id: string }[]>("SELECT id FROM events WHERE device_id = $1 AND op != 'restore'", [this.device]);
+    return ids.map((r) => r.id);
+  }
+
+  async syncRecords(skip?: Set<string>) {
+    type Row = EventRow & { type: string | null; day: string | null; props: string | null; file_path: string | null };
+    const select = `SELECT e.*, b.type, b.day, b.props, f.path AS file_path FROM events e
        LEFT JOIN blocks b ON b.id = e.block_id
        LEFT JOIN files f ON f.id = e.block_id
-       WHERE e.device_id = $1 AND e.op != 'restore'
-       ORDER BY e.created_at, e.rowid`,
-      [this.device],
-    );
+       WHERE 1 = 1`;
+    let rows: Row[];
+    if (!skip) rows = await this.eventsInParts<Row>("e.device_id = $1 AND e.op != 'restore'", [this.device], select);
+    else {
+      // Ids first (small), then only the unsent events in full, a few at a time: each one can hold a whole page.
+      const ids = await this.db.select<{ id: string }[]>("SELECT id FROM events WHERE device_id = $1 AND op != 'restore'", [this.device]);
+      const want = ids.map((r) => r.id).filter((id) => !skip.has(id));
+      rows = [];
+      for (let i = 0; i < want.length; i += 200) {
+        const part = want.slice(i, i + 200);
+        const where = `e.device_id = $1 AND e.op != 'restore' AND e.id IN (${part.map((_, j) => `$${j + 2}`).join(", ")})`;
+        rows.push(...(await this.eventsInParts<Row>(where, [this.device, ...part], select)));
+      }
+      rows.sort((a, b) => a.created_at.localeCompare(b.created_at) || 0);
+    }
     const files = new Map((await this.listFiles()).map((f) => [f.id, f]));
     const records: SyncRecord[] = [];
     for (const r of rows) {
@@ -450,9 +522,13 @@ export class SqliteStore implements JournalStore {
     for (const id of blockIds) latest.set(id, { content: null, props: null });
     if (blockIds.length) {
       const marks = blockIds.map((_, i) => `$${i + 1}`).join(",");
-      const rows = await this.db.select<EventRow[]>(`SELECT * FROM events WHERE block_id IN (${marks})`, blockIds);
+      // Only what ordering needs: the documents themselves aren't read here (a block's whole history is huge).
+      const rows = await this.db.select<{ id: string; device_id: string; block_id: string; op: JournalEvent["op"]; created_at: string }[]>(
+        `SELECT id, device_id, block_id, op, created_at FROM events WHERE block_id IN (${marks})`,
+        blockIds,
+      );
       for (const r of rows) {
-        const e = toEvent(r);
+        const e = { id: r.id, deviceId: r.device_id, blockId: r.block_id, op: r.op, createdAt: r.created_at } as JournalEvent;
         const which = e.op === "props" ? "props" : e.op === "create" || e.op === "update" ? "content" : null;
         const slot = latest.get(e.blockId);
         if (!which || !slot) continue;
@@ -465,12 +541,14 @@ export class SqliteStore implements JournalStore {
     if (blockIds.length) {
       const marks = blockIds.map((_, i) => `$${i + 1}`).join(",");
       const blocks = await this.db.select<{ id: string; content: string }[]>(`SELECT id, content FROM blocks WHERE id IN (${marks})`, blockIds);
-      const befores = await this.db.select<{ block_id: string; before: string }[]>(
-        `SELECT block_id, before FROM events WHERE before IS NOT NULL AND op IN ('create','update') AND block_id IN (${marks})`,
-        blockIds,
-      );
       for (const b of blocks) docs.set(b.id, { current: docKey(b.content), befores: new Set() });
-      for (const r of befores) docs.get(r.block_id)?.befores.add(docKey(r.before));
+      // Read a few at a time and kept as short fingerprints, not whole documents.
+      const befores = await this.eventsInParts<{ id: string; block_id: string; before: string }>(
+        `e.before IS NOT NULL AND e.op IN ('create','update') AND e.block_id IN (${marks})`,
+        blockIds,
+        "SELECT e.id, e.block_id, e.before FROM events e WHERE 1 = 1",
+      );
+      for (const r of befores) docs.get(r.block_id)?.befores.add(beforeKey(docKey(r.before)));
     }
     const ids = await this.db.select<{ id: string }[]>("SELECT id FROM events");
     const fileIds = await this.db.select<{ id: string }[]>("SELECT id FROM files");
@@ -522,6 +600,21 @@ export class SqliteStore implements JournalStore {
     });
   }
 
+  async missingFiles() {
+    const rows = await this.db.select<{ block_id: string; after: string | null; created_at: string }[]>(
+      `SELECT e.block_id, e.after, e.created_at FROM events e
+       WHERE e.op = 'create' AND e.after LIKE '%"hash"%'
+         AND NOT EXISTS (SELECT 1 FROM files f WHERE f.id = e.block_id)
+         AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.id = e.block_id)`,
+    );
+    const out = new Map<string, FileRecord>();
+    for (const r of rows) {
+      const f = fileFromEvent(r.block_id, r.after, r.created_at);
+      if (f) out.set(f.id, f);
+    }
+    return [...out.values()];
+  }
+
   async exportFiles() {
     const fs = await import("@tauri-apps/plugin-fs");
     const { appDataDir, join } = await import("@tauri-apps/api/path");
@@ -567,13 +660,11 @@ export class SqliteStore implements JournalStore {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [newId(), this.device, actor, blockId, op, before, after, JSON.stringify(last.map((e) => e.id)), now],
     );
+    notifyLogged();
   }
 
   async eventsFor(blockId: string) {
-    const rows = await this.db.select<EventRow[]>(
-      "SELECT * FROM events WHERE block_id = $1 ORDER BY created_at, rowid",
-      [blockId],
-    );
+    const rows = await this.eventsInParts<EventRow>("e.block_id = $1", [blockId], "SELECT e.* FROM events e WHERE 1 = 1");
     return rows.map(toEvent);
   }
 }

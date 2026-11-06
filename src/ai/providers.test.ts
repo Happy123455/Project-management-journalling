@@ -20,3 +20,20 @@ describe("local model", () => {
     expect(actorFor("local", "qwen3:14b")).toBe("Local (qwen3)");
   });
 });
+
+import { geminiChain, GEMINI_FALLBACKS } from "./client";
+
+describe("Gemini fallbacks", () => {
+  it("tries the chosen model first, then the fallbacks once each", () => {
+    const chain = geminiChain("gemini-3.8-flash", 0, new Map());
+    expect(chain[0]).toBe("gemini-3.8-flash");
+    expect(chain.slice(1)).toEqual(GEMINI_FALLBACKS);
+  });
+  it("skips a model that just failed, but never ends up with nothing", () => {
+    const rest = new Map([["gemini-3.8-flash", 1000]]);
+    expect(geminiChain("gemini-3.8-flash", 2000, rest)[0]).toBe("gemini-3.5-flash-lite");
+    expect(geminiChain("gemini-3.8-flash", 1000 + 11 * 60_000, rest)[0]).toBe("gemini-3.8-flash");
+    const all = new Map([["gemini-3.8-flash", 0], ...GEMINI_FALLBACKS.map((m) => [m, 0] as [string, number])]);
+    expect(geminiChain("gemini-3.8-flash", 5, all).length).toBe(GEMINI_FALLBACKS.length + 1);
+  });
+});

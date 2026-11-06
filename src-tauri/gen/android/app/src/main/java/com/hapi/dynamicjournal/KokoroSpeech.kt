@@ -27,7 +27,9 @@ import org.json.JSONObject
 class KokoroSpeech(private val context: Context, private val emit: (String) -> Unit) {
   companion object {
     /** Model id → approximate download size in MB. */
-    val MODELS = linkedMapOf("kokoro-int8-en-v0_19" to 98, "kokoro-int8-multi-lang-v1_1" to 140)
+    val MODELS = linkedMapOf("kokoro-int8-en-v0_19" to 98, "kokoro-int8-multi-lang-v1_1" to 140, "kokoro-en-v0_19" to 305)
+    /** Half the phone's cores (4 on the S23): fast enough to keep ahead of the voice, leaves the rest for the app. */
+    private val THREADS = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(2, 4)
     private const val URL_BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
   }
 
@@ -148,7 +150,7 @@ class KokoroSpeech(private val context: Context, private val emit: (String) -> U
         dataDir = File(dir, "espeak-ng-data").path,
         lexicon = lexicons.joinToString(",") { it.path },
       )
-      val config = OfflineTtsConfig(model = OfflineTtsModelConfig(kokoro = kokoro, numThreads = 2, provider = "cpu"))
+      val config = OfflineTtsConfig(model = OfflineTtsModelConfig(kokoro = kokoro, numThreads = THREADS, provider = "cpu"))
       OfflineTts(config = config).also {
         tts = it
         loaded = id
@@ -170,8 +172,9 @@ class KokoroSpeech(private val context: Context, private val emit: (String) -> U
   fun speak(text: String, rate: Float, id: String, event: (String, String, Int) -> Unit): Boolean {
     stop()
     val mine = run.incrementAndGet()
-    val sentences = Regex("[^.!?\\n]+[.!?]*[\"')\\]]*\\s*|\\n+").findAll(text).filter { it.value.isNotBlank() }.toList()
-    val queue = LinkedBlockingQueue<Pair<Int, FloatArray>>(2)
+    val sentences = pieces(text)
+    // Room for several sentences, so the voice can run ahead of the speaker and never stall mid-text.
+    val queue = LinkedBlockingQueue<Pair<Int, FloatArray>>(8)
     val end = Pair(-1, FloatArray(0))
     // Neither thread may wait forever once this run is stopped.
     fun put(item: Pair<Int, FloatArray>) {
@@ -191,9 +194,9 @@ class KokoroSpeech(private val context: Context, private val emit: (String) -> U
       }
       for (s in sentences) {
         if (run.get() != mine) break
-        val audio = engine.generate(s.value.trim(), voice.coerceIn(0, engine.numSpeakers() - 1), rate)
+        val audio = engine.generate(closed(s.second.trim()), voice.coerceIn(0, engine.numSpeakers() - 1), rate)
         if (run.get() != mine) break
-        put(Pair(s.range.first, audio.samples))
+        put(Pair(s.first, padded(smooth(audio.samples, audio.sampleRate), audio.sampleRate)))
       }
       put(end)
     }.start()
@@ -214,20 +217,60 @@ class KokoroSpeech(private val context: Context, private val emit: (String) -> U
       track = out
       out.play()
       var item = first
+      var frames = 0L
       while (item !== end && run.get() == mine) {
         event("range", id, item.first)
         out.write(item.second, 0, item.second.size, AudioTrack.WRITE_BLOCKING)
+        frames += item.second.size
         item = next()
       }
       if (run.get() == mine) {
-        // Let the last of the buffer play out.
+        // Let the last of the buffer play out: release() right after stop() cut the last syllable.
         out.stop()
+        val until = System.currentTimeMillis() + 3000
+        while (run.get() == mine && (out.playbackHeadPosition.toLong() and 0xffffffffL) < frames && System.currentTimeMillis() < until) {
+          Thread.sleep(20)
+        }
         event("done", id, 0)
       }
       out.release()
       if (track === out) track = null
     }.start()
     return true
+  }
+
+  /**
+   * Sentences, with long ones cut at commas and semicolons: the first sound comes sooner, and no
+   * piece is so long that the next one isn't ready when it ends (that gap was the choppiness).
+   */
+  private fun pieces(text: String): List<Pair<Int, String>> {
+    val out = mutableListOf<Pair<Int, String>>()
+    for (s in Regex("[^.!?\\n]+[.!?]*[\"')\\]]*\\s*|\\n+").findAll(text)) {
+      if (s.value.isBlank()) continue
+      if (s.value.length <= 160) out.add(Pair(s.range.first, s.value))
+      else Regex("[^,;:]+[,;:]?\\s*").findAll(s.value).forEach { part ->
+        if (part.value.isNotBlank()) out.add(Pair(s.range.first + part.range.first, part.value))
+      }
+    }
+    return out
+  }
+
+  /** Kokoro swallows the end of a piece with no closing punctuation ("Understanding" became "Understand"). */
+  private fun closed(piece: String): String =
+    if (piece.isNotEmpty() && piece.last().isLetterOrDigit()) "$piece." else piece
+
+  /** A quarter second of silence after each piece, so the device never drops the final sound. */
+  private fun padded(samples: FloatArray, rate: Int): FloatArray = samples.copyOf(samples.size + rate / 4)
+
+  /** A few milliseconds' fade at both ends of each piece: no click where two pieces meet. */
+  private fun smooth(samples: FloatArray, rate: Int): FloatArray {
+    val n = minOf(samples.size / 2, rate / 200)
+    for (i in 0 until n) {
+      val g = i.toFloat() / n
+      samples[i] *= g
+      samples[samples.size - 1 - i] *= g
+    }
+    return samples
   }
 
   fun stop() {

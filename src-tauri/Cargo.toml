@@ -18,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2", features = ["macos-private-api", "protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 serde = { version = "1", features = ["derive"] }
@@ -27,6 +27,8 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-http = "2"
+# The direct Wi-Fi link (both devices) and, on the Mac, the MCP server for Claude Desktop.
+tiny_http = "0.12"
 
 # The AI key lives in the macOS Keychain (Android uses the Keystore from MainActivity).
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
@@ -37,8 +39,6 @@ ureq = "3"
 bzip2 = "0.5"
 tar = "0.4"
 rodio = { version = "0.21", default-features = false, features = ["playback"] }
-# The journal's MCP server for Claude Desktop (localhost only, off by default).
-tiny_http = "0.12"
 # The Mac floating bubble's global shortcut.
 tauri-plugin-global-shortcut = "2"
 
@@ -48,5 +48,8 @@ tauri-plugin-global-shortcut = "2"
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
-strip = true
+# Unwind, not abort: a panic inside one background task (an async command, a plugin, a media
+# request) used to take the whole Mac app down ("quit unexpectedly", about once an hour).
+panic = "unwind"
+# Keep function names so a crash report says where it happened.
+strip = "debuginfo"

@@ -1,25 +1,10 @@
 import React, { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { fileKind } from "../lib/files";
-import { dayTitle } from "../lib/timestamp";
 import { openFile, showPdf, showPhoto, useFileUrl } from "../editor/attachments";
 import type { ExtractedLinks } from "../lib/links";
 import type { FileRecord, JournalStore } from "../store";
-
-/** Every day with a page, newest first, today on top. */
-export function DaysList({ days, day, today, onPick }: { days: string[]; day: string; today: string; onPick: (d: string) => void }) {
-  return (
-    <ul className="day-list">
-      {[...new Set([today, ...days])].map((d) => (
-        <li key={d}>
-          <button type="button" className={d === day ? "active" : ""} onClick={() => onPick(d)}>
-            {d === today ? "Today" : dayTitle(d).replace(/^\w+, /, "")}
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
+import { useEscapeToClose } from "../ui/useEscapeToClose";
 
 /** Put stored files back into the open note: at a point on screen (a drop), or at the cursor. */
 export type InsertMedia = (files: FileRecord[], at?: { x: number; y: number }) => void;
@@ -34,7 +19,7 @@ function MediaTile({ file, selecting, picked, onPick, onDragOut, dragIds }: {
   onDragOut?: (e: React.PointerEvent) => void;
 }) {
   const kind = fileKind(file.mime);
-  const { url } = useFileUrl(kind === "image" || kind === "video" ? file.id : null);
+  const { url } = useFileUrl(kind === "image" || kind === "video" ? file.id : null, kind === "video");
   const hold = useRef<number | undefined>(undefined);
   const open = () => {
     if (selecting) return onPick();
@@ -203,7 +188,7 @@ export function tagTree(tags: string[]): TagNode[] {
 }
 
 /** Nested tags, foldable; tapping a parent shows everything under it. */
-function TagTree({ tags, onOpenTag }: { tags: string[]; onOpenTag: (t: string) => void }) {
+function TagTree({ tags, counts, onOpenTag }: { tags: string[]; counts?: Map<string, number>; onOpenTag: (t: string) => void }) {
   const [closed, setClosed] = useState<Set<string>>(new Set());
   const render = (nodes: TagNode[]) => (
     <ul className="panel-list tag-tree">
@@ -222,6 +207,7 @@ function TagTree({ tags, onOpenTag }: { tags: string[]; onOpenTag: (t: string) =
             <span className="tag-fold" />
           )}
           <button type="button" className="tag link-button" onClick={() => onOpenTag(n.path)}>#{n.name}</button>
+          {counts?.get(n.path.toLowerCase()) ? <span className="panel-count">{counts.get(n.path.toLowerCase())}</span> : null}
           {n.children.length > 0 && !closed.has(n.path) && render(n.children)}
         </li>
       ))}
@@ -230,7 +216,59 @@ function TagTree({ tags, onOpenTag }: { tags: string[]; onOpenTag: (t: string) =
   return render(tagTree(tags));
 }
 
-/** Links, Tags and Media for the page on screen. */
+type Scope = "page" | "all";
+const SCOPE_KEY = "journal.infoScope";
+const loadScope = (): Scope => {
+  try {
+    return localStorage.getItem(SCOPE_KEY) === "page" ? "page" : "all";
+  } catch {
+    return "all";
+  }
+};
+
+/** Every [[link]] and #tag in the journal with how many notes use it, refreshed after saves and syncs. */
+export function countTargets(rows: { target: string; kind: "wikilink" | "tag" }[], kind: "wikilink" | "tag"): { name: string; count: number }[] {
+  const counts = new Map<string, { name: string; count: number }>();
+  for (const r of rows) {
+    if (r.kind !== kind || !r.target.trim()) continue;
+    const k = r.target.toLowerCase();
+    const c = counts.get(k);
+    if (c) c.count++;
+    else counts.set(k, { name: r.target, count: 1 });
+  }
+  return [...counts.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+}
+
+function useAllLinks(store: JournalStore | null, on: boolean) {
+  const [rows, setRows] = useState<{ target: string; kind: "wikilink" | "tag" }[] | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    let t: number | undefined;
+    const bump = () => {
+      window.clearTimeout(t);
+      t = window.setTimeout(() => setTick((n) => n + 1), 600);
+    };
+    window.addEventListener("journal:saved", bump);
+    window.addEventListener("journal:synced", bump);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener("journal:saved", bump);
+      window.removeEventListener("journal:synced", bump);
+    };
+  }, [on]);
+  useEffect(() => {
+    if (!store || !on) return;
+    let live = true;
+    void store.graphLinks().then((r) => live && setRows(r), () => live && setRows([]));
+    return () => {
+      live = false;
+    };
+  }, [store, on, tick]);
+  return rows;
+}
+
+/** Links, Tags and Media: for the page on screen, or (Links and Tags) everything in the journal. */
 export function InfoTabs({ links, mediaIds, store, onOpenLink, onOpenTag, backlinks, onInsertMedia }: {
   links: ExtractedLinks;
   mediaIds: string[];
@@ -242,6 +280,27 @@ export function InfoTabs({ links, mediaIds, store, onOpenLink, onOpenTag, backli
   onInsertMedia?: InsertMedia;
 }) {
   const [tab, setTab] = useState<Tab>("links");
+  const [scope, setScopeState] = useState<Scope>(loadScope);
+  const setScope = (v: Scope) => {
+    setScopeState(v);
+    try {
+      localStorage.setItem(SCOPE_KEY, v);
+    } catch {
+      // Only a convenience.
+    }
+  };
+  const all = useAllLinks(store, scope === "all" && tab !== "media");
+  const allLinks = all ? countTargets(all, "wikilink") : null;
+  const allTags = all ? countTargets(all, "tag") : null;
+  const scopeBar = (
+    <div className="media-scope" role="tablist">
+      <button type="button" role="tab" aria-selected={scope === "page"} className={scope === "page" ? "active" : ""} onClick={() => setScope("page")}>This page</button>
+      <button type="button" role="tab" aria-selected={scope === "all"} className={scope === "all" ? "active" : ""} onClick={() => setScope("all")}>
+        All {tab === "links" ? "links" : "tags"}
+        {scope === "all" && (tab === "links" ? allLinks : allTags) ? ` · ${(tab === "links" ? allLinks : allTags)!.length}` : ""}
+      </button>
+    </div>
+  );
   return (
     <div className="info-tabs">
       <div className="panel-tabs" role="tablist">
@@ -251,7 +310,32 @@ export function InfoTabs({ links, mediaIds, store, onOpenLink, onOpenTag, backli
           </button>
         ))}
       </div>
-      {tab === "links" && (
+      {tab !== "media" && scopeBar}
+      {tab === "links" && scope === "all" && (
+        <>
+          {!allLinks ? (
+            <p className="hint">Loading…</p>
+          ) : allLinks.length ? (
+            <ul className="panel-list">
+              {allLinks.map((l) => (
+                <li key={l.name}>
+                  <button type="button" className="wikilink link-button" onClick={() => onOpenLink(l.name)}>[[{l.name}]]</button>
+                  <span className="panel-count">{l.count}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="hint">No links yet. Type [[ ]] around a name to link it.</p>
+          )}
+          {backlinks && (
+            <>
+              <h3>Mentioned in</h3>
+              {backlinks}
+            </>
+          )}
+        </>
+      )}
+      {tab === "links" && scope === "page" && (
         <>
           {links.wikilinks.length ? (
             <ul className="panel-list">
@@ -273,6 +357,16 @@ export function InfoTabs({ links, mediaIds, store, onOpenLink, onOpenTag, backli
         </>
       )}
       {tab === "tags" &&
+        scope === "all" &&
+        (!allTags ? (
+          <p className="hint">Loading…</p>
+        ) : allTags.length ? (
+          <TagTree tags={allTags.map((t) => t.name)} counts={new Map(allTags.map((t) => [t.name.toLowerCase(), t.count]))} onOpenTag={onOpenTag} />
+        ) : (
+          <p className="hint">No tags yet. Type #idea to tag.</p>
+        ))}
+      {tab === "tags" &&
+        scope === "page" &&
         (links.tags.length ? (
           <TagTree tags={links.tags} onOpenTag={onOpenTag} />
         ) : (
@@ -284,18 +378,15 @@ export function InfoTabs({ links, mediaIds, store, onOpenLink, onOpenTag, backli
 }
 
 /** Phone: slides in from the left with Days, then Links / Tags / Media. */
-export function Drawer({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+export function Drawer({ open, onClose, top, bottom, children }: { open: boolean; onClose: () => void; top?: ReactNode; bottom?: ReactNode; children: ReactNode }) {
+  useEscapeToClose(onClose, !!open);
   return (
     <>
       <div className={open ? "drawer-backdrop open" : "drawer-backdrop"} onClick={onClose} />
       <aside className={open ? "drawer open" : "drawer"} aria-hidden={!open}>
-        {children}
+        {top}
+        <div className="drawer-scroll">{children}</div>
+        {bottom}
       </aside>
     </>
   );

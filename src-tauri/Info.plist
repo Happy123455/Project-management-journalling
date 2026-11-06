@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>Your rough location is used once in a while to show the current weather on the journal's glass.</string>
+  <key>NSLocationUsageDescription</key>
+  <string>Your rough location is used once in a while to show the current weather on the journal's glass.</string>
+</dict>
+</plist>

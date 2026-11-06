@@ -1,5 +1,7 @@
-import type { JournalStore } from "../store/types";
-import { fromLines, monthOf, planMerge, toLines, type SyncRecord } from "./merge";
+import type { FileRecord, JournalStore } from "../store/types";
+import { sha256 } from "../lib/files";
+import { fromLines, planMerge, toLines, type MergePlan, type SyncRecord } from "./merge";
+import { logTransfer } from "./transferLog";
 
 /** The shared folder (Google Drive), seen as paths relative to "Dynamic Journal Sync/". */
 export interface SyncFolder {
@@ -9,7 +11,41 @@ export interface SyncFolder {
   /** Creates parent folders as needed and replaces the file. */
   write(path: string, bytes: Uint8Array): Promise<void>;
   exists(path: string): Promise<boolean>;
+  /** Something that changes whenever the file does (size and time), when cheap to know. */
+  stamp?(path: string): Promise<string | null>;
+  /** Bytes used by the sync folder, and the Google account's storage (limit/usage) when known. */
+  usage?(): Promise<StorageUsage>;
 }
+
+export interface StorageUsage {
+  folderBytes: number;
+  files: number;
+  /** The whole Google account (Drive + Gmail + Photos). limit is null for unlimited plans. */
+  account?: { limit: number | null; usage: number; drive: number };
+}
+
+/** What this device remembers between rounds, so it doesn't download what it already has. */
+export interface SyncMemory {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+}
+
+/** Remembers nothing between calls (tests); the app keeps it in localStorage. */
+export const memoryOnly = (): SyncMemory => {
+  const m = new Map<string, string>();
+  return { get: (k) => m.get(k) ?? null, set: (k, v) => void m.set(k, v) };
+};
+
+/** Sent: this device's files in the folder, the events in them, the attachments uploaded. Seen: other devices' files imported. */
+interface Remembered {
+  files: string[];
+  ids: string[];
+  hashes: string[];
+  seen: string[];
+}
+
+/** Month files from before sync wrote new events into new files; older app versions still add to them. */
+const LEGACY = /^\d{4}-\d{2}\.jsonl$/;
 
 export interface SyncResult {
   exported: number;
@@ -22,44 +58,126 @@ const dec = new TextDecoder();
 
 /**
  * One sync round:
- * 1. write this device's new events to events/<device>/<yyyy-mm>.jsonl (only ever its own files)
+ * 1. write this device's new events to a new events/<device>/<time>.jsonl (only ever its own files)
  *    and its attachments to files/<hash>;
- * 2. read every other device's files, and import the events this device doesn't have yet.
+ * 2. read the other devices' files it hasn't read yet, and import the events this device doesn't have.
+ * Files are never rewritten, so on the phone a round only downloads what's new (mobile data).
  */
-export async function syncOnce(store: JournalStore, folder: SyncFolder): Promise<SyncResult> {
+export async function syncOnce(store: JournalStore, plainFolder: SyncFolder, memory: SyncMemory = memoryOnly()): Promise<SyncResult> {
   const me = store.deviceId;
+  // Bytes in and out this round, for the network history.
+  const moved = { up: 0, down: 0, photosUp: 0 };
+  const folder: SyncFolder = Object.assign(Object.create(plainFolder), {
+    read: async (path: string) => {
+      const b = await plainFolder.read(path);
+      if (b) moved.down += b.length;
+      return b;
+    },
+    write: async (path: string, b: Uint8Array) => {
+      await plainFolder.write(path, b);
+      moved.up += b.length;
+      if (path.startsWith("files/")) moved.photosUp++;
+    },
+  });
+  const saved = memory.get("journal.sync");
+  let mem: Remembered = saved ? JSON.parse(saved) : { files: [], ids: [], hashes: [], seen: [] };
+  const remember = () => memory.set("journal.sync", JSON.stringify(mem));
 
   // 1. Export.
-  const own = await store.syncRecords();
-  let exported = 0;
-  const byMonth = new Map<string, SyncRecord[]>();
-  for (const r of own) byMonth.set(monthOf(r.event.createdAt), [...(byMonth.get(monthOf(r.event.createdAt)) ?? []), r]);
-  for (const [month, records] of byMonth) {
-    const path = `events/${me}/${month}.jsonl`;
-    const existing = fromLines(dec.decode((await folder.read(path)) ?? new Uint8Array()));
-    const have = new Set(existing.map((r) => r.event.id));
-    const missing = records.filter((r) => !have.has(r.event.id));
-    if (!missing.length) continue;
-    await folder.write(path, enc.encode(toLines([...existing, ...missing])));
-    exported += missing.length;
+  const ownFiles = (await folder.list(`events/${me}`)).filter((f) => f.endsWith(".jsonl"));
+  if (!saved || ownFiles.length !== mem.files.length || ownFiles.some((f) => !mem.files.includes(f))) {
+    // First round here, or a different folder (another Drive account): see what's already there.
+    const ids = new Set<string>();
+    for (const f of ownFiles) for (const r of fromLines(dec.decode((await folder.read(`events/${me}/${f}`)) ?? new Uint8Array()))) ids.add(r.event.id);
+    mem = { files: ownFiles, ids: [...ids], hashes: [], seen: saved ? mem.seen : [] };
   }
-  for (const r of own) {
-    if (r.meta.kind !== "file") continue;
-    const path = `files/${r.meta.file.hash}`;
-    if (await folder.exists(path)) continue;
-    const bytes = await store.fileBytes(r.meta.file.id);
-    if (bytes) await folder.write(path, bytes);
+  // Attachments first, so another device never reads an event whose bytes aren't there yet.
+  const uploaded = new Set(mem.hashes);
+  for (const f of await store.listFiles()) {
+    if (uploaded.has(f.hash)) continue;
+    const path = `files/${f.hash}`;
+    if (!(await folder.exists(path))) {
+      const bytes = await store.fileBytes(f.id).catch(() => null);
+      if (!bytes) continue;
+      await folder.write(path, bytes);
+    }
+    uploaded.add(f.hash);
+    mem.hashes.push(f.hash);
+    remember();
   }
 
+  // Only the events not sent yet are read in full (each one can hold a whole page).
+  const sent = new Set(mem.ids);
+  const missing = await store.syncRecords(sent);
+  if (missing.length) {
+    const name = `${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 6)}.jsonl`;
+    await folder.write(`events/${me}/${name}`, enc.encode(toLines(missing)));
+    mem.files.push(name);
+    mem.ids.push(...missing.map((r) => r.event.id));
+  }
+  remember();
   // 2. Import from every other device.
   const incoming: SyncRecord[] = [];
+  const seen = new Set(mem.seen);
+  const read: string[] = [];
   for (const device of await folder.list("events")) {
     if (device === me) continue;
     for (const file of await folder.list(`events/${device}`)) {
       if (!file.endsWith(".jsonl")) continue;
-      incoming.push(...fromLines(dec.decode((await folder.read(`events/${device}/${file}`)) ?? new Uint8Array())));
+      const path = `events/${device}/${file}`;
+      const stamp = (await folder.stamp?.(path)) ?? (LEGACY.test(file) ? null : "");
+      const key = stamp === null ? null : `${path}@${stamp}`;
+      if (key && seen.has(key)) continue;
+      incoming.push(...fromLines(dec.decode((await folder.read(path)) ?? new Uint8Array())));
+      if (key) read.push(key);
     }
   }
+  const plan = await importRecords(store, incoming);
+  // Bytes travel separately from the events and can reach the folder later (the phone uploads
+  // after writing its events; Drive for desktop downloads in its own time). Every file whose
+  // bytes this device still lacks is tried again each round until they arrive.
+  const want = new Map<string, FileRecord>();
+  for (const f of [...plan.files, ...(await store.missingFiles())]) want.set(f.id, f);
+  const blobs = new Map<string, Uint8Array>();
+  const got: FileRecord[] = [];
+  for (const f of want.values()) {
+    if (!blobs.has(f.hash)) {
+      const bytes = await folder.read(`files/${f.hash}`).catch(() => null);
+      // Only whole files: a copy still being written (or cut short) is fetched again next round.
+      if (!bytes || (await sha256(bytes)) !== f.hash) continue;
+      blobs.set(f.hash, bytes);
+    }
+    got.push(f);
+  }
+  if (got.length) await store.applySync({ events: [], blocks: [], files: got }, blobs);
+  // A legacy month file is read again when it changes; drop its older stamps.
+  const replaced = new Set(read.map((k) => k.slice(0, k.lastIndexOf("@"))));
+  mem.seen = [...mem.seen.filter((k) => !replaced.has(k.slice(0, k.lastIndexOf("@")))), ...read];
+  remember();
+  const what = [
+    missing.length && `${missing.length} edit${missing.length === 1 ? "" : "s"} sent`,
+    plan.events.length && `${plan.events.length} received`,
+    moved.photosUp && `${moved.photosUp} file${moved.photosUp === 1 ? "" : "s"} up`,
+    got.length && `${got.length} file${got.length === 1 ? "" : "s"} down`,
+  ].filter(Boolean).join(", ");
+  if (typeof window !== "undefined") logTransfer({ via: "drive", up: moved.up, down: moved.down, what: what || "checked, nothing new" });
+  return { exported: missing.length, imported: plan.events.length, files: got.length };
+}
+
+/**
+ * Adds other devices' events to this one through the merge (Drive rounds and the direct Wi-Fi
+ * link both come here). Events already known are skipped, so the same edit arriving both ways
+ * changes nothing the second time. File bytes are not fetched here.
+ */
+/** One import at a time, so a Wi-Fi batch and a Drive round never merge the same page at once. */
+let importing: Promise<unknown> = Promise.resolve();
+export function importRecords(store: JournalStore, incoming: SyncRecord[]): Promise<MergePlan> {
+  const next = importing.then(() => importNow(store, incoming));
+  importing = next.catch(() => {});
+  return next;
+}
+
+async function importNow(store: JournalStore, incoming: SyncRecord[]) {
   // Pages both devices made for the same day (or name) before syncing are one page here.
   for (const r of incoming) {
     if (r.meta.kind !== "block") continue;
@@ -68,13 +186,8 @@ export async function syncOnce(store: JournalStore, folder: SyncFolder): Promise
   }
   const state = await store.syncState([...new Set(incoming.map((r) => r.event.blockId))]);
   const plan = planMerge(state, incoming);
-  const blobs = new Map<string, Uint8Array>();
-  for (const f of plan.files) {
-    const bytes = await folder.read(`files/${f.hash}`);
-    if (bytes) blobs.set(f.hash, bytes);
-  }
-  if (plan.events.length || plan.files.length) await store.applySync(plan, blobs);
-  return { exported, imported: plan.events.length, files: blobs.size };
+  if (plan.events.length) await store.applySync({ ...plan, files: [] }, new Map());
+  return plan;
 }
 
 /** A folder in memory, for tests and the browser preview. */

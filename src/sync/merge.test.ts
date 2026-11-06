@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { JournalEvent } from "../store/types";
-import { fromLines, planMerge, toLines, type LocalState, type SyncRecord } from "./merge";
+import { fromLines, planMerge, toLines, type LocalState, type SyncRecord, mergeDocs } from "./merge";
 
 const day = { kind: "block", type: "day", day: "2026-10-28" } as const;
 
@@ -83,5 +83,72 @@ describe("sync files", () => {
     const records = [rec("e1", "phone", "2026-10-28T10:00:00Z", "create", "A")];
     const text = toLines(records) + '{"event":{"id":"e2"';
     expect(fromLines(text)).toEqual(records);
+  });
+});
+
+describe("mergeDocs", () => {
+  const p = (text: string) => ({ type: "paragraph", content: [{ type: "text", text }] });
+  const clip = (width: number) => ({ type: "paragraph", content: [{ type: "attachmentMedia", attrs: { fileId: "facepalm", width } }] });
+  const doc = (...content: object[]) => ({ type: "doc", content });
+
+  it("never adds a clip back as a copy because it was resized on the other device", () => {
+    const merged = mergeDocs(doc(p("a"), clip(165)), doc(p("a"), clip(210)));
+    expect(merged.content).toEqual([p("a"), clip(165)]);
+  });
+
+  it("keeps a deletion from the older side when both had the block before", () => {
+    const base = doc(p("a"), clip(210), p("b"));
+    const merged = mergeDocs(doc(p("a"), clip(210), p("b"), p("new")), doc(p("a"), p("b")), base);
+    expect(merged.content).toEqual([p("a"), p("b"), p("new")]);
+  });
+
+  it("takes an edit from the older side instead of keeping both versions", () => {
+    const base = doc(p("a"), p("b"));
+    const merged = mergeDocs(doc(p("a"), p("b"), p("c")), doc(p("a"), p("b edited")), base);
+    expect(merged.content).toEqual([p("a"), p("b edited"), p("c")]);
+  });
+
+  it("still keeps text both sides wrote without a common version", () => {
+    const merged = mergeDocs(doc(p("a"), p("mine")), doc(p("a"), p("theirs")));
+    expect(merged.content).toEqual([p("a"), p("theirs"), p("mine")]);
+  });
+});
+
+describe("mergeDocs lists", () => {
+  const item = (t: string) => ({ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: t }] }] });
+  const list = (...items: string[]) => ({ type: "bulletList", content: items.map(item) });
+  const doc = (...content: object[]) => ({ type: "doc", content });
+
+  it("a point moved on one device and one added on the other: one list, no copies", () => {
+    const base = doc(list("a", "b", "c"));
+    const merged = mergeDocs(doc(list("a", "b", "c", "d")), doc(list("c", "a", "b")), base);
+    expect(merged.content).toHaveLength(1);
+    const texts = (merged.content![0].content ?? []).map((i) => i.content![0].content![0].text);
+    expect(texts.sort()).toEqual(["a", "b", "c", "d"]);
+  });
+});
+
+describe("mergeDocs keeps every link card and photo (31 Oct)", () => {
+  const card = (url: string, status = "ready") => ({ type: "linkCard", attrs: { url, title: url, site: null, image: null, status } });
+  const p = (text: string) => ({ type: "paragraph", content: [{ type: "text", text }] });
+  const img = (fileId: string, width: number | null = null) => ({ type: "paragraph", content: [{ type: "attachmentImage", attrs: { fileId, name: "x", width, align: "inline", x: 0, y: 0 } }] });
+
+  it("links added on one device survive a merge with a doc that has another link", () => {
+    const base = { type: "doc", content: [p("Claude")] };
+    const mac = { type: "doc", content: [p("Claude"), card("https://a.dev"), card("https://b.dev"), card("https://c.dev")] };
+    const phone = { type: "doc", content: [p("Claude"), card("https://phone.dev"), p("later")] };
+    const both = mergeDocs(phone, mac, base);
+    const urls = both.content!.filter((n) => n.type === "linkCard").map((n) => n.attrs!.url);
+    expect(urls.sort()).toEqual(["https://a.dev", "https://b.dev", "https://c.dev", "https://phone.dev"]);
+  });
+
+  it("a card whose preview loaded on one side is still one card", () => {
+    const both = mergeDocs({ type: "doc", content: [card("https://a.dev", "ready")] }, { type: "doc", content: [card("https://a.dev", "loading")] });
+    expect(both.content).toHaveLength(1);
+  });
+
+  it("different photos are kept, a resized photo is not doubled", () => {
+    const both = mergeDocs({ type: "doc", content: [img("f1", 200)] }, { type: "doc", content: [img("f1", 300), img("f2")] });
+    expect(both.content!.map((n) => n.content![0].attrs!.fileId)).toEqual(["f1", "f2"]);
   });
 });

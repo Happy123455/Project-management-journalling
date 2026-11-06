@@ -5,10 +5,40 @@
     
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Dynamic Journal</title>
+    <script>
+      // The look the app had when it was last open (theme, sky tone, colours), put back before anything
+      // draws, so starting up never flashes another theme or a white page first.
+      try {
+        var boot = JSON.parse(localStorage.getItem("journal.boot") || "null");
+        var root = document.documentElement;
+        root.dataset.theme = localStorage.getItem("journal.theme") || "glass";
+        if (boot) {
+          if (boot.style) root.setAttribute("style", boot.style);
+          if (boot.light) root.dataset.light = boot.light;
+          if (boot.tone) root.dataset.tone = boot.tone;
+          if (boot.cls) root.className = boot.cls;
+          root.classList.add("neu-instant", "booting");
+          if (boot.bg) root.style.background = boot.bg;
+        }
+      } catch (e) {}
+    </script>
   </head>
 
   <body>
-    <div id="root"></div>
+    <!-- Shown until the app draws (never a blank screen while it loads); React replaces it. -->
+    <div id="root"><div class="boot-splash" style="position:fixed;inset:0;display:grid;place-items:center;font:600 15px system-ui,sans-serif;color:#888;background:#f3f4f8">
+      <span>📔 Dynamic Journal…</span>
+    </div></div>
+    <script>
+      try {
+        var splash = document.querySelector(".boot-splash");
+        var saved = JSON.parse(localStorage.getItem("journal.boot") || "null");
+        if (saved && saved.bg) {
+          splash.style.background = saved.bg;
+          splash.style.color = saved.fg || "#888";
+        } else if (matchMedia("(prefers-color-scheme: dark)").matches) splash.style.background = "#16171c";
+      } catch (e) {}
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

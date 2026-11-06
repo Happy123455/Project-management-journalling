@@ -21,6 +21,7 @@
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-image",
+    "clipboard-manager:allow-write-image",
     "fs:allow-appdata-read-recursive",
     "fs:allow-appdata-write-recursive",
     "dialog:allow-save",
@@ -52,7 +53,27 @@
     "fs:allow-read-dir",
     "fs:allow-remove",
     "fs:allow-exists",
+    "fs:allow-stat",
     "fs:allow-read-file",
-    { "identifier": "http:default", "allow": [{ "url": "https://*" }, { "url": "http://*" }] }
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://*"
+        },
+        {
+          "url": "http://*"
+        },
+        {
+          "url": "http://*:39478/*"
+        },
+        {
+          "url": "http://127.0.0.1:11434/*"
+        },
+        {
+          "url": "http://localhost:11434/*"
+        }
+      ]
+    }
   ]
 }

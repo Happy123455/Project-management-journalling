@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/react";
 import type { BlockMeta, LocalState, MergePlan, SyncRecord } from "../sync/merge";
 import type { ProjectInfo } from "../lib/projects";
+import type { RoutineConfig } from "../lib/routine";
 
 /** Flags kept in a day block's `props`. */
 export interface DayProps {
@@ -8,6 +9,10 @@ export interface DayProps {
   reminder?: boolean;
   /** The reminder was ticked off with "Done". */
   reminderDone?: boolean;
+  /** The reminder comes back (Coming up shows its next day; the phone notifies each time). */
+  repeat?: "daily" | "weekly" | "monthly" | "yearly";
+  /** Days a repeating reminder was ticked off on (it still comes back on the next one). */
+  doneDays?: string[];
 }
 
 /** A daily page. Pages are blocks of type "day"; child blocks come later. */
@@ -31,6 +36,8 @@ export interface NamedPage {
 
 export interface PageProps {
   project?: ProjectInfo;
+  /** On the "Routine" page: the routine steps, habits and life phases (src/lib/routine.ts). */
+  routine?: RoutineConfig;
 }
 
 export type LinkKind = "wikilink" | "tag";
@@ -116,6 +123,8 @@ export interface JournalStore {
   openReminders(): Promise<DayPage[]>;
   /** Mark a day's reminder as done. */
   completeReminder(day: string, actor?: string): Promise<void>;
+  /** Changes a day page's props (e.g. a reminder's repeat), with a props event. */
+  setDayProps(day: string, patch: Partial<DayProps>, actor?: string): Promise<void>;
   /** The named page with this title (any letter case), or null. */
   getPage(title: string): Promise<NamedPage | null>;
   /** The named page with this title, created (with an event) if it doesn't exist yet. */
@@ -148,6 +157,8 @@ export interface JournalStore {
   /** The file an embed points at: "attachments/<id>/<name>", or a bare file name (any letter case, newest first). */
   findFile(ref: string): Promise<FileRecord | null>;
   fileBytes(id: string): Promise<Uint8Array | null>;
+  /** A URL that streams the file straight from disk (the app only; the browser store has none). */
+  fileSrc?(id: string): Promise<string | null>;
   /** Everything needed to restore the journal: the database (or its JSON in the browser) plus every attachment. */
   exportFiles(): Promise<{ name: string; bytes: Uint8Array }[]>;
   /**
@@ -159,12 +170,19 @@ export interface JournalStore {
   // ───── Sync (see src/sync) ─────
   /** This install's device id. */
   readonly deviceId: string;
-  /** This device's own events (not restores), each with what its block is. */
-  syncRecords(): Promise<SyncRecord[]>;
+  /** This device's own events (not restores), each with what its block is; `skip`: ids left out (already sent). */
+  syncRecords(skip?: Set<string>): Promise<SyncRecord[]>;
+  /** Ids of this device's own events (what syncRecords would return), cheap: no content. */
+  ownEventIds(): Promise<string[]>;
   /** The local id of the day page / named page each meta names, where one exists. */
   localBlockId(meta: BlockMeta): Promise<string | null>;
   /** Known event ids, files, and the newest applied content/props event for these blocks. */
   syncState(blockIds: string[]): Promise<LocalState>;
   /** Adds the plan's events, updates its blocks and stores its files (bytes by hash). Idempotent. */
   applySync(plan: MergePlan, blobs: Map<string, Uint8Array>): Promise<void>;
+  /**
+   * Files other devices made (their create event is here) whose bytes never arrived: the event
+   * came before the bytes reached the shared folder. Sync fetches these again every round.
+   */
+  missingFiles(): Promise<FileRecord[]>;
 }

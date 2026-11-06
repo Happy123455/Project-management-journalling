@@ -107,17 +107,22 @@ for (const f of files(soundDir).filter((f) => /\.(mp3|m4a|ogg|wav)$/i.test(f))) 
   items.push({ id: `sound:${rel}`, kind: "sound", name, file: `sounds/${rel}`, group: path.dirname(rel) === "." ? null : path.dirname(rel), tags: categories(`sounds/${rel}`, name), rating: rating(`sounds/${rel}`) ?? rating(path.relative(src, f)), ...soundShape(f) });
 }
 
-// Green-screen clips, cut to their punchline (at most 6 s), 360p, with their sound.
+// Green-screen clips, whole (from the catalog's start, its usable length), 360p, with their sound:
+// the kit's separate sound track when it has one, otherwise the clip's own.
 // Keyed clips (VP9 with alpha) become "stacked alpha" H.264: the picture on top, its alpha as grey
 // underneath. One file that plays on Android and the Mac alike; the page draws it see-through
 // with a small WebGL shader (AlphaVideo in attachments.tsx). Clips that aren't keyed stay normal clips.
 const ffmpeg = (args) => execFileSync("ffmpeg", ["-v", "error", "-y", ...args], { stdio: ["ignore", "ignore", "inherit"] });
-const fresh = (outFile, from) => fs.existsSync(outFile) && fs.statSync(outFile).mtimeMs > fs.statSync(from).mtimeMs;
+// Re-made when the source or this script changed (clips used to be cut to 6 s).
+const script = fs.statSync(new URL(import.meta.url)).mtimeMs;
+const fresh = (outFile, from) => fs.existsSync(outFile) && fs.statSync(outFile).mtimeMs > Math.max(fs.statSync(from).mtimeMs, script);
 for (const c of [...new Set(catalog.values())].filter((c) => c.type === "greenscreen" && c.rating !== "never" && c.video)) {
   const video = path.join(src, c.video);
   if (!fs.existsSync(video)) continue;
-  const [from, to] = c.punch ? [Math.max(0, c.punch[0] - 0.3), Math.min(c.punch[1], c.punch[0] + 6)] : [c.start ?? 0, (c.start ?? 0) + Math.min(c.usable ?? c.dur ?? 6, 6)];
-  const cut = ["-ss", String(from), "-t", String(Math.max(0.5, to - from))];
+  const from = c.start ?? 0;
+  const length = c.usable ?? (c.dur ? c.dur - from : null);
+  const to = length ? from + length : from + 2;
+  const cut = ["-ss", String(from), ...(length ? ["-t", String(Math.max(0.5, length))] : [])];
   const audio = c.audio && fs.existsSync(path.join(src, c.audio)) ? [...cut, "-i", path.join(src, c.audio)] : [];
   const rel = `greenscreen/${c.id}.mp4`;
   const thumb = `greenscreen/${c.id}.jpg`;
@@ -127,7 +132,7 @@ for (const c of [...new Set(catalog.values())].filter((c) => c.type === "greensc
     const keyed = c.alpha
       ? ["-filter_complex", "[0:v]fps=24,scale=-2:360:flags=lanczos,format=yuva420p,split=2[c][m];[m]alphaextract,format=yuv420p[mask];[c]format=yuv420p[col];[col][mask]vstack=inputs=2[v]", "-map", "[v]"]
       : ["-vf", "fps=24,scale=-2:360:flags=lanczos", "-map", "0:v"];
-    ffmpeg([...cut, ...(c.alpha ? ["-c:v", "libvpx-vp9"] : []), "-i", video, ...audio, ...keyed, ...(audio.length ? ["-map", "1:a"] : []),
+    ffmpeg([...cut, ...(c.alpha ? ["-c:v", "libvpx-vp9"] : []), "-i", video, ...audio, ...keyed, "-map", audio.length ? "1:a" : "0:a?",
       "-c:v", "libx264", "-crf", "30", "-preset", "slow", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "aac", "-b:a", "64k", "-ac", "1", target]);
     // Poster: the middle frame over dark grey.
     ffmpeg(["-ss", String((from + to) / 2), ...(c.alpha ? ["-c:v", "libvpx-vp9"] : []), "-i", video, "-filter_complex",
@@ -135,7 +140,7 @@ for (const c of [...new Set(catalog.values())].filter((c) => c.type === "greensc
   }
   bytes += fs.statSync(target).size;
   const name = title(c.id);
-  items.push({ id: `greenscreen:${c.id}`, kind: c.alpha ? "greenscreen" : "gif", name, file: rel, thumb, tags: [c.alpha ? "Green screen" : "Clips", ...categories(c.video, name)], sound: audio.length > 0, rating: c.rating ?? null });
+  items.push({ id: `greenscreen:${c.id}`, kind: c.alpha ? "greenscreen" : "gif", name, file: rel, thumb, tags: [c.alpha ? "Green screen" : "Clips", ...categories(c.video, name)], sound: true, rating: c.rating ?? null });
 }
 
 fs.writeFileSync(path.join(out, "index.json"), JSON.stringify(items));

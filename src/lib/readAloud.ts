@@ -7,6 +7,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { holdAwake } from "./power";
 
 declare global {
   interface Window {
@@ -45,6 +46,7 @@ export interface VoiceProgress {
 export const MODEL_NAMES: Record<string, string> = {
   "kokoro-int8-en-v0_19": "Kokoro English",
   "kokoro-int8-multi-lang-v1_1": "Kokoro multi-language (incl. Hindi)",
+  "kokoro-en-v0_19": "Kokoro English HD (clearest, a bit slower)",
 };
 /** The English model's voices, in speaker-id order. */
 export const KOKORO_EN_VOICES = [
@@ -123,8 +125,12 @@ let reached = 0;
 let run = 0;
 const listeners = new Set<(s: ReadState) => void>();
 
+/** Keeps the phone from pausing the page in the background while reading aloud (lib/power.ts). */
+let awake: (() => void) | null = null;
 function set(patch: Partial<ReadState>) {
   state = { ...state, ...patch };
+  if (state.status === "playing" && !awake) awake = holdAwake();
+  else if (state.status !== "playing" && awake) (awake(), (awake = null));
   listeners.forEach((l) => l(state));
 }
 
