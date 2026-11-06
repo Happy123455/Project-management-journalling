@@ -916,6 +916,7 @@ function App() {
     setQuery("");
   }, []);
 
+  const globalSearch = useCallback(async (q: string) => (store ? toResults(await store.search(q), q) : []), [store]);
   const openHit = async (hit: SearchHit, match: number) => {
     setSearchOpen(false);
     if (hit.kind !== "file") setFind({ where: hit.day ?? `page:${hit.title}`, terms: searchTerms(query), index: match, count: 0 });
@@ -1333,6 +1334,11 @@ function App() {
             setTitleSearchOpen(false);
             setQuery(q);
             setSearchOpen(true);
+          }}
+          search={globalSearch}
+          onPickHit={(hit, match) => {
+            setTitleSearchOpen(false);
+            void openHit(hit, match);
           }}
           onClose={() => setTitleSearchOpen(false)}
           onOpen={(hit, newTab) => {

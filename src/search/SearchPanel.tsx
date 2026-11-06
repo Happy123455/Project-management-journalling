@@ -15,7 +15,7 @@ export const loadRecent = (): string[] => {
     return [];
   }
 };
-const remember = (q: string) => {
+export const rememberSearch = (q: string) => {
   const t = q.trim();
   if (t.length < 2) return;
   try {
@@ -69,7 +69,7 @@ export function SearchPanel({ query, onQuery, results, onPick, onClose }: {
   const [filter, setFilter] = useState<Filter>("all");
   const [recent, setRecent] = useState(loadRecent);
   const pick = (hit: SearchHit, match: number) => {
-    remember(draft);
+    rememberSearch(draft);
     onPick(hit, match);
   };
   useEffect(() => input.current?.focus(), []);

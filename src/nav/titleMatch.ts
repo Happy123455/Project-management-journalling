@@ -34,3 +34,20 @@ export function matchTitles(query: string, pages: string[], days: string[], toda
     .slice(0, limit)
     .map((x) => x.h);
 }
+
+/** What the nav search looks in: everything, or only what a prefix names. */
+export type SearchScope = "all" | "file" | "title" | "day" | "page";
+const SCOPES = ["file", "title", "day", "page"] as const;
+
+/**
+ * "file:(budget)" or "file:budget" searches only files; "title:", "day:" and "page:" work the same.
+ * The rest of the query is searched as written. More filters can be added to SCOPES later.
+ */
+export function parseScope(query: string): { scope: SearchScope; text: string } {
+  const m = /(?:^|\s)(file|title|day|page):(?:\(([^)]*)\)?|(\S*))/i.exec(query);
+  if (!m) return { scope: "all", text: query.trim() };
+  const scope = m[1].toLowerCase() as (typeof SCOPES)[number];
+  const inner = (m[2] ?? m[3] ?? "").trim();
+  const rest = (query.slice(0, m.index) + " " + query.slice(m.index + m[0].length)).trim();
+  return { scope, text: [inner, rest].filter(Boolean).join(" ") };
+}

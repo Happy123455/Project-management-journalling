@@ -3155,3 +3155,13 @@ html.at-rest *, html.at-rest *::before, html.at-rest *::after { animation-play-s
   html.weather-clear .ambience-layer::before, html.weather-cloudy .ambience-layer::before, html.weather-cloudy .ambience-layer::after,
   html.weather-clear.weather-night .ambience-layer::before { animation: none; }
 }
+
+/* Batch 16: held Home pops out and sits under the thumb (the :active press-in used to override the
+   joystick's transform, so it mostly stayed stuck). The lane: faint lines rising from Home. */
+.nav-island.joying .nav-home, .nav-island.joying .nav-home:active { transform: translate(var(--joy-x, 0px), var(--joy, 0px)) scale(1.14); transition: transform 0.05s linear; z-index: 3; }
+.joy-lane { position: fixed; bottom: 0; height: 72vh; z-index: 60; pointer-events: none; transform-origin: bottom; animation: joy-lane-rise 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  border-inline: 1.5px solid rgba(124, 58, 237, 0.28); background: linear-gradient(to top, rgba(124, 58, 237, 0.07), transparent 85%);
+  -webkit-mask: linear-gradient(to top, #000 55%, transparent); mask: linear-gradient(to top, #000 55%, transparent); transition: border-color 0.15s ease; }
+.joy-lane.past-left { border-left-color: rgba(124, 58, 237, 0.85); }
+.joy-lane.past-right { border-right-color: rgba(124, 58, 237, 0.85); }
+@keyframes joy-lane-rise { from { transform: scaleY(0); opacity: 0; } to { transform: scaleY(1); opacity: 1; } }

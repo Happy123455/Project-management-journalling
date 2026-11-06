@@ -3,7 +3,11 @@ import { loadRecent } from "../search/SearchPanel";
 import { createPortal } from "react-dom";
 import { dayTitle } from "../lib/timestamp";
 import { openOutline, setViewMode, useViewMode, viewMode as currentViewMode, type ViewMode } from "../editor/viewMode";
-import { matchTitles, type TitleHit } from "./titleMatch";
+import { matchTitles, parseScope, type TitleHit } from "./titleMatch";
+import { highlightParts } from "../lib/search";
+import { rememberSearch, type SearchResult } from "../search/SearchPanel";
+import type { SearchHit } from "../store";
+import { joyLane } from "./joyPrefs";
 import { currentLoc, type Loc, type TabsState } from "./tabs";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
 import { haptic } from "../lib/haptic";
@@ -116,7 +120,10 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   // armed: the button has been lifted clear of the screen's bottom edge and the stick is live.
   // lift: how far up (px) the button goes, to the middle of the screen's lower third. offX: sideways
   // lean (days), off: up/down lean (scrolling). days: days moved so far, acc: progress to the next one.
-  const joyRun = useRef<{ frame: number; at: number; off: number; offX: number; travel: number; edge: boolean; armed: boolean; lift: number; days: number; acc: number; go: number } | null>(null);
+  // lane: half-width (px) of the scroll-only lane around Home (Settings → Gestures); side: which line
+  // the thumb is past (-1 left, 1 right, 0 inside).
+  const joyRun = useRef<{ frame: number; at: number; off: number; offX: number; travel: number; edge: boolean; armed: boolean; lift: number; days: number; acc: number; go: number; lane: number; side: number } | null>(null);
+  const [lane, setLane] = useState<{ x: number; w: number; side: number } | null>(null);
   const [joyX, setJoyX] = useState(0);
   const joyMode = useRef<ViewMode | null>(null);
   const [joyDays, setJoyDays] = useState(0);
@@ -142,6 +149,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     setJoy(null);
     setJoyX(0);
     setJoyDays(0);
+    setLane(null);
     // Back to writing mode, without focusing the note (tap the text to type).
     if (joyMode.current === "live" && currentViewMode() === "reading") window.setTimeout(() => setViewMode("live"), 80);
     joyMode.current = null;
@@ -154,21 +162,27 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     window.JournalShare?.hideKeyboard?.();
     if (joyMode.current === "live") setViewMode("reading");
     setJoy(0);
-    // Up to the middle of the lower third of the screen (never less than a thumb's width).
     const r = homeEl?.getBoundingClientRect();
-    const lift = r ? Math.max(JOY_LIFT, r.top + r.height / 2 - window.innerHeight * (5 / 6)) : JOY_LIFT;
-    const j = { frame: 0, at: performance.now(), off: 0, offX: 0, travel: 0, edge: false, armed: false, lift, days: 0, acc: 0, go: 0 };
+    // The button follows the thumb, so it only needs to clear the bottom edge before the stick engages.
+    const lift = JOY_LIFT;
+    const j = { frame: 0, at: performance.now(), off: 0, offX: 0, travel: 0, edge: false, armed: false, lift, days: 0, acc: 0, go: 0, lane: joyLane(), side: 0 };
     joyRun.current = j;
+    // The faint lane lines rise from Home: between them it only scrolls; past one, the day changes.
+    if (r) setLane({ x: r.left + r.width / 2, w: j.lane, side: 0 });
     const loop = (now: number) => {
       const dt = Math.min(0.05, (now - j.at) / 1000);
       j.at = now;
-      // Whichever way it leans more wins: sideways = days, up/down = scrolling.
-      const sideways = Math.abs(j.offX) > Math.abs(j.off) * 1.4;
-      // A wide dead zone: a thumb wobbling while it scrolls never changes the day.
-      const leanX = Math.abs(j.offX) - 42;
-      if (j.armed && sideways && leanX > 0) {
-        // One day at a time near the middle, up to ~8 a second at full lean.
-        const rate = Math.min(5, 0.9 + Math.pow(leanX / 50, 1.8) * 2);
+      // Inside the lane it only scrolls; past a lane line it changes days (one at once as the line
+      // is crossed, then faster the further past it the thumb goes).
+      const leanX = Math.abs(j.offX) - j.lane;
+      const sideways = leanX > 0;
+      const side = sideways ? Math.sign(j.offX) : 0;
+      if (side !== j.side) {
+        j.side = side;
+        setLane((l) => (l ? { ...l, side } : l));
+      }
+      if (sideways) {
+        const rate = Math.min(5, 0.6 + Math.pow(leanX / 50, 1.8) * 2);
         if (j.acc === 0) j.acc = 1;
         else j.acc += rate * dt;
         while (j.acc >= 1) {
@@ -275,6 +289,15 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     if (s.mode === "idle") {
       if (Math.hypot(dx, dy) < 12) return;
       window.clearTimeout(s.timer);
+      // Home pressed a moment and then dragged (a thumb rarely holds perfectly still): that's the
+      // joystick too, not a swipe. Only a quick flick from Home is a swipe.
+      if (s.zone === "home" && e.timeStamp - s.t0 > 170) {
+        s.mode = "joy";
+        startJoy(navRef.current?.querySelector<HTMLElement>(".nav-home") ?? null);
+        s.x0 = s.x;
+        s.y0 = s.y;
+        return;
+      }
       if (s.zone === "search" && dy < -14 && -dy > Math.abs(dx)) {
         // Swipe up on 🔍: every search so far.
         s.mode = "searchHistory";
@@ -293,21 +316,17 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     if (s.mode === "joy") {
       const j = joyRun.current;
       if (!j) return;
-      // First the button is drawn up, away from the bottom edge (nothing scrolls yet); once it is a
-      // safe height up, the stick engages there, with room to lean both ways.
+      // The button sits under the thumb the whole time. First it's drawn up, away from the bottom
+      // edge (nothing scrolls yet); once it's a safe height up the stick engages there.
+      j.offX = Math.max(-j.lane - 110, Math.min(j.lane + 110, dx));
+      setJoyX(j.offX);
+      setJoy(Math.max(-window.innerHeight * 0.7, Math.min(0, dy)));
       if (!j.armed) {
-        setJoyX(Math.max(-30, Math.min(30, dx * 0.3)));
-        if (dy > -j.lift) return setJoy(Math.min(0, dy));
+        if (dy > -j.lift) return;
         j.armed = true;
-        // The stick's middle is where the finger is now.
-        s.x0 = s.x;
         haptic("edge", 0.9);
       }
-      const off = dy + j.lift;
-      j.off = Math.max(-100, Math.min(100, off));
-      j.offX = Math.max(-110, Math.min(110, s.x - s.x0));
-      setJoy(-j.lift + Math.max(-40, Math.min(40, off * 0.4)));
-      setJoyX(Math.max(-44, Math.min(44, j.offX * 0.4)));
+      j.off = Math.max(-100, Math.min(100, dy + j.lift));
     } else if (s.mode === "quick" || s.mode === "previews") {
       if (Math.hypot(dx, dy) > 14) s.movedAfter = true;
       pickAt(e.clientX, e.clientY);
@@ -371,7 +390,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
           <button type="button" className="nav-btn" disabled={!canForward} onClick={press(onForward)} aria-label="Forward">
             <Icon d={FORWARD} />
           </button>
-          <button type="button" className="nav-btn" data-zone="search" onClick={press(onSearch)} aria-label="Find a note by title (hold or swipe up: search history)">
+          <button type="button" className="nav-btn" data-zone="search" onClick={press(onSearch)} aria-label="Search everything (hold or swipe up: search history)">
             <Icon d={SEARCH} />
           </button>
         </div>
@@ -408,6 +427,11 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
           </button>
         </div>
       </nav>
+      {lane &&
+        createPortal(
+          <div className={`joy-lane${lane.side < 0 ? " past-left" : lane.side > 0 ? " past-right" : ""}`} style={{ left: lane.x - lane.w, width: lane.w * 2 }} aria-hidden />,
+          document.body,
+        )}
       {menu && <ModeMenu mode={mode} actions={actions} onClose={() => setMenu(false)} />}
       {picker === "quick" && <QuickPicker mode={mode} hover={hover} onPick={(k) => (closePicker(), runPick("quick", k))} onClose={closePicker} />}
       {picker === "previews" && <TabPreviews tabs={tabs} today={today} hover={hover} onPick={(k) => (closePicker(), runPick("previews", k))} onClose={closePicker} />}
@@ -551,7 +575,7 @@ function rememberTitle(h: TitleHit) {
   }
 }
 
-export function TitleSearch({ pages, days, today, onOpen, onClose, history = false, onTextSearch }: {
+export function TitleSearch({ pages, days, today, onOpen, onClose, history = false, onTextSearch, search, onPickHit }: {
   pages: () => Promise<string[]>;
   days: string[];
   today: string;
@@ -561,6 +585,10 @@ export function TitleSearch({ pages, days, today, onOpen, onClose, history = fal
   history?: boolean;
   /** A past text search tapped: search the notes' text for it again. */
   onTextSearch?: (q: string) => void;
+  /** Searches what the notes say (and file names): the same search as the 🔎 panel. */
+  search?: (q: string) => Promise<SearchResult[]>;
+  /** A text match tapped: open it at that match. */
+  onPickHit?: (hit: SearchHit, match: number) => void;
 }) {
   const [q, setQ] = useState("");
   const [past, setPast] = useState<Past[]>(() => {
@@ -584,7 +612,25 @@ export function TitleSearch({ pages, days, today, onOpen, onClose, history = fal
     };
   }, [pages]);
   useEscapeToClose(onClose);
-  const hits = matchTitles(q, names, days, today);
+  // A global search: titles first, then everything the notes say. "file:(…)" (or title:, day:,
+  // page:) looks only there.
+  const { scope, text } = parseScope(q);
+  const titleHits = scope === "file" ? [] : matchTitles(text, names, days, today).filter((h) => scope === "all" || scope === "title" || h.kind === scope);
+  const hits = scope === "all" ? titleHits.slice(0, 6) : titleHits;
+  const [found, setFound] = useState<SearchResult[] | null>(null);
+  useEffect(() => {
+    if (!search || !text || scope === "title") return setFound(null);
+    let live = true;
+    const t = window.setTimeout(() => void search(text).then((r) => live && setFound(r.filter((x) => scope === "all" || x.hit.kind === scope)), () => {}), 220);
+    return () => {
+      live = false;
+      window.clearTimeout(t);
+    };
+  }, [search, text, scope]);
+  const pickHit = (hit: SearchHit, match: number) => {
+    rememberSearch(q);
+    onPickHit?.(hit, match);
+  };
   return createPortal(
     <>
       <div className="search-backdrop" onClick={onClose} />
@@ -595,14 +641,20 @@ export function TitleSearch({ pages, days, today, onOpen, onClose, history = fal
             ref={input}
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Note title or date…"
+            placeholder="Search everything… (file: for files)"
             enterKeyHint="go"
-            onKeyDown={(e) => e.key === "Enter" && hits[0] && open(hits[0], false)}
-            aria-label="Note title"
+            onKeyDown={(e) => e.key === "Enter" && (hits[0] ? open(hits[0], false) : found?.[0] && pickHit(found[0].hit, 0))}
+            aria-label="Search"
           />
           <button type="button" className="search-clear" onClick={onClose} aria-label="Close">✕</button>
         </div>
-        <p className="search-summary">{q.trim() ? `${hits.length} ${hits.length === 1 ? "note" : "notes"} by title` : past.length ? `Search history · ${past.length}` : "Titles only: days and pages"}</p>
+        <p className="search-summary">
+          {q.trim()
+            ? `${scope === "all" ? "" : `Only ${scope === "file" ? "files" : scope === "title" ? "titles" : `${scope}s`} · `}${hits.length ? `${hits.length} by title` : ""}${hits.length && found?.length ? " · " : ""}${found?.length ? `${found.length} in ${scope === "file" ? "files" : "notes"}` : ""}${!hits.length && !found?.length ? (found ? "No matches" : "Searching…") : ""}`
+            : past.length
+              ? `Search history · ${past.length}`
+              : "Everything: titles, text, #tags, files. file:(…) for files only"}
+        </p>
         {!q.trim() && past.length > 0 && (
           <ul className="search-results search-history">
             {past.map((p) => (
@@ -650,6 +702,29 @@ export function TitleSearch({ pages, days, today, onOpen, onClose, history = fal
               <button type="button" className="title-hit-tab" onClick={() => open(h, true)} aria-label={`Open ${h.label} in a new tab`} title="Open in a new tab">
                 ⧉
               </button>
+            </li>
+          ))}
+          {found?.map((r) => (
+            <li key={r.hit.kind === "file" ? r.hit.file.id : r.hit.blockId}>
+              <div className="search-result" role="button" tabIndex={0} onClick={() => pickHit(r.hit, 0)}>
+                <span className="search-where">
+                  {r.hit.kind === "file" ? `📎 ${r.hit.file.name}` : r.hit.day ? `📅 ${dayTitle(r.hit.day)}` : `📄 ${r.hit.title}`}
+                  {r.count > 0 && <span className="search-count">{r.count}</span>}
+                </span>
+                {r.hit.kind !== "file" &&
+                  r.lines.slice(0, 3).map((l, i) => (
+                    <span
+                      key={i}
+                      className="search-line"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        pickHit(r.hit, r.lines.slice(0, i).reduce((n, x) => n + x.ranges.length, 0));
+                      }}
+                    >
+                      {highlightParts(l).map((p, k) => (p.hit ? <mark key={k}>{p.text}</mark> : <span key={k}>{p.text}</span>))}
+                    </span>
+                  ))}
+              </div>
             </li>
           ))}
         </ul>

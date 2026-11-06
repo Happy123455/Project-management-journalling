@@ -13,3 +13,14 @@ describe("title search", () => {
     expect(matchTitles("  ", pages, days, "2026-11-05")).toEqual([]);
   });
 });
+
+import { parseScope } from "./titleMatch";
+describe("parseScope", () => {
+  it("reads file:(…) and file:word", () => {
+    expect(parseScope("file:(budget sheet)")).toEqual({ scope: "file", text: "budget sheet" });
+    expect(parseScope("file:budget")).toEqual({ scope: "file", text: "budget" });
+    expect(parseScope("FILE:(")).toEqual({ scope: "file", text: "" });
+    expect(parseScope("rent title:(march)")).toEqual({ scope: "title", text: "march rent" });
+    expect(parseScope("plain words")).toEqual({ scope: "all", text: "plain words" });
+  });
+});

@@ -1,3 +1,4 @@
+import { JOY_LANE_MAX, JOY_LANE_MIN, joyLane, setJoyLane } from "../nav/joyPrefs";
 import { ambienceSettings, setAmbienceSettings, type AmbienceSettings } from "../lib/ambience";
 import type { ToneMode } from "../lib/softLight";
 import { useEffect, useState } from "react";
@@ -271,6 +272,7 @@ function McpSettings({ store }: { store: JournalStore | null }) {
 /** Phone swipes across the note (the week strip's are fixed: right = menu, left = year). */
 function GestureSettings() {
   const [g, setG] = useState(loadGestures);
+  const [lane, setLane] = useState(joyLane);
   if (!window.matchMedia?.("(pointer: coarse)").matches) return null;
   const set = (k: keyof Gestures, v: CanvasAction) => {
     const next = { ...g, [k]: v };
@@ -289,6 +291,27 @@ function GestureSettings() {
         </label>
       ))}
       <p className="hint">On the week strip: left → right opens the menu, right → left opens the year.</p>
+      <label className="settings-number">
+        <span>Home button: sideways sensitivity</span>
+        <span className="settings-slider">
+          <input
+            type="range"
+            min={JOY_LANE_MIN}
+            max={JOY_LANE_MAX}
+            step={5}
+            // Right = more sensitive (a narrower lane).
+            value={JOY_LANE_MIN + JOY_LANE_MAX - lane}
+            onChange={(ev) => {
+              const v = JOY_LANE_MIN + JOY_LANE_MAX - Number(ev.target.value);
+              setLane(v);
+              setJoyLane(v);
+            }}
+            aria-label="Home button sideways sensitivity"
+          />
+          <output>{Math.round(((JOY_LANE_MAX - lane) / (JOY_LANE_MAX - JOY_LANE_MIN)) * 100)}%</output>
+        </span>
+        <small>Hold Home and drag: inside the faint lines it only scrolls up and down; crossing a line changes the day. Lower = wider lane, harder to change day by accident.</small>
+      </label>
     </section>
   );
 }
