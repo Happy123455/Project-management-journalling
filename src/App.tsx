@@ -286,6 +286,7 @@ function App() {
   // opened from the pinned strip: it grows, the browser shifts the page to keep the text in place, and
   // that shift would look like a scroll down and fold it again at once.
   const openedAt = useRef(0);
+  const settleUntil = useRef(0);
   useEffect(() => {
     let lastY = window.scrollY;
     // Only scrolls the finger (or wheel) made count. The page also moves by itself when the strip
@@ -294,10 +295,13 @@ function App() {
     let userAt = 0;
     const byUser = () => Date.now() - userAt < 600;
     let touchY: number | null = null;
+    let touchX: number | null = null;
     let pulled = 0;
     const onScroll = () => {
       const y = window.scrollY;
-      if (byUser()) {
+      // Switching day swaps the note under the finger: the page jumps by itself, which isn't a scroll
+      // the hand made (it opened the week strip for a split second, then it snapped back).
+      if (byUser() && Date.now() > settleUntil.current) {
         if (y > lastY + 4 && y > 60 && Date.now() - openedAt.current > 900) setCalendarCollapsed(true);
         // Up by a little: the thin bar opens back to the week.
         if (y < lastY) {
@@ -311,6 +315,7 @@ function App() {
     const onTouchStart = (e: globalThis.TouchEvent) => {
       userAt = Date.now();
       touchY = e.touches[0]?.clientY ?? null;
+      touchX = e.touches[0]?.clientX ?? null;
       pulled = 0;
     };
     // Dragging the note down (to scroll up) also works at the very top, where nothing scrolls.
@@ -319,7 +324,9 @@ function App() {
       const y = e.touches[0]?.clientY;
       if (touchY == null || y == null) return;
       pulled = y - touchY;
-      if (pulled > 36 && window.scrollY < 4) setCalendarCompact(false);
+      // A pull straight down at the top, not a sideways swipe that drifts a little (day switching).
+      const sideways = touchX != null ? Math.abs((e.touches[0]?.clientX ?? touchX) - touchX) : 0;
+      if (pulled > 36 && pulled > sideways * 1.5 && window.scrollY < 4 && Date.now() > settleUntil.current) setCalendarCompact(false);
     };
     const onWheel = () => (userAt = Date.now());
     // Typing in the note folds the strip to its thin bar.
@@ -519,6 +526,7 @@ function App() {
   );
 
   const goTo = async (next: string, keepFind = false) => {
+    settleUntil.current = Date.now() + 900;
     await flush();
     setDay(next);
     setRoute({ kind: "day" });
@@ -581,6 +589,10 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [here]);
   useEffect(() => saveTabs(tabs), [tabs]);
+  // The new note settling in (it loads, grows, scroll is restored) isn't the hand scrolling.
+  useEffect(() => {
+    settleUntil.current = Date.now() + 900;
+  }, [here, loadedDay]);
   // Each tab remembers how far down each note was; going back to it scrolls there again.
   const restoring = useRef<number | null>(null);
   const scrollHere = useRef("");
