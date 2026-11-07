@@ -372,7 +372,11 @@ export function blockDecorations(doc: PMNode): DecorationSet {
       const isBox = node.isTextblock && /\[\[[^\]]+\]\]/.test(node.textContent);
       // Any block with lines under it gets them (it used to take four lines or more, so most bulleted
       // or formatted blocks never showed a ⧉).
-      if (!node.attrs.collapsed && (range.end - i > 1 || isBox)) {
+      // A block nested inside a bigger one that ends on the same line would put its ⧉ exactly on top
+      // of the bigger block's bottom ⧉, so tapping the bottom corner copied only the inner part
+      // (Hapi, 2026-11-07: a box whose last point had a sub-line). The outer block's ⧉ wins.
+      const sharesBottom = i < copiedUntil && range.end === copiedUntil;
+      if (!node.attrs.collapsed && (range.end - i > 1 || isBox) && !sharesBottom) {
         copiedUntil = Math.max(copiedUntil, range.end);
         // Copy and fold at the bottom right, on the block's lower edge (away from the line being
         // typed, so a tap at the end of the text doesn't hit them).
