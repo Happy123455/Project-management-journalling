@@ -148,6 +148,20 @@ export class DriveFolder implements SyncFolder {
       await this.call(`${UPLOAD}/${id}?uploadType=media`, { method: "PATCH", body: new Blob([bytes as BlobPart]) });
       return;
     }
+    if (bytes.length > 4 * 1024 * 1024) {
+      // Big files (a long video, a large backlog): Drive's resumable upload; one multipart request
+      // is meant for small files and big ones failed at the end, again every round.
+      const start = await this.call(`${UPLOAD}?uploadType=resumable&fields=id`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=UTF-8", "X-Upload-Content-Type": "application/octet-stream", "X-Upload-Content-Length": String(bytes.length) },
+        body: JSON.stringify({ name, parents: [parent] }),
+      });
+      const session = start.headers.get("Location");
+      if (!session) throw new Error("Google Drive didn't open an upload");
+      const res = await fetch(session, { method: "PUT", body: new Blob([bytes as BlobPart]) });
+      if (!res.ok) throw new Error(`Google Drive said ${res.status} to an upload: ${(await res.text()).slice(0, 200)}`);
+      return;
+    }
     const boundary = `journal${Date.now()}`;
     const body = new Blob([
       `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name, parents: [parent] })}\r\n`,

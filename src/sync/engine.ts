@@ -56,6 +56,27 @@ export interface SyncResult {
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
+const PART_BYTES = 4 * 1024 * 1024;
+
+/** Records split into runs whose lines add up to at most `max` bytes (a bigger single record goes alone). */
+export function inParts(records: SyncRecord[], max: number): SyncRecord[][] {
+  const parts: SyncRecord[][] = [];
+  let cur: SyncRecord[] = [];
+  let size = 0;
+  for (const r of records) {
+    const n = enc.encode(toLines([r])).length + 1;
+    if (cur.length && size + n > max) {
+      parts.push(cur);
+      cur = [];
+      size = 0;
+    }
+    cur.push(r);
+    size += n;
+  }
+  if (cur.length) parts.push(cur);
+  return parts;
+}
+
 /**
  * One sync round:
  * 1. write this device's new events to a new events/<device>/<time>.jsonl (only ever its own files)
@@ -123,11 +144,15 @@ export async function syncOnce(store: JournalStore, plainFolder: SyncFolder, mem
   // Only the events not sent yet are read in full (each one can hold a whole page).
   const sent = new Set(mem.ids);
   const missing = await store.syncRecords(sent);
-  if (missing.length) {
+  // Batch 17: in parts of ~4 MB, each remembered once it's on Drive. One file holding a backlog of
+  // whole-page edits grew past what one Drive upload takes; it failed at the end and was sent again
+  // every round (mobile data used, nothing ever arrived on the Mac).
+  for (const part of inParts(missing, PART_BYTES)) {
     const name = `${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 6)}.jsonl`;
-    await folder.write(`events/${me}/${name}`, enc.encode(toLines(missing)));
+    await folder.write(`events/${me}/${name}`, enc.encode(toLines(part)));
     mem.files.push(name);
-    mem.ids.push(...missing.map((r) => r.event.id));
+    mem.ids.push(...part.map((r) => r.event.id));
+    remember();
   }
   remember();
   // 2. Import from every other device.
