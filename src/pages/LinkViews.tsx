@@ -19,6 +19,25 @@ export interface LinkHandlers {
   onOpenTag: (tag: string) => void;
 }
 
+const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+const EDIT_RE = /✎ (\d{1,2}),([A-Za-z]+),(\d{4}) [A-Za-z]+ \((\d{2}):(\d{2})/g;
+/**
+ * Batch 17: going back to an older day and changing a line stamps it "✎ <when>". The backlink row
+ * shows that latest edit (and the note moves up to where that edit falls in time), so a change to
+ * an old entry is seen from the page it mentions, not only on the day it was first written.
+ */
+export function latestEdit(content: unknown): { key: string; day: string; time: string } | null {
+  let best: { key: string; day: string; time: string } | null = null;
+  for (const m of JSON.stringify(content ?? "").matchAll(EDIT_RE)) {
+    const month = MONTHS.indexOf(m[2].toLowerCase());
+    if (month < 0) continue;
+    const day = `${m[3]}-${String(month + 1).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+    const key = `${day} ${m[4]}:${m[5]}`;
+    if (!best || key > best.key) best = { key, day, time: `${m[4]}:${m[5]}` };
+  }
+  return best;
+}
+
 const shortDay = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: d.slice(0, 4) === String(new Date().getFullYear()) ? undefined : "2-digit" });
 
 /**
@@ -32,6 +51,7 @@ function ReferenceCard({ reference, kind, target, handlers }: { reference: Refer
   const blocks = mentionBlocks(reference.content as JSONContent, kind, target);
   const go = () => (reference.day ? handlers.onOpenDay(reference.day, lines[0]?.trim()) : handlers.onOpenLink(reference.title ?? ""));
   const first = blocks[0];
+  const edited = latestEdit(blocks);
   return (
     <li className={`timeline-row reference-row${open ? " open" : ""}`}>
       <div className="reference-head">
@@ -41,6 +61,7 @@ function ReferenceCard({ reference, kind, target, handlers }: { reference: Refer
           <span className="timeline-first">
             {first ? <DocView content={first} compact className="doc-line" onOpenLink={handlers.onOpenLink} onOpenTag={handlers.onOpenTag} /> : <span>{lines[0]?.trim()}</span>}
           </span>
+          {edited && edited.day !== reference.day && <span className="reference-edited" title={`Changed ${dayTitle(edited.day)}, ${edited.time}`}>✎ {shortDay(edited.day)}</span>}
           {blocks.length > 1 && <span className="reference-more">+{blocks.length - 1}</span>}
         </button>
         <button type="button" className="reference-go" onClick={go} aria-label="Go there" title="Go there">›</button>
@@ -72,7 +93,14 @@ function References({ store, kind, target, exclude, excludeDay, handlers, refres
     store.references(kind, target).then((r) => {
       if (cancelled) return;
       const list = r.filter((x) => x.blockId !== exclude && (!excludeDay || x.day !== excludeDay));
-      setRefs(list);
+      // Newest activity first: an old day changed today sits with today's mentions.
+      const when = (x: Reference) => {
+        const e = x.day ? latestEdit(mentionBlocks(x.content as JSONContent, kind, target)) : null;
+        return e && e.day > (x.day ?? "") ? e.day : (x.day ?? "");
+      };
+      const keyed = list.map((x, i) => ({ x, i, k: when(x) }));
+      if (keyed.some((e) => e.k !== (e.x.day ?? ""))) keyed.sort((a, b) => (a.x.day && b.x.day ? b.k.localeCompare(a.k) : 0) || a.i - b.i);
+      setRefs(keyed.map((e) => e.x));
       onCount?.(list.length);
     });
     return () => {

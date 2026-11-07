@@ -254,6 +254,7 @@ export function Upcoming({ pages, onPick, onAction, title = "Coming up", inMonth
         let n = 0;
         // A squeezed row keeps its full height in the list (only its card gets thin): otherwise the
         // rows below jump up as it squeezes, cross the line themselves, and the list judders.
+        if (foldedRef.current) return;
         for (const li of Array.from(ul.children).slice(0, STACK_MAX) as HTMLElement[])
           if (!li.classList.contains("squeezed")) li.style.minHeight = `${li.offsetHeight}px`;
         for (const li of ul.children) {
@@ -269,6 +270,50 @@ export function Upcoming({ pages, onPick, onAction, title = "Coming up", inMonth
       scroller.removeEventListener("scroll", onScroll);
     };
   }, [pages.length, inMonth]);
+
+  // The Coming up panel folds like the month's (batch 17): once the list is at its end, pulling
+  // further folds it into the thin table; pulling down at its top opens it back.
+  const foldedRef = useRef(folded);
+  foldedRef.current = folded;
+  // Rows held at their full height while squeezing would keep the folded table tall.
+  useEffect(() => {
+    if (!inMonth) for (const li of Array.from(list.current?.children ?? []) as HTMLElement[]) li.style.minHeight = "";
+  }, [folded, inMonth]);
+  useEffect(() => {
+    const scroller = list.current?.closest<HTMLElement>(".upcoming-scroll");
+    if (inMonth || !scroller) return;
+    const at = () => ({ top: scroller.scrollTop <= 1, end: scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2 });
+    let start: { y: number; top: boolean; end: boolean } | null = null;
+    let pull = 0;
+    const flip = (dy: number, edge: { top: boolean; end: boolean }) => {
+      if (dy < 0 && !foldedRef.current && edge.end) setFolded(true);
+      else if (dy > 0 && foldedRef.current && edge.top) setFolded(false);
+    };
+    const onStart = (e: TouchEvent) => (start = { y: e.touches[0].clientY, ...at() });
+    const onEnd = (e: TouchEvent) => {
+      const s0 = start;
+      start = null;
+      if (!s0) return;
+      const dy = e.changedTouches[0].clientY - s0.y;
+      const now = at();
+      if (Math.abs(dy) >= 24) flip(dy, { top: s0.top && now.top, end: s0.end && now.end });
+    };
+    const onWheel = (e: WheelEvent) => {
+      const edge = at();
+      if ((e.deltaY > 0 && !foldedRef.current && edge.end) || (e.deltaY < 0 && foldedRef.current && edge.top)) {
+        pull += Math.abs(e.deltaY);
+        if (pull > 60) (pull = 0), flip(-e.deltaY, edge);
+      } else pull = 0;
+    };
+    scroller.addEventListener("touchstart", onStart, { passive: true });
+    scroller.addEventListener("touchend", onEnd, { passive: true });
+    scroller.addEventListener("wheel", onWheel, { passive: true });
+    return () => {
+      scroller.removeEventListener("touchstart", onStart);
+      scroller.removeEventListener("touchend", onEnd);
+      scroller.removeEventListener("wheel", onWheel);
+    };
+  }, [inMonth, pages.length > 0]);
 
   // In the month: the month stays where it is. A swipe up inside Coming up folds only Coming up
   // (it then ends right under its last row, and scrolls by itself when the rows don't fit); a swipe
@@ -296,8 +341,12 @@ export function Upcoming({ pages, onPick, onAction, title = "Coming up", inMonth
   );
   if (!inMonth)
     return (
-      <section className="reminders upcoming">
-        <h2>{title}</h2>
+      <section className={folded ? "reminders upcoming folded" : "reminders upcoming"}>
+        <h2>
+          <button type="button" className="upcoming-fold" onClick={() => setFolded(!folded)} aria-expanded={!folded}>
+            {title} <span aria-hidden>{folded ? "▾" : "▴"}</span>
+          </button>
+        </h2>
         {rows}
       </section>
     );

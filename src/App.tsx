@@ -1132,8 +1132,10 @@ function App() {
               <p className="loading">Loading…</p>
             ) : (
               // Only a real tap into the text shrinks the calendar; opening a day (which focuses
-              // the editor by itself) keeps the month open.
-              <div onPointerDown={() => setCalendarCollapsed(true)}>
+              // the editor by itself) keeps the month open. On click, not pointerdown: shrinking it as the
+              // finger lands moved the text up under the finger before the tap was placed, so the caret
+              // went somewhere else (in a code block: always its first line).
+              <div onClick={() => setCalendarCollapsed(true)}>
                 <JournalEditor
                   key={`${day}:${pageVersion}`}
                   // The latest text, not the copy loaded when the day opened: coming back from a

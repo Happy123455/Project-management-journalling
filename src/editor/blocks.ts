@@ -47,8 +47,8 @@ const isBoxHead = (doc: PMNode, i: number) => {
   const n = doc.child(i);
   return n.isTextblock && /\[\[[^\]]+\]\]/.test(n.textContent) && i + 1 < doc.childCount && indentOf(doc.child(i + 1)) > indentOf(n);
 };
-/** Blocks a heading's text stops at: a divider, a code or prompt block, a box. */
-const STOPS_HEADING = new Set(["horizontalRule", "codeBlock", "promptBlock"]);
+/** Blocks a heading's text stops at: a divider, a prompt block, a box (code under a heading is its text). */
+const STOPS_HEADING = new Set(["horizontalRule", "promptBlock"]);
 
 /**
  * What folding the block at `index` hides: its nested blocks, and for a heading (like Obsidian)
@@ -378,7 +378,9 @@ export function blockDecorations(doc: PMNode): DecorationSet {
         // typed, so a tap at the end of the text doesn't hit them).
         const last = doc.child(range.end - 1);
         const lastPos = blockPos(doc, range.end - 1);
-        const inner = lastTextblock(last, lastPos);
+        // Not inside a code block's text: there the ⧉ ▴ became part of the code's lines.
+        const found = lastTextblock(last, lastPos);
+        const inner = found && found.node.type.name !== "codeBlock" ? found : null;
         const at = inner ? inner.pos + inner.node.nodeSize - 1 : blockPos(doc, range.end);
         if (inner) bottomHosts.set(inner.pos, inner.node.nodeSize);
         decos.push(
@@ -430,7 +432,7 @@ export function blockDecorations(doc: PMNode): DecorationSet {
     else if (LISTS.has(node.type.name) && i >= hiddenUntil && i >= copiedUntil && i >= boxUntil && (node.childCount > 1 || node.firstChild?.childCount !== 1)) {
       // A bulleted / numbered / task list is one block holding all its points: ⧉ on its last line.
       const inner = lastTextblock(node, pos);
-      if (inner) {
+      if (inner && inner.node.type.name !== "codeBlock") {
         const index = i;
         bottomHosts.set(inner.pos, inner.node.nodeSize);
         decos.push(

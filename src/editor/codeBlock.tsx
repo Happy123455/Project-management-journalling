@@ -143,7 +143,7 @@ export const JournalCodeBlock = CodeBlock.extend({
         return editor
           .chain()
           .deleteRange({ from: $from.start(), to: $from.end() })
-          .setCodeBlock(fence[1] ? { language: fence[1] } : undefined)
+          .setCodeBlock({ ...(fence[1] ? { language: fence[1] } : {}), indent: Number($from.parent.attrs.indent ?? 0) || 0 } as { language: string })
           .run();
       },
     };
@@ -168,9 +168,12 @@ export function codeBlockFromSelection(editor: Editor) {
   });
   if (media) return editor.chain().focus().toggleCodeBlock().run();
   const text = state.doc.textBetween(from, to, "\n", (leaf) => (leaf.type.name === "hardBreak" ? "\n" : ""));
+  // Keeps the first line's nesting: at no indent the code fell out of the box it was made in, and
+  // the lines under it became its children (⧉ then copied the wrong part).
+  const indent = Number($from.node(1).attrs.indent ?? 0) || 0;
   return editor
     .chain()
     .focus()
-    .insertContentAt({ from, to }, { type: "codeBlock", content: text ? [{ type: "text", text }] : [] })
+    .insertContentAt({ from, to }, { type: "codeBlock", attrs: { indent }, content: text ? [{ type: "text", text }] : [] })
     .run();
 }

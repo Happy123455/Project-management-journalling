@@ -2546,6 +2546,7 @@ html.time-rail-on .editor-body { padding-right: 22px; }
 .reference-row .reference-head { display: flex; align-items: center; }
 .reference-row .timeline-head { flex: 1; min-width: 0; }
 .reference-caret { flex: none; width: 12px; color: var(--muted); font-size: 11px; }
+.reference-edited { flex: none; font-size: 11px; color: var(--accent, #7c3aed); padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent, #7c3aed) 14%, transparent); white-space: nowrap; }
 .reference-more { flex: none; font-size: 11px; color: var(--muted); padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 14%, transparent); }
 .reference-go { flex: none; border: none; background: transparent; box-shadow: none; padding: 6px 12px; font-size: 18px; color: var(--muted); }
 .reference-row .doc-line p { margin: 0; }
