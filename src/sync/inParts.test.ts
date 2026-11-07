@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { inParts } from "./engine";
-import type { SyncRecord } from "./engine";
+import type { SyncRecord } from "./merge";
 
 const rec = (id: string, size: number) => ({ event: { id, after: { text: "x".repeat(size) } } }) as unknown as SyncRecord;
 
