@@ -41,7 +41,8 @@ function blockLines(b: JSONContent, depth: number, out: string[], marker = "") {
       out.push(...inlineText(b.content).split("\n").map((l, i) => (i ? pad + " ".repeat(marker.length) : pad + marker) + l));
       return;
     case "codeBlock":
-      out.push(...(b.content ?? []).map((t) => t.text ?? "").join("").split("\n").map((l) => pad + l));
+      // In a list point: lined up under the point's text, not back at the number.
+      out.push(...(b.content ?? []).map((t) => t.text ?? "").join("").split("\n").map((l) => pad + " ".repeat(marker.length) + l));
       return;
     case "bulletList":
     case "orderedList":

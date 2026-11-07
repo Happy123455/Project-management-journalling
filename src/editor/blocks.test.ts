@@ -6,7 +6,7 @@ import type { JSONContent } from "@tiptap/react";
 import { MemoryStore } from "../store/memoryStore";
 import { docText } from "../lib/words";
 import { LinkCard } from "./linkCard";
-import { blockDecorations, Blocks, foldRange, deleteBlock, duplicateBlock, indentBlock, insertLine, moveBlock, moveBlockTo, toggleCollapsed } from "./blocks";
+import { blockDecorations, blockPlainText, Blocks, foldRange, deleteBlock, duplicateBlock, indentBlock, insertLine, moveBlock, moveBlockTo, toggleCollapsed } from "./blocks";
 
 const schema = getSchema([StarterKit, LinkCard, Blocks]);
 const p = (text: string, indent = 0) => ({ type: "paragraph", attrs: { indent }, content: text ? [{ type: "text", text }] : [] });
@@ -107,5 +107,47 @@ describe("blocks", () => {
     expect(foldRange(s.doc, 5).end).toBe(7); // C stops at the divider
     const folded = apply(s, toggleCollapsed(0)).state;
     expect(folded.doc.child(0).attrs.collapsed).toBe(true);
+  });
+});
+
+describe("bottom ⧉ of a box with a nested block ending on its last line (2026-11-07 note)", () => {
+  // The [[Journal]] box from Hapi's 7 Nov note: a numbered list with a code block in a point, then
+  // lines where the last one has an empty line nested under it.
+  const box = () =>
+    make(
+      p("[[Journal]]"),
+      {
+        type: "orderedList",
+        attrs: { indent: 1, start: 1 },
+        content: [
+          { type: "listItem", content: [p("first point")] },
+          { type: "listItem", content: [p("battery point"), { type: "codeBlock", content: [{ type: "text", text: "319min\n46.7%" }] }] },
+        ],
+      },
+      p("lagging", 1),
+      p("math block", 1),
+      p("cannot edit code", 2),
+      p("code block copy", 1),
+      p("", 2),
+      p("after"),
+    );
+  const bottomWidgets = (s: EditorState) =>
+    blockDecorations(s.doc)
+      .find()
+      .map((d) => (d as unknown as { spec: { key?: string } }).spec.key ?? "")
+      .filter((k) => k.startsWith("bfold-"));
+
+  it("has one ⧉ on the box's last line, and it is the box's", () => {
+    const keys = bottomWidgets(box());
+    // The box (block 0, ending before block 7) and the "math block" line (ending on its own line).
+    // "code block copy" ends on the same last line as the box: no second ⧉ stacked on the box's.
+    expect(keys.sort()).toEqual(["bfold-0-7", "bfold-3-5"]);
+  });
+
+  it("the box's ⧉ copies everything in it, code included", () => {
+    const s = box();
+    expect(blockPlainText(s.doc, 0)).toBe(
+      ["1. first point", "2. battery point", "   319min", "   46.7%", "lagging", "math block", "  cannot edit code", "code block copy"].join("\n"),
+    );
   });
 });
