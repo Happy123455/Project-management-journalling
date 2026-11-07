@@ -85,11 +85,25 @@ export async function syncOnce(store: JournalStore, plainFolder: SyncFolder, mem
 
   // 1. Export.
   const ownFiles = (await folder.list(`events/${me}`)).filter((f) => f.endsWith(".jsonl"));
-  if (!saved || ownFiles.length !== mem.files.length || ownFiles.some((f) => !mem.files.includes(f))) {
+  const sameFolder = !saved || !mem.files.length || ownFiles.some((f) => mem.files.includes(f));
+  if (!saved || !sameFolder) {
     // First round here, or a different folder (another Drive account): see what's already there.
     const ids = new Set<string>();
     for (const f of ownFiles) for (const r of fromLines(dec.decode((await folder.read(`events/${me}/${f}`)) ?? new Uint8Array()))) ids.add(r.event.id);
     mem = { files: ownFiles, ids: [...ids], hashes: [], seen: saved ? mem.seen : [] };
+  } else {
+    // Batch 17: a listing that differs from memory (Drive's list lagging behind a file just written,
+    // or one more page of files) used to throw memory away and download ALL of this device's files
+    // again (~270 MB, 562 files) before uploading anything; on mobile data that never finished, so
+    // the phone's edits stopped reaching the Mac. Now only own files it doesn't know are read, and
+    // the ones it remembers stay remembered even when a listing misses them.
+    const known = new Set(mem.files);
+    const fresh = ownFiles.filter((f) => !known.has(f));
+    if (fresh.length) {
+      const ids = new Set(mem.ids);
+      for (const f of fresh) for (const r of fromLines(dec.decode((await folder.read(`events/${me}/${f}`)) ?? new Uint8Array()))) ids.add(r.event.id);
+      mem = { ...mem, files: [...mem.files, ...fresh], ids: [...ids] };
+    }
   }
   // Attachments first, so another device never reads an event whose bytes aren't there yet.
   const uploaded = new Set(mem.hashes);
