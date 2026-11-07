@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { JSONContent } from "@tiptap/react";
 import { buildNexus } from "./lib/nexus";
 import { showError, showToast } from "./lib/toast";
@@ -10,8 +10,44 @@ export type NexusTarget = { kind: "day"; day: string; blockId: string; title: st
 const LANE = 96;
 const ROW = 30;
 
-/** ⑂ Nexus: how a note changed across devices, where two edited it at once, and a version to keep. */
-export function NexusView({ store, target, onClose, onRestored }: { store: JournalStore; target: NexusTarget; onClose: () => void; onRestored: () => void }) {
+export type NexusTab = "sync" | "send" | "history";
+
+/**
+ * ⑂ Nexus: everything between this device and the other one. Sync (status, connect, network
+ * history), Send (text and files straight over Wi-Fi) and History (how this note changed across
+ * devices, where two edited it at once, and a version to keep). Tapping the sync line opens it.
+ */
+export function NexusView({ store, target, tab: firstTab = "history", sync, send, onClose, onRestored }: {
+  store: JournalStore;
+  target: NexusTarget;
+  tab?: NexusTab;
+  sync: ReactNode;
+  send: ReactNode;
+  onClose: () => void;
+  onRestored: () => void;
+}) {
+  const [tab, setTab] = useState<NexusTab>(firstTab);
+  const tabs: [NexusTab, string][] = [["sync", "☁︎ Sync"], ["send", "📤 Send"], ["history", "⑂ This note"]];
+  return (
+    <div className="settings-view nexus-view" role="dialog" aria-label="Nexus">
+      <header className="graph-bar">
+        <button type="button" onClick={onClose} aria-label="Close">✕</button>
+        <h1 className="settings-title">⑂ Nexus</h1>
+      </header>
+      <div className="nexus-tabs" role="tablist">
+        {tabs.map(([k, label]) => (
+          <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{label}</button>
+        ))}
+      </div>
+      {tab === "sync" && <div className="nexus-sync">{sync}</div>}
+      {tab === "send" && send}
+      {tab === "history" && <NoteHistory store={store} target={target} onRestored={onRestored} />}
+    </div>
+  );
+}
+
+/** How a note changed across devices, where two edited it at once, and a version to keep. */
+function NoteHistory({ store, target, onRestored }: { store: JournalStore; target: NexusTarget; onRestored: () => void }) {
   const [events, setEvents] = useState<JournalEvent[] | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   useEffect(() => {
@@ -45,11 +81,8 @@ export function NexusView({ store, target, onClose, onRestored }: { store: Journ
   const x = (lane: number) => 48 + lane * LANE;
   const y = (row: number) => 24 + row * ROW;
   return (
-    <div className="settings-view nexus-view" role="dialog" aria-label="Nexus">
-      <header className="graph-bar">
-        <button type="button" onClick={onClose} aria-label="Close">✕</button>
-        <h1 className="settings-title">⑂ {target.title}</h1>
-      </header>
+    <div className="nexus-history">
+      <h2 className="settings-label">{target.title}</h2>
       {!nexus ? (
         <p className="hint">Loading…</p>
       ) : (

@@ -27,7 +27,7 @@ const isEmpty = (v: unknown) =>
  * Bookkeeping attrs the app keeps for itself (`born`: when typing in a line began). They are not
  * written into Source mode; reading back puts them back from the note as it was (SourceMemory).
  */
-const HIDDEN = ["born"];
+const HIDDEN = ["born", "lid"];
 
 function extras(attrs: Attrs | undefined, handled: string[]): Attrs | null {
   const out: Attrs = {};
@@ -219,7 +219,7 @@ const hiddenKey = (n: JSONContent) => `${n.type}:${nodeText(n)}`;
 /** Gives text blocks back the hidden attrs they had before Source mode (matched by their text). */
 function restoreHidden(n: JSONContent, mem: SourceMemory): void {
   if (!mem.hidden?.size) return;
-  if ((n.type === "paragraph" || n.type === "heading") && !HIDDEN.some((k) => n.attrs?.[k])) {
+  if (n.type !== "text" && n.type !== "doc" && !HIDDEN.some((k) => n.attrs?.[k])) {
     const queue = mem.hidden.get(hiddenKey(n));
     const kept = queue?.shift();
     if (kept) n.attrs = { ...(n.attrs ?? {}), ...kept };
@@ -232,7 +232,7 @@ export function sourceMemory(...docs: (JSONContent | null | undefined)[]): Sourc
   const cards = new Map<string, Attrs>();
   const hidden = new Map<string, Attrs[]>();
   const walk = (n: JSONContent) => {
-    if (n.type === "paragraph" || n.type === "heading") {
+    if (n.type !== "text" && n.type !== "doc") {
       const kept: Attrs = {};
       for (const k of HIDDEN) if (n.attrs?.[k]) kept[k] = n.attrs[k];
       if (Object.keys(kept).length) {

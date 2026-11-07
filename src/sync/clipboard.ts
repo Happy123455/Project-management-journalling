@@ -1,3 +1,4 @@
+import { receiveDrop } from "./drop";
 import type { Clip } from "./direct";
 import { showToast } from "../lib/toast";
 
@@ -73,6 +74,14 @@ const inApp = () => "__TAURI_INTERNALS__" in window;
 export function clipPreview(text: string, max = 48): string {
   const one = text.replace(/\s+/g, " ").trim();
   return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+}
+
+/** Nexus › Send: straight to the other device while linked (whatever the clipboard setting). */
+export function sendDrop(c: Omit<Clip, "id" | "from" | "at">): Clip | null {
+  if (!sink) return null;
+  const clip = { ...c, drop: true, id: newId(), from: me, at: Date.now() };
+  sink(clip);
+  return clip;
 }
 
 function send(c: Omit<Clip, "id" | "from" | "at">) {
@@ -190,13 +199,23 @@ export async function checkNow(force = false, seed = false) {
 
 /** A clip from the other device: onto this device's clipboard. */
 export async function receiveClip(c: Clip) {
+  if (c.drop) return void (c.from !== me && receiveDrop(c, other));
   if (!clipShareOn() || (me && c.from === me) || !inApp()) return;
+  await copyClip(c, `from ${other}`);
+}
+
+/** Puts a clip (text or image) on this device's clipboard, with a notice. */
+export async function copyClip(c: Clip, where = "") {
+  if (!inApp()) {
+    if (c.text != null) await navigator.clipboard.writeText(c.text).catch(() => {});
+    return showToast("📋 Copied");
+  }
   try {
     if (c.text != null) {
       lastKey = textKey(c.text);
       const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
       await writeText(c.text);
-      showToast(`📋 Copied from ${other}: “${clipPreview(c.text)}”`);
+      showToast(`📋 Copied${where ? ` ${where}` : ""}: “${clipPreview(c.text)}”`);
     } else if (c.data && c.mime?.startsWith("image/")) {
       if (isAndroid()) {
         lastKey = `i:${hashText(c.data)}`;
@@ -215,12 +234,12 @@ export async function receiveClip(c: Clip) {
         lastKey = "given-image";
         await writeImage(await Image.new(new Uint8Array(rgba.buffer), bitmap.width, bitmap.height));
       }
-      showToast(`📋 Image copied from ${other}`);
+      showToast(`📋 Image copied${where ? ` ${where}` : ""}`);
     }
     // What we just put there isn't sent back.
     if (isAndroid()) window.setTimeout(() => (lastStamp = phoneStamp()?.t ?? lastStamp), 400);
   } catch {
-    showToast(`📋 Something was copied on ${other}, but it couldn't be put on this clipboard`, "error");
+    showToast("📋 That couldn't be put on this clipboard", "error");
   }
 }
 

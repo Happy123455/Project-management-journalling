@@ -35,6 +35,9 @@
           "path": "$DOCUMENT/Dynamic Journal Backups/**"
         },
         {
+          "path": "$DOWNLOAD/*"
+        },
+        {
           "path": "$HOME/Library/CloudStorage"
         },
         {

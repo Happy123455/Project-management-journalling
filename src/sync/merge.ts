@@ -1,5 +1,6 @@
 import type { JSONContent } from "@tiptap/react";
 import type { FileRecord, JournalEvent } from "../store/types";
+import { siblingIds } from "./lineIds";
 
 /**
  * What a block is, so another device can create it from events alone. Day pages are found by
@@ -187,7 +188,7 @@ function similar(a: JSONContent, b: JSONContent): boolean {
 }
 
 /** Attributes that only say how a block looks (size, placement, folded, preview details), not what it is. */
-const LOOK = new Set(["width", "height", "align", "x", "y", "units", "collapsed", "status", "title", "site", "image"]);
+const LOOK = new Set(["lid", "born", "width", "height", "align", "x", "y", "units", "collapsed", "status", "title", "site", "image"]);
 const identity = (n: JSONContent) => {
   const a = n.attrs ?? {};
   // A link card's title/site/image come from its url; a prompt's title is part of what it is.
@@ -212,80 +213,134 @@ export function looseKey(node: JSONContent): string {
 }
 
 /**
- * `newer`'s blocks, plus each block only `older` added, placed after its neighbour from `older`.
- * With `base` (the last version both had), blocks `older` deleted or changed are dropped from
- * `newer` too, unless `newer` changed them as well. A block that only differs in attributes
- * (a resized clip, a moved photo) is never added twice: the 30 Oct face palm clip came back as
- * four copies, one per size it had been given on the two devices.
+ * `newer`'s lines, plus each line only `older` added, placed after its neighbour from `older`.
+ * Lines are matched by their hidden id (sync/lineIds.ts; made from content for lines without
+ * one), so one line written further on either device stays one line: the half-typed versions
+ * that used to pile up as extra lines ("Hel", "Hello wo", "Hello world") are now versions of it.
+ * With `base` (the last version both had), lines `older` deleted are dropped from `newer` too,
+ * unless `newer` changed them; a line both changed keeps the version that contains the other's
+ * text, else both edits when they touch different parts of it, else newer's (and older's as a
+ * line under it, so no text is lost). A block that only differs in look (a resized clip, a moved
+ * photo) is never added twice: the 30 Oct face palm clip came back as four copies.
  */
 export function mergeDocs(newer: JSONContent, older: JSONContent, base?: JSONContent): JSONContent {
-  const count = (nodes: JSONContent[]) => {
-    const m = new Map<string, number>();
-    for (const n of nodes) {
-      const k = JSON.stringify(n);
-      m.set(k, (m.get(k) ?? 0) + 1);
-    }
-    return m;
-  };
-  const olderNodes = older.content ?? [];
-  const baseCount = base ? count(base.content ?? []) : new Map<string, number>();
-  const olderCount = count(olderNodes);
-  // Blocks `older` deleted or changed since the base, and `newer` left as they were.
-  const drop = new Map<string, number>();
-  if (base) for (const [k, n] of baseCount) if (n > (olderCount.get(k) ?? 0)) drop.set(k, n - (olderCount.get(k) ?? 0));
+  return { ...newer, content: mergeLines(newer.content ?? [], older.content ?? [], base?.content) };
+}
+
+const same = (a: JSONContent | undefined, b: JSONContent | undefined) => !!a && !!b && JSON.stringify(a) === JSON.stringify(b);
+const isBlockList = (nodes: JSONContent[] | undefined) => !!nodes?.length && nodes.every((n) => n.type !== "text" && n.type !== "hardBreak");
+
+function mergeLines(newer: JSONContent[], older: JSONContent[], base?: JSONContent[]): JSONContent[] {
+  const idsN = siblingIds(newer);
+  const idsO = siblingIds(older);
+  const byO = new Map(idsO.map((id, i) => [id, older[i]]));
+  const byB = new Map<string, JSONContent>();
+  if (base) siblingIds(base).forEach((id, i) => byB.set(id, base[i]));
   const out: JSONContent[] = [];
-  for (const node of newer.content ?? []) {
-    const k = JSON.stringify(node);
-    const d = drop.get(k) ?? 0;
-    if (d > 0) {
-      drop.set(k, d - 1);
-      continue;
+  const outIds: string[] = [];
+  newer.forEach((n, i) => {
+    const id = idsN[i];
+    const o = byO.get(id);
+    const b = byB.get(id);
+    if (!o) {
+      // `older` deleted it and `newer` left it as it was.
+      if (b && same(n, b)) return;
+      out.push(n);
+      outIds.push(id);
+      return;
     }
-    out.push(node);
-  }
-  const keys = out.map((n) => JSON.stringify(n));
+    for (const [k, m] of mergeLine(n, o, b).entries()) {
+      out.push(m);
+      outIds.push(k ? `${id}~${k}` : id);
+    }
+  });
   const loose = new Set(out.map(looseKey));
-  const seen = new Map<string, number>();
-  let after = -1; // index in `out` of the last `older` block we placed or found
-  for (const node of olderNodes) {
-    const k = JSON.stringify(node);
-    const nth = (seen.get(k) ?? 0) + 1;
-    seen.set(k, nth);
-    // The nth copy of this block in `out`, if there is one.
-    let at = -1;
-    for (let i = 0, found = 0; i < keys.length; i++) if (keys[i] === k && ++found === nth) { at = i; break; }
+  let after = -1; // index in `out` of the last `older` line placed or found
+  older.forEach((o, i) => {
+    const id = idsO[i];
+    const at = outIds.indexOf(id);
     if (at >= 0) {
-      after = at;
-      continue;
+      after = Math.max(after, at);
+      return;
     }
-    // In the base: `newer` deleted or changed it on purpose.
-    if (base && nth <= (baseCount.get(k) ?? 0)) continue;
-    if (node.type === "paragraph" && !node.content?.length) continue;
-    // Same text or media as a block `newer` has, only resized or moved: `newer`'s version stays.
-    const lk = looseKey(node);
+    const b = byB.get(id);
+    // `newer` deleted it, and `older` didn't change it since.
+    if (b && same(o, b)) return;
+    if (o.type === "paragraph" && !o.content?.length) return;
+    // Same text or media as a line `newer` has, only resized or moved (or without an id).
+    const lk = looseKey(o);
     if (loose.has(lk)) {
-      const i = out.findIndex((n) => looseKey(n) === lk);
-      if (i > after) after = i;
-      continue;
+      const j = out.findIndex((n) => looseKey(n) === lk);
+      if (j > after) after = j;
+      return;
     }
-    // A list (or quote) both sides changed, e.g. a point moved on one device and another added on
-    // the other: merge its items instead of keeping two copies of the whole list.
-    const twin = out.findIndex((n, i) => i > after - 1 && similar(n, node));
-    const same = twin >= 0 ? twin : out.findIndex((n) => similar(n, node));
-    if (same >= 0) {
-      const baseTwin = base?.content?.filter((b) => similar(b, node)).sort((a, b) => overlap(b, node) - overlap(a, node))[0];
-      out[same] = mergeDocs(out[same], node, baseTwin);
-      keys[same] = JSON.stringify(out[same]);
-      loose.add(looseKey(out[same]));
-      after = same;
-      continue;
+    // An old list (no ids) both sides changed: merge its items instead of keeping two lists.
+    if (!o.attrs?.lid) {
+      const twin = out.findIndex((n, j) => j > after - 1 && !n.attrs?.lid && similar(n, o));
+      const sim = twin >= 0 ? twin : out.findIndex((n) => !n.attrs?.lid && similar(n, o));
+      if (sim >= 0) {
+        const baseTwin = base?.filter((x) => similar(x, o)).sort((x, y) => overlap(y, o) - overlap(x, o))[0];
+        out[sim] = mergeDocs(out[sim], o, baseTwin);
+        loose.add(looseKey(out[sim]));
+        after = sim;
+        return;
+      }
     }
-    out.splice(after + 1, 0, node);
-    keys.splice(after + 1, 0, k);
-    loose.add(looseKey(node));
+    out.splice(after + 1, 0, o);
+    outIds.splice(after + 1, 0, id);
+    loose.add(lk);
     after += 1;
+  });
+  return out;
+}
+
+const plainText = (n: JSONContent): string | null => {
+  if (!n.content?.length) return "";
+  if (n.content.some((c) => c.type !== "text" || c.marks?.length)) return null;
+  return n.content.map((c) => c.text ?? "").join("");
+};
+const textOf = (n: JSONContent): string => (n.text ?? "") + (n.content ?? []).map(textOf).join("");
+
+/** One line as both sides left it: one version, or two when they can't be put together. */
+function mergeLine(n: JSONContent, o: JSONContent, b?: JSONContent): JSONContent[] {
+  if (same(n, o)) return [n];
+  if (b && same(n, b)) return [o];
+  if (b && same(o, b)) return [n];
+  // A list, quote or list item both changed: merge what's inside, line by line.
+  if (isBlockList(n.content) && isBlockList(o.content) && n.type === o.type) {
+    return [{ ...n, content: mergeLines(n.content!, o.content!, isBlockList(b?.content) ? b!.content : undefined) }];
   }
-  return { ...newer, content: out };
+  if (n.type === o.type && looseKey(n) === looseKey(o)) return [n];
+  const tn = textOf(n);
+  const to = textOf(o);
+  // One is the other written further (or the same text restyled): the fuller one.
+  if (tn.includes(to)) return [n];
+  if (to.includes(tn)) return [o];
+  // Both typed in different parts of the line: both edits.
+  const pn = plainText(n);
+  const po = plainText(o);
+  const pb = b ? plainText(b) : null;
+  if (pn !== null && po !== null && pb !== null) {
+    const both = merge3(pb, po, pn);
+    if (both !== null) return [{ ...n, content: both ? [{ type: "text", text: both }] : undefined }];
+  }
+  return [n, { ...o, attrs: { ...(o.attrs ?? {}), lid: null } }];
+}
+
+/** Three-way merge of one line's text; null when both changed the same part. */
+export function merge3(base: string, a: string, b: string): string | null {
+  const span = (x: string) => {
+    let s = 0;
+    while (s < base.length && s < x.length && base[s] === x[s]) s++;
+    let e = 0;
+    while (e < base.length - s && e < x.length - s && base[base.length - 1 - e] === x[x.length - 1 - e]) e++;
+    return { from: s, to: base.length - e, text: x.slice(s, x.length - e) };
+  };
+  const ea = span(a);
+  const eb = span(b);
+  if (ea.to < eb.from || (ea.to === eb.from && ea.from < eb.from)) return base.slice(0, ea.from) + ea.text + base.slice(ea.to, eb.from) + eb.text + base.slice(eb.to);
+  if (eb.to < ea.from || (eb.to === ea.from && eb.from < ea.from)) return base.slice(0, eb.from) + eb.text + base.slice(eb.to, ea.from) + ea.text + base.slice(ea.to);
+  return null;
 }
 
 /**
@@ -300,16 +355,101 @@ export function eventDocument(after: string): JSONContent {
 /** A device's month file, e.g. "2026-10" for events/<device>/2026-10.jsonl. */
 export const monthOf = (createdAt: string) => createdAt.slice(0, 7);
 
-export const toLines = (records: SyncRecord[]) => records.map((r) => JSON.stringify(r)).join("\n") + (records.length ? "\n" : "");
+/**
+ * Sync files carry only what changed. Each event used to hold its whole note twice (before and
+ * after), so a few minutes of typing on a long day went up as many megabytes. Now, inside one
+ * file, an event's `before` that is the previous event's `after` is written as SAME, and `after`
+ * as the lines that differ from `before` (by line id) plus their order. Everything needed to read
+ * an event back is earlier in the same file, so no file depends on another arriving.
+ */
+const SAME = "\u0001same";
+const DELTA = "\u0001d";
+
+interface Delta {
+  /** Line ids, in order. */
+  k: string[];
+  /** Lines that are new or changed, by id. */
+  n: Record<string, JSONContent>;
+  /** The document without its lines. */
+  x: JSONContent;
+}
+
+const asDoc = (s: string | null | undefined): JSONContent | null => {
+  if (!s || s.startsWith("\u0001")) return null;
+  try {
+    const d = JSON.parse(s);
+    return d?.type === "doc" ? d : null;
+  } catch {
+    return null;
+  }
+};
+
+export function docDelta(after: JSONContent, before: JSONContent): Delta {
+  const lines = after.content ?? [];
+  const k = siblingIds(lines);
+  const old = before.content ?? [];
+  const oldIds = siblingIds(old);
+  const had = new Map(oldIds.map((id, i) => [id, JSON.stringify(old[i])]));
+  const n: Record<string, JSONContent> = {};
+  lines.forEach((line, i) => {
+    if (had.get(k[i]) !== JSON.stringify(line)) n[k[i]] = line;
+  });
+  const { content: _, ...x } = after;
+  return { k, n, x };
+}
+
+export function applyDelta(before: JSONContent, d: Delta): JSONContent {
+  const old = before.content ?? [];
+  const byId = new Map(siblingIds(old).map((id, i) => [id, old[i]]));
+  const content = d.k.map((id) => {
+    const line = d.n[id] ?? byId.get(id);
+    if (!line) throw new Error("sync file: line missing");
+    return line;
+  });
+  return { ...d.x, content };
+}
+
+export function toLines(records: SyncRecord[]): string {
+  const last = new Map<string, string>();
+  const out: string[] = [];
+  for (const r of records) {
+    const e = r.event;
+    if (!isContent(e) || !e.after) {
+      out.push(JSON.stringify(r));
+      continue;
+    }
+    const before = e.before && e.before === last.get(e.blockId) ? SAME : e.before;
+    const beforeDoc = asDoc(e.before);
+    const afterDoc = beforeDoc && asDoc(e.after);
+    let after = e.after;
+    if (beforeDoc && afterDoc) {
+      const packed = DELTA + JSON.stringify(docDelta(afterDoc, beforeDoc));
+      if (packed.length < after.length) after = packed;
+    }
+    last.set(e.blockId, e.after);
+    out.push(JSON.stringify({ ...r, event: { ...e, before, after } }));
+  }
+  return out.join("\n") + (out.length ? "\n" : "");
+}
 
 /** Reads a .jsonl sync file, skipping a half-written last line (the cloud may still be uploading it). */
 export function fromLines(text: string): SyncRecord[] {
   const out: SyncRecord[] = [];
+  const last = new Map<string, string>();
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {
       const r = JSON.parse(line) as SyncRecord;
-      if (r?.event?.id && r.meta) out.push(r);
+      if (!r?.event?.id || !r.meta) continue;
+      const e = r.event;
+      if (e.before === SAME) e.before = last.get(e.blockId) ?? null;
+      if (e.after?.startsWith(DELTA)) {
+        const base = asDoc(e.before);
+        if (!base) continue;
+        e.after = JSON.stringify(applyDelta(base, JSON.parse(e.after.slice(DELTA.length))));
+      }
+      if (isContent(e) && e.after) last.set(e.blockId, e.after);
+      out.push(r);
     } catch {
       // Incomplete line; it will be complete next time.
     }

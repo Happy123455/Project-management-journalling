@@ -17,7 +17,10 @@ import { isDayTarget, splitTarget } from "./lib/noteLinks";
 import { Drawer, InfoTabs, MEDIA_DRAG, type InsertMedia } from "./panels/Panels";
 import { DaysList, MenuSections, MoneyGlance, ProjectList } from "./panels/Menu";
 import { RestoreButton } from "./panels/Restore";
-import { SyncStatus } from "./sync/SyncStatus";
+import { SyncChip, SyncStatus } from "./sync/SyncStatus";
+import { DropPanel } from "./sync/DropPanel";
+import type { DropItem } from "./sync/drop";
+import { appendBlocks, asBlocks, textBlocks } from "./lib/append";
 import { useSync } from "./sync/useSync";
 import { countsByDay, SearchPanel, toResults, type SearchResult } from "./search/SearchPanel";
 import { FindBar } from "./search/FindBar";
@@ -36,7 +39,7 @@ import { entryFor, numberEntries, type ProjectEntry } from "./lib/projectDays";
 import { loadGestures, NO_SWIPE, type CanvasAction } from "./lib/gestures";
 import { ChatView } from "./ChatView";
 import { RelativeTime } from "./calendar/RelativeTime";
-import { NexusView, type NexusTarget } from "./NexusView";
+import { NexusView, type NexusTab, type NexusTarget } from "./NexusView";
 import { openVoiceRecorder, VoiceRecorder } from "./editor/VoiceRecorder";
 import { MemeKit } from "./editor/MemeKit";
 import { searchTerms } from "./lib/search";
@@ -92,6 +95,7 @@ function App() {
   const [graphOpen, setGraphOpen] = useState(false);
   const [mindOpen, setMindOpen] = useState(false);
   const [nexus, setNexus] = useState<NexusTarget | null>(null);
+  const [nexusTab, setNexusTab] = useState<NexusTab>("history");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   // Bumped when another device's changes arrive, so lists and calendars reload.
@@ -580,14 +584,37 @@ function App() {
     },
   };
   /** ⑂ Nexus for whatever is open: the day, or the named page. */
-  const openNexus = async () => {
+  const openNexus = async (tab: NexusTab = "history") => {
     setDrawerOpen(false);
+    setNexusTab(tab);
     await flush();
     setNexus(
       route.kind === "page"
         ? { kind: "page", pageId: route.page.id, blockId: route.page.id, title: route.page.title }
         : { kind: "day", day, blockId: dayBlockId(day), title: dayTitle(day) },
     );
+  };
+
+  /** Nexus › Send: something that went across, put at the end of today's note. */
+  const addDropToToday = async (it: DropItem, data: string | null) => {
+    if (!store) return;
+    try {
+      let blocks;
+      if (it.text != null) blocks = textBlocks(it.text);
+      else {
+        if (!data) return void showToast("That file is no longer kept here", "error");
+        const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+        blocks = asBlocks([mediaNode(await store.saveFile({ name: it.name ?? "file", mime: it.mime ?? "application/octet-stream", bytes }))]);
+      }
+      const today = dayKey(new Date());
+      const page = await store.getDay(today);
+      const content = appendBlocks(page?.content ?? null, blocks);
+      await store.saveDay({ day: today, content, plainText: docText(content) });
+      setPageVersion((n) => n + 1);
+      showToast("Added to today's note");
+    } catch (e) {
+      showError("Couldn't add it to today", e);
+    }
   };
 
   const pageNames = useCallback(() => store?.pageNames() ?? Promise.resolve([]), [store]);
@@ -1024,7 +1051,7 @@ function App() {
   );
   const menuFooter = (
     <div className="menu-footer">
-      <SyncStatus status={sync.status} live={sync.live} direct={sync.direct} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} onConnect={sync.connect} />
+      <SyncChip status={sync.status} live={sync.live} direct={sync.direct} onOpen={() => void openNexus("sync")} />
       <div className="menu-footer-row">
         <button type="button" onClick={() => (setDrawerOpen(false), void backUpNow())} title="Back up now">💾 Back up</button>
         <RestoreButton store={store} onBeforeRestore={flush} />
@@ -1245,6 +1272,9 @@ function App() {
         <NexusView
           store={store}
           target={nexus}
+          tab={nexusTab}
+          sync={<SyncStatus status={sync.status} live={sync.live} direct={sync.direct} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} onConnect={sync.connect} />}
+          send={<DropPanel linked={!!sync.direct} onConnect={sync.connect ? () => void sync.connect() : undefined} onAddToToday={addDropToToday} />}
           onClose={() => setNexus(null)}
           onRestored={async () => {
             if (nexus.kind === "page") setRoute({ kind: "page", page: await store.ensurePage(nexus.title) });

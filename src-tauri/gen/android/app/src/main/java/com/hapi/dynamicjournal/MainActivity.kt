@@ -278,6 +278,7 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(HealthBridge(), "JournalHealth")
     webView.addJavascriptInterface(FinanceBridge(), "JournalFinance")
     webView.addJavascriptInterface(WatchBridge(), "JournalWatch")
+    webView.addJavascriptInterface(DropBridge(), "JournalDrop")
     Watch.onInbox = { webView.post { webView.evaluateJavascript("window.dispatchEvent(new Event('journal:watch'))", null) } }
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->
@@ -446,6 +447,27 @@ class MainActivity : TauriActivity() {
   }
 
   /** Lets the page take what was shared in, and open the keyboard for a quick note. */
+  /** Nexus › Send: a file from the Mac saved into Downloads (no permission needed on Android 10+). */
+  inner class DropBridge {
+    @JavascriptInterface
+    fun save(name: String, mime: String, data: String): Boolean = try {
+      val bytes = Base64.decode(data, Base64.DEFAULT)
+      if (android.os.Build.VERSION.SDK_INT >= 29) {
+        val values = android.content.ContentValues().apply {
+          put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name)
+          put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime.ifEmpty { "application/octet-stream" })
+          put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Download/Dynamic Journal")
+        }
+        val uri = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+        uri != null && contentResolver.openOutputStream(uri)?.use { it.write(bytes); true } == true
+      } else {
+        val dir = java.io.File(getExternalFilesDir(null), "Dynamic Journal").apply { mkdirs() }
+        java.io.File(dir, name).writeBytes(bytes)
+        true
+      }
+    } catch (e: Exception) { false }
+  }
+
   /** Settings → Floating bubble. */
   inner class WatchBridge {
     @JavascriptInterface fun publish(json: String) = Watch.publish(this@MainActivity, json)

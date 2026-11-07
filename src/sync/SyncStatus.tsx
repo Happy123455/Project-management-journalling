@@ -189,3 +189,30 @@ export function SyncStatus({ status, live, direct, onSync, onChooseFolder, onCon
     </div>
   );
 }
+
+/**
+ * The menu's one-line sync status: tap it for Nexus (sync details, Connect, Send, this note's
+ * history). Red when sync failed, ⚡ while linked straight over Wi-Fi.
+ */
+export function SyncChip({ status, live, direct, onOpen }: { status: Status; live?: boolean; direct?: boolean; onOpen: () => void }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => visibleInterval(() => setNow(Date.now()), 30_000), []);
+  const line =
+    status.state === "needs-folder"
+      ? "Sync not set up · tap to start"
+      : status.state === "off"
+        ? `Sync off · ${status.reason}`
+        : status.state === "syncing"
+          ? "Syncing…"
+          : status.state === "error"
+            ? `Sync failed · tap to fix`
+            : `Synced ${ago(status.last, now)}`;
+  return (
+    <button type="button" className={`sync-chip ${status.state}${direct ? " direct" : ""}`} onClick={onOpen} title="Open Nexus: sync, send to your other device, history">
+      <span className="sync-chip-dot" aria-hidden />
+      <span className="sync-chip-line">☁︎ {line}</span>
+      {direct ? <span className="sync-chip-link">⚡ Wi-Fi</span> : live ? <span className="sync-chip-link">⚡ Live</span> : null}
+      <span className="sync-chip-go" aria-hidden>⑂ ›</span>
+    </button>
+  );
+}

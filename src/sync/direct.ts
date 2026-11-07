@@ -40,8 +40,12 @@ export interface Clip {
   at: number;
   text?: string;
   mime?: string;
-  /** Image bytes, base64. */
+  /** Image bytes, base64 (any file's bytes for a drop). */
   data?: string;
+  /** Sent from Nexus › Send: kept in its list (and saved to Downloads), not put on the clipboard. */
+  drop?: boolean;
+  /** A dropped file's name. */
+  name?: string;
 }
 
 /** Both apps listen on this port (direct.rs). */

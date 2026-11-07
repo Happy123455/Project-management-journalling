@@ -3166,3 +3166,28 @@ html.at-rest *, html.at-rest *::before, html.at-rest *::after { animation-play-s
 .joy-lane.past-left { border-left-color: rgba(124, 58, 237, 0.85); }
 .joy-lane.past-right { border-right-color: rgba(124, 58, 237, 0.85); }
 @keyframes joy-lane-rise { from { transform: scaleY(0); opacity: 0; } to { transform: scaleY(1); opacity: 1; } }
+
+/* Menu sync line → Nexus */
+.sync-chip { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px; border-radius: 12px; background: var(--glass); border: 1px solid var(--glass-edge); color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.sync-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex: none; }
+.sync-chip.syncing .sync-chip-dot { background: #f59e0b; }
+.sync-chip.error .sync-chip-dot { background: #ef4444; }
+.sync-chip.off .sync-chip-dot, .sync-chip.needs-folder .sync-chip-dot { background: #9ca3af; }
+.sync-chip.error .sync-chip-line { color: #ef4444; }
+.sync-chip-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-chip-link { font-size: 12px; opacity: 0.85; white-space: nowrap; }
+.sync-chip-go { opacity: 0.6; white-space: nowrap; }
+.nexus-tabs { display: flex; gap: 6px; padding: 0 12px 10px; }
+.nexus-tabs button { flex: 1; padding: 8px 6px; border-radius: 10px; border: 1px solid var(--glass-edge); background: var(--glass); color: inherit; font: inherit; font-size: 13px; }
+.nexus-tabs button.on { background: var(--accent, #3b82f6); color: #fff; border-color: transparent; }
+.nexus-sync, .drop-panel, .nexus-history { padding: 0 12px 24px; overflow: auto; }
+.drop-panel { display: grid; gap: 8px; align-content: start; min-height: 60vh; border-radius: 14px; }
+.drop-panel.over { outline: 2px dashed var(--accent, #3b82f6); outline-offset: -4px; }
+.drop-text { width: 100%; box-sizing: border-box; border-radius: 10px; padding: 10px; font: inherit; background: var(--glass); color: inherit; border: 1px solid var(--glass-edge); resize: vertical; }
+.drop-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.drop-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.drop-list li { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 10px; background: var(--glass); border: 1px solid var(--glass-edge); }
+.drop-what { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.drop-what small { opacity: 0.65; }
+.drop-buttons { display: flex; gap: 4px; flex: none; }
+.drop-buttons button { padding: 4px 8px; }

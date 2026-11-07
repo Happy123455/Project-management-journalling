@@ -44,6 +44,7 @@ import { Timestamp } from "./timestamp";
 import { TimestampChip } from "./timestampChip";
 import { EditStamp } from "./editStamp";
 import { BlockBorn } from "./blockBorn";
+import { LID_INIT, LineIds } from "./lineIds";
 import { GifIcon, insertQuickLog, openQuickLogSetup, useQuickLogs } from "../projects/quickLog";
 
 interface Props {
@@ -610,6 +611,7 @@ export function JournalEditor({
       LogBlock,
       BlockInfoExtension,
       BlockBorn,
+      LineIds,
       Blocks,
       AutoPairs,
       MathAuto,
@@ -669,6 +671,8 @@ export function JournalEditor({
     onUpdate: ({ editor, transaction }) => {
       // The other device's typing (live over Wi-Fi): shown, not saved here; its own save arrives by sync.
       if (transaction.getMeta(REMOTE)) return;
+      // An opened note's lines only got their hidden ids: saved with the next real edit.
+      if (transaction.getMeta(LID_INIT)) return;
       lastLocalEdit = Date.now();
       if (liveKeyRef.current) sendTyping(liveKeyRef.current, editor.state.doc);
       const actor = transaction.getMeta("aiActor") as string | undefined;
