@@ -19,7 +19,7 @@ if (!bubble) void import("./lib/ambience").then((a) => a.startAmbience());
 function keepBootLook() {
   try {
     const root = document.documentElement;
-    const cls = [...root.classList].filter((c) => !["booting", "neu-instant", "overlay-open", "kb-bar-on", "typing-hot", "yt-full-open"].includes(c)).join(" ");
+    const cls = [...root.classList].filter((c) => !["booting", "neu-instant", "overlay-open", "kb-bar-on", "typing-hot", "yt-full-open", "at-rest", "panel-resizing"].includes(c)).join(" ");
     const style = (root.getAttribute("style") ?? "").replace(/(^|;)\s*background:[^;]*/g, "");
     const body = getComputedStyle(document.body);
     const clear = (c: string) => !c || c === "transparent" || /rgba\(.*,\s*0\)$/.test(c);

@@ -83,6 +83,11 @@ let started = false;
 export function startPowerWatch() {
   if (started || typeof document === "undefined") return;
   started = true;
+  // Batch 17: the start-up look (journal.boot) was saved right after hiding, i.e. with .at-rest on, so
+  // the app opened with every animation frozen (panels stuck on their first, see-through/black frame,
+  // things that wait for an animation never ran) while `resting` said false, so no touch removed it.
+  // Only leaving the app and coming back (rest on, then off) fixed it.
+  document.documentElement.classList.remove("at-rest");
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") report();
   });

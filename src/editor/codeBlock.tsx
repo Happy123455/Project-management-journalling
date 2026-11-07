@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import CodeBlock from "@tiptap/extension-code-block";
+import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
+import { Mapping } from "@tiptap/pm/transform";
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, type Editor, type NodeViewProps } from "@tiptap/react";
 
 /** "```" or "```js" alone on a line: Enter turns the line into a code block in that language. */
@@ -132,6 +134,50 @@ export const JournalCodeBlock = CodeBlock.extend({
   addNodeView() {
     return ReactNodeViewRenderer(CodeBlockView);
   },
+  addProseMirrorPlugins() {
+    return [
+      ...(this.parent?.() ?? []),
+      // Leaving a nested code block (Enter on its empty last lines, ↓ at its end) made the new line at
+      // no indent: it fell out of the box, so the points written next were a separate block and the
+      // box's bottom ⧉ only copied those (Hapi, 2026-11-07). The new line keeps the code's nesting.
+      new Plugin({
+        key: new PluginKey("codeExitIndent"),
+        appendTransaction: (trs, before, state) => {
+          // ↓ out of the code into the empty line already under it (the note's last line): same nesting.
+          const $was = before.selection.$from;
+          const $now = state.selection.$from;
+          if ($was.depth === 1 && $was.parent.type.name === "codeBlock" && Number($was.parent.attrs.indent ?? 0) && $now.depth === 1 && $now.parent.type.name === "paragraph" && !$now.parent.content.size && !Number($now.parent.attrs.indent ?? 0) && $now.index(0) > 0) {
+            const prev = state.doc.child($now.index(0) - 1);
+            if (prev.type.name === "codeBlock" && prev.eq(before.doc.nodeAt($was.before(1)) ?? prev))
+              return state.tr.setNodeMarkup($now.before(1), undefined, { ...$now.parent.attrs, indent: Number(prev.attrs.indent) });
+          }
+          if (!trs.some((t) => t.docChanged)) return null;
+          const mapping = new Mapping();
+          for (const t of trs) mapping.appendMapping(t.mapping);
+          const back = mapping.invert();
+          let tr: Transaction | null = null;
+          let pos = 0;
+          for (let i = 0; i + 1 < state.doc.childCount; i++) {
+            const code = state.doc.child(i);
+            const next = state.doc.child(i + 1);
+            const at = pos;
+            pos += code.nodeSize;
+            const indent = Number(code.attrs.indent ?? 0) || 0;
+            if (code.type.name !== "codeBlock" || !indent || next.type.name !== "paragraph" || next.content.size || Number(next.attrs.indent ?? 0)) continue;
+            // Only a line that just appeared after the code (not one that was already there).
+            const old = back.map(at, 1);
+            const $old = old < before.doc.content.size ? before.doc.resolve(old) : null;
+            const oldIndex = $old ? $old.index(0) : -1;
+            const was = oldIndex >= 0 && oldIndex + 1 < before.doc.childCount ? before.doc.child(oldIndex + 1) : null;
+            if (was && was.type.name === "paragraph" && !was.content.size && !Number(was.attrs.indent ?? 0)) continue;
+            tr ??= state.tr;
+            tr.setNodeMarkup(pos, undefined, { ...next.attrs, indent });
+          }
+          return tr;
+        },
+      }),
+    ];
+  },
   addKeyboardShortcuts() {
     return {
       ...this.parent?.(),
@@ -143,7 +189,7 @@ export const JournalCodeBlock = CodeBlock.extend({
         return editor
           .chain()
           .deleteRange({ from: $from.start(), to: $from.end() })
-          .setCodeBlock(fence[1] ? { language: fence[1] } : undefined)
+          .setCodeBlock({ ...(fence[1] ? { language: fence[1] } : {}), indent: Number($from.parent.attrs.indent ?? 0) || 0 } as { language: string })
           .run();
       },
     };
@@ -168,9 +214,12 @@ export function codeBlockFromSelection(editor: Editor) {
   });
   if (media) return editor.chain().focus().toggleCodeBlock().run();
   const text = state.doc.textBetween(from, to, "\n", (leaf) => (leaf.type.name === "hardBreak" ? "\n" : ""));
+  // Keeps the first line's nesting: at no indent the code fell out of the box it was made in, and
+  // the lines under it became its children (⧉ then copied the wrong part).
+  const indent = Number($from.node(1).attrs.indent ?? 0) || 0;
   return editor
     .chain()
     .focus()
-    .insertContentAt({ from, to }, { type: "codeBlock", content: text ? [{ type: "text", text }] : [] })
+    .insertContentAt({ from, to }, { type: "codeBlock", attrs: { indent }, content: text ? [{ type: "text", text }] : [] })
     .run();
 }
