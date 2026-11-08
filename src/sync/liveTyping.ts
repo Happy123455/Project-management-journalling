@@ -1,5 +1,6 @@
-import type { Node as PMNode, Schema } from "@tiptap/pm/model";
+import { Fragment, type Node as PMNode, type Schema } from "@tiptap/pm/model";
 import type { Editor } from "@tiptap/react";
+import { mergeDocs } from "./merge";
 
 /**
  * Letter-by-letter typing over the Wi-Fi link (see direct.ts). While the link is up, each change
@@ -73,8 +74,17 @@ export function sendTyping(key: string, doc: PMNode) {
 }
 
 const seen = new Map<string, number>();
+/** The other device's note as its messages built it up, per device and note. */
+const theirs = new Map<string, PMNode>();
 
-/** Puts the other device's typing into this open note; false when it doesn't fit (wait for a full copy). */
+/**
+ * Puts the other device's typing into this open note; false when it doesn't fit (wait for a full
+ * copy). Their note is merged into this one line by line (sync/merge.ts mergeDocs, matched by the
+ * hidden line ids), never copied over it: a line only this device has stays, and a line goes only
+ * when the other device had it in its previous message and removed it since. Before 8 Nov a full
+ * copy replaced the whole open note, so lines the phone had that the Mac's open note didn't yet
+ * (typed earlier, not merged there yet) vanished from the phone and its next save deleted them.
+ */
 export function applyTyping(editor: Editor, m: TypingMsg): boolean {
   if (editor.isDestroyed) return false;
   const slot = `${m.device}|${m.key}`;
@@ -83,18 +93,24 @@ export function applyTyping(editor: Editor, m: TypingMsg): boolean {
   const doc = editor.state.doc;
   const tr = editor.state.tr;
   try {
+    const before = theirs.get(slot);
+    let next: PMNode;
     if (m.full !== undefined) {
       if (last !== undefined && m.seq <= last) return false;
-      const next = schema.nodeFromJSON(m.full);
-      seen.set(slot, m.seq);
-      if (next.eq(doc)) return true;
-      const [from, remove, nodes] = diffChildren(doc, next);
-      replace(tr, doc, from, remove, nodes);
+      next = schema.nodeFromJSON(m.full);
     } else {
-      if (last === undefined || m.seq !== last + 1 || doc.childCount !== m.base) return false;
-      seen.set(slot, m.seq);
-      replace(tr, doc, m.from!, m.remove!, (m.nodes ?? []).map((n) => schema.nodeFromJSON(n)));
+      if (last === undefined || m.seq !== last + 1 || !before || before.childCount !== m.base) return false;
+      next = patched(before, m.from!, m.remove!, (m.nodes ?? []).map((n) => schema.nodeFromJSON(n)));
     }
+    seen.set(slot, m.seq);
+    theirs.set(slot, next);
+    if (next.eq(doc)) return true;
+    // A sync import (App.tsx, only with nothing unsaved here) is the merged saved note: taken as it is.
+    const base = m.device === "sync" ? doc : before;
+    const merged = schema.nodeFromJSON(mergeDocs(next.toJSON(), doc.toJSON(), base?.toJSON()));
+    if (merged.eq(doc)) return true;
+    const [from, remove, nodes] = diffChildren(doc, merged);
+    replace(tr, doc, from, remove, nodes);
   } catch {
     return false;
   }
@@ -104,6 +120,17 @@ export function applyTyping(editor: Editor, m: TypingMsg): boolean {
   const o = out.get(m.key);
   if (o && o.prev.type.schema === editor.schema) o.prev = editor.state.doc;
   return true;
+}
+
+/** `doc` with top-level children [from, from + remove) replaced by `nodes`. */
+function patched(doc: PMNode, from: number, remove: number, nodes: PMNode[]): PMNode {
+  const kids: PMNode[] = [];
+  doc.forEach((c, _o, i) => {
+    if (i === from) kids.push(...nodes);
+    if (i < from || i >= from + remove) kids.push(c);
+  });
+  if (from >= doc.childCount) kids.push(...nodes);
+  return doc.copy(Fragment.from(kids));
 }
 
 function replace(tr: Editor["state"]["tr"], doc: PMNode, from: number, remove: number, nodes: PMNode[]) {

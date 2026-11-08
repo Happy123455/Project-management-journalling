@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { JSONContent } from "@tiptap/react";
 import { buildNexus } from "./lib/nexus";
+import { putBack, removedLines, type RemovedLine } from "./lib/removedLines";
 import { showError, showToast } from "./lib/toast";
 import { docText } from "./lib/words";
 import type { JournalEvent, JournalStore } from "./store";
@@ -78,11 +79,49 @@ function NoteHistory({ store, target, onRestored }: { store: JournalStore; targe
     }
   };
 
+  // Lines any edit or sync took out that aren't in the note now: each one can be put back.
+  const [current, setCurrent] = useState<JSONContent | null>(null);
+  const loadCurrent = () => {
+    const got = target.kind === "day" ? store.getDay(target.day) : store.getPage(target.title);
+    void got.then((pg) => setCurrent(pg?.content ?? null));
+  };
+  useEffect(loadCurrent, [store, target]);
+  const removed = useMemo(() => (events && current ? removedLines(events, current) : []), [events, current]);
+  const [showAll, setShowAll] = useState(false);
+  const restoreLine = async (line: RemovedLine) => {
+    const pg = target.kind === "day" ? await store.getDay(target.day) : await store.getPage(target.title);
+    if (!pg) return;
+    const content = putBack(pg.content, line);
+    try {
+      if (target.kind === "day") await store.saveDay({ day: target.day, content, plainText: docText(content) });
+      else await store.savePage({ id: target.pageId, content, plainText: docText(content) });
+      showToast("Put back");
+      setCurrent(content);
+      void store.eventsFor(target.blockId).then(setEvents);
+      onRestored();
+    } catch (e) {
+      showError("Couldn't put it back", e);
+    }
+  };
+
   const x = (lane: number) => 48 + lane * LANE;
   const y = (row: number) => 24 + row * ROW;
   return (
     <div className="nexus-history">
       <h2 className="settings-label">{target.title}</h2>
+      {removed.length > 0 && (
+        <div className="nexus-removed">
+          <p className="hint">🗑 {removed.length} line{removed.length === 1 ? "" : "s"} taken out of this note (by you, the other device or sync). Tap ↩ to put one back where it was.</p>
+          {(showAll ? removed : removed.slice(0, 8)).map((r) => (
+            <div key={r.id} className="nexus-removed-row">
+              <span className="nexus-removed-meta">{new Date(r.at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · {r.deviceId.slice(0, 8)}{r.actor !== "me" ? ` · ${r.actor}` : ""}</span>
+              <span className="nexus-removed-text">{r.text.slice(0, 200)}</span>
+              <button type="button" onClick={() => void restoreLine(r)} aria-label="Put back">↩</button>
+            </div>
+          ))}
+          {removed.length > 8 && !showAll && <button type="button" className="link" onClick={() => setShowAll(true)}>Show all {removed.length}</button>}
+        </div>
+      )}
       {!nexus ? (
         <p className="hint">Loading…</p>
       ) : (
