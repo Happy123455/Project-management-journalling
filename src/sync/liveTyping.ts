@@ -36,8 +36,16 @@ export function setTypingSink(me: string, send: ((m: TypingMsg) => void) | null)
   sink = send;
 }
 
-const FULL_EVERY_MS = 2500;
+/** A full copy (the fallback when a patch was missed) goes at most this often; patches carry the rest. */
+const FULL_EVERY_MS = 8000;
+/**
+ * At most one message per note this often: fast typing is sent as one patch per 250 ms instead of
+ * one request per key (8 Nov battery: ~58k Wi-Fi packets a day). The last keys always go out.
+ */
+const SEND_EVERY_MS = 250;
 const out = new Map<string, { seq: number; fullAt: number; prev: PMNode }>();
+const lastSent = new Map<string, number>();
+const waiting = new Map<string, { doc: PMNode }>();
 
 /** Top-level children that differ between two docs: [from, removeCount, newNodes]. */
 export function diffChildren(a: PMNode, b: PMNode): [number, number, PMNode[]] {
@@ -55,9 +63,24 @@ export function diffChildren(a: PMNode, b: PMNode): [number, number, PMNode[]] {
   return [start, endA - start, nodes];
 }
 
-/** The editor changed (not by the other device): send it. */
+/** The editor changed (not by the other device): send it (now, or with the next batch). */
 export function sendTyping(key: string, doc: PMNode) {
   if (!sink) return void out.delete(key);
+  const w = waiting.get(key);
+  if (w) return void (w.doc = doc);
+  const wait = (lastSent.get(key) ?? 0) + SEND_EVERY_MS - Date.now();
+  if (wait <= 0) return sendNow(key, doc);
+  window.setTimeout(() => {
+    const later = waiting.get(key);
+    waiting.delete(key);
+    if (later) sendNow(key, later.doc);
+  }, wait);
+  waiting.set(key, { doc });
+}
+
+function sendNow(key: string, doc: PMNode) {
+  if (!sink) return void out.delete(key);
+  lastSent.set(key, Date.now());
   const now = Date.now();
   const o = out.get(key);
   if (!o || now - o.fullAt > FULL_EVERY_MS) {
@@ -119,6 +142,9 @@ export function applyTyping(editor: Editor, m: TypingMsg): boolean {
   // What this device sends next is measured from the note as it is now.
   const o = out.get(m.key);
   if (o && o.prev.type.schema === editor.schema) o.prev = editor.state.doc;
+  // Keys waiting to go out were typed before this arrived: send the note as it is now instead.
+  const w = waiting.get(m.key);
+  if (w) w.doc = editor.state.doc;
   return true;
 }
 

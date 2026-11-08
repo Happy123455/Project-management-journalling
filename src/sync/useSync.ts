@@ -5,7 +5,7 @@ import { syncOnce, type SyncMemory } from "./engine";
 import { repairMergeLosses } from "../lib/repairMerge";
 import { showToast } from "../lib/toast";
 import { findSyncFolder, pickSyncFolder, type FolderLookup } from "./folders";
-import { BEAT_MS, LIVE_POLL_MS, LIVE_SAVE_MS, openHost, othersRev, readPresence, someoneOpen, writePresence, type Presence } from "./live";
+import { BEAT_MS, CALM_POLL_MS, HOT_MS, LIVE_POLL_MS, PHONE_BEAT_MS, LIVE_SAVE_MS, openHost, othersRev, readPresence, someoneOpen, writePresence, type Presence } from "./live";
 import { setTypingSink } from "./liveTyping";
 import { visibleInterval } from "../lib/power";
 import {
@@ -74,6 +74,8 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
   const folderCache = useRef<{ found: Extract<FolderLookup, { kind: "ready" }>; at: number } | null>(null);
   const last = useRef<Date | null>(null);
   const afterSave = useRef<number | undefined>(undefined);
+  /** Last time an edit was seen arriving or saved here: Drive is watched closely for a minute after. */
+  const hotAt = useRef(0);
   const repaired = useRef(false);
   const imported = useRef(onImported);
   imported.current = onImported;
@@ -254,7 +256,7 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
       try {
         const f = visible ? await folder() : null;
         if (f) {
-          if (Date.now() - lastBeat > BEAT_MS) {
+          if (Date.now() - lastBeat > (canHost() ? BEAT_MS : PHONE_BEAT_MS)) {
             lastBeat = Date.now();
             // The Mac's Wi-Fi address can change (another network); look it up with each beat.
             if (host.current) lan.current = await host.current.address();
@@ -273,7 +275,10 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
             setLive(open);
           }
           const rev = othersRev(known);
-          if (lastRev !== null && rev !== lastRev && open) void syncNow.current();
+          if (lastRev !== null && rev !== lastRev && open) {
+            hotAt.current = Date.now();
+            void syncNow.current();
+          }
           lastRev = rev;
         }
       } catch {
@@ -281,7 +286,10 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
       }
       // Connected directly: Drive is only the backup, so it needn't be watched closely.
       // In the background nothing is watched at all on the phone: the loop starts again when the app is back.
-      if (!stopped && (canHost() || document.visibilityState !== "hidden")) timer = window.setTimeout(tick, liveRef.current && !directRef.current ? LIVE_POLL_MS : directRef.current && !canHost() ? 60_000 : 15_000);
+      // Both open over Drive: every 2 s only while edits are flowing, else every 10 s (8 Nov: a
+      // Mac left open kept the phone asking Drive every 2 s all day, ~1,800 requests an hour).
+      const livePoll = Date.now() - hotAt.current < HOT_MS ? LIVE_POLL_MS : CALM_POLL_MS;
+      if (!stopped && (canHost() || document.visibilityState !== "hidden")) timer = window.setTimeout(tick, liveRef.current && !directRef.current ? livePoll : directRef.current && !canHost() ? 60_000 : 15_000);
     };
     timer = window.setTimeout(tick, 4000);
     // Going to the background or closing: tell the other device right away.
@@ -326,6 +334,7 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
   /** Call after a save; syncs once things have been quiet for a moment (right away in live mode). */
   const afterSaved = useCallback(() => {
     window.clearTimeout(afterSave.current);
+    hotAt.current = Date.now();
     client.current?.notify();
     host.current?.notify();
     // Connected directly the edit is already across; Drive gets it a little later as the backup.
