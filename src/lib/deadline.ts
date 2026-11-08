@@ -102,6 +102,15 @@ export function shownRange(day: string, busy: Busy[], awake: boolean): [number, 
   return a < z ? [a, z] : [t0, t1];
 }
 
+/** Something planned into free time (by hand, or by the AI: `ai` is its name). */
+export interface Plan {
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+  ai?: string;
+}
+
 export interface Free {
   start: number;
   end: number;

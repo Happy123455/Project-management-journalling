@@ -6,7 +6,8 @@ import { loadConfig, loadEntries, ROUTINE_EVENT, viewOf, type RoutineView } from
 import { addDays, dayKey } from "../lib/timestamp";
 import { visibleInterval } from "../lib/power";
 import { reminderTimes, timeLeft } from "../lib/reminders";
-import { busyOn, clock, hm, DAY, dayLabel, daysBetween, freeGaps, midnight, shownRange, skyGradient, templateDays, type Layer } from "../lib/deadline";
+import { Planner } from "./deadlinePlanner";
+import { busyOn, clock, hm, type Free, type Plan, DAY, dayLabel, daysBetween, freeGaps, midnight, shownRange, skyGradient, templateDays, type Layer } from "../lib/deadline";
 import { randomLid } from "../sync/lineIds";
 
 /**
@@ -59,6 +60,8 @@ interface Comment {
   id: string;
   at: number;
   text: string;
+  /** Its own note (photos, files, anything), made on "Open as note". */
+  page?: string;
 }
 
 /** Changes every bar of this deadline at once (its settings are shared). */
@@ -89,12 +92,13 @@ function Setup({ onMake }: { onMake: (title: string, end: number) => void }) {
 }
 
 function DeadlineView({ node, editor, getPos, updateAttributes, selected }: NodeViewProps) {
-  const a = node.attrs as { tid: string; day: string; endAt: number; title: string; layer: Layer; awake: boolean; comments: Comment[]; first: boolean };
+  const a = node.attrs as { tid: string; day: string; endAt: number; title: string; layer: Layer; awake: boolean; comments: Comment[]; first: boolean; plans: Plan[]; prefs: string };
   const now = useNow();
   const view = useRoutineShared();
   const [reminders, setReminders] = useState<{ at: number; text: string }[]>([]);
   const [menu, setMenu] = useState<{ at: number; x: number } | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [planning, setPlanning] = useState<Free | null>(null);
 
   useEffect(() => {
     const store = journalStore();
@@ -144,7 +148,11 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected }: Node
   const width = (s: number, e: number) => `${(((Math.min(e, to) - Math.max(s, from)) / span) * 100).toFixed(2)}%`;
   const label = dayLabel(a.day);
   const t0 = midnight(a.day);
-  const free = freeGaps(Math.max(from, now), Math.min(to, a.endAt), busy);
+  const plans = ((a.plans ?? []) as Plan[]).filter((p) => p.end > t0 && p.start < t0 + DAY);
+  const taken = [...busy, ...plans.map((p) => ({ ...p, icon: "", label: p.text }))];
+  const free = freeGaps(Math.max(from, now), Math.min(to, a.endAt), taken);
+  // The whole free stretch around a tap, ignoring what's planned in it (the planner shows those).
+  const stretch = (f: Free): Free => freeGaps(Math.max(from, now), Math.min(to, a.endAt), busy).find((g) => g.start <= f.start && g.end >= f.end) ?? f;
   const freeTotal = free.reduce((s, f) => s + f.end - f.start, 0);
   const comments = (a.comments ?? []) as Comment[];
   const due = a.endAt >= t0 && a.endAt < t0 + DAY;
@@ -158,6 +166,11 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected }: Node
     setMenu(null);
   };
   const editComment = (id: string, text: string) => updateAttributes({ comments: comments.map((c) => (c.id === id ? { ...c, text } : c)) });
+  const commentNote = (c: Comment) => {
+    const page = c.page || `💬 ${a.title || "Deadline"} · ${dayLabel(a.day).text} ${clock(c.at)}`;
+    if (!c.page) updateAttributes({ comments: comments.map((x) => (x.id === c.id ? { ...x, page } : x)) });
+    window.dispatchEvent(new CustomEvent("journal:open-link", { detail: page }));
+  };
   const dropComment = (id: string) => {
     updateAttributes({ comments: comments.filter((c) => c.id !== id) });
     setOpen(null);
@@ -189,7 +202,7 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected }: Node
           className="dl-bar"
           style={{ background: gradient }}
           onClick={(e) => {
-            if ((e.target as HTMLElement).closest(".dl-dot, .dl-pop")) return;
+            if ((e.target as HTMLElement).closest(".dl-dot, .dl-pop, .dl-free")) return;
             const box = e.currentTarget.getBoundingClientRect();
             const at = Math.round(atX(e.clientX, box) / 300_000) * 300_000;
             setMenu({ at, x: e.clientX - box.left });
@@ -202,8 +215,13 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected }: Node
               <span>{b.icon}</span>
             </div>
           ))}
+          {plans.map((p) => (
+            <div key={p.id} className={`dl-plan${p.ai ? " ai" : ""}`} style={{ left: pct(p.start), width: width(p.start, p.end) }} title={`${clock(p.start)}–${clock(p.end)} ${p.text}`}>
+              <span>{p.text}</span>
+            </div>
+          ))}
           {free.map((f, i) => (
-            <div key={i} className="dl-free" style={{ left: pct(f.start), width: width(f.start, f.end) }} title={`Free ${clock(f.start)}–${clock(f.end)}`}>
+            <div key={i} className="dl-free" onClick={(e) => (e.stopPropagation(), setMenu(null), setPlanning(stretch(f)))} style={{ left: pct(f.start), width: width(f.start, f.end) }} title={`Free ${clock(f.start)}–${clock(f.end)}`}>
               {(f.end - f.start) / span > 0.09 && <span>{hm(f.end - f.start)}</span>}
             </div>
           ))}
@@ -230,10 +248,23 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected }: Node
         <div key={c.id} className="dl-comment">
           <span className="dl-comment-time">💬 {clock(c.at)}</span>
           <textarea autoFocus defaultValue={c.text} placeholder="Comment…" onBlur={(e) => e.target.value !== c.text && editComment(c.id, e.target.value)} />
+          <button type="button" onClick={() => commentNote(c)} title="Open as a note (photos, files, anything)">📝</button>
           <button type="button" onClick={() => dropComment(c.id)} aria-label="Delete comment">🗑</button>
           <button type="button" onClick={() => setOpen(null)} aria-label="Close">✓</button>
         </div>
       ))}
+      {planning && (
+        <Planner
+          start={planning.start}
+          end={planning.end}
+          busy={busy.filter((b) => b.end > planning.start - 3_600_000 && b.start < planning.end + 3_600_000)}
+          plans={(a.plans ?? []) as Plan[]}
+          prefs={a.prefs ?? ""}
+          onPlans={(next) => updateAttributes({ plans: next })}
+          onPrefs={(p) => setAll(editor, a.tid, { prefs: p })}
+          onClose={() => setPlanning(null)}
+        />
+      )}
     </NodeViewWrapper>
   );
 }
@@ -264,6 +295,8 @@ export const DeadlineBar = Node.create({
       awake: json("awake", false),
       comments: json("comments", []),
       first: json("first", false),
+      plans: json("plans", []),
+      prefs: json("prefs", ""),
     };
   },
   parseHTML() {
@@ -276,7 +309,7 @@ export const DeadlineBar = Node.create({
   renderText({ node }) {
     const a = node.attrs;
     const head = a.first ? `⏳ ${a.title || "Deadline"} (due ${new Date(a.endAt).toLocaleString()})\n` : "";
-    return head + `${a.day ? dayLabel(a.day).text : ""}` + (a.comments ?? []).map((c: Comment) => `\n💬 ${clock(c.at)} ${c.text}`).join("");
+    return head + `${a.day ? dayLabel(a.day).text : ""}` + (a.plans ?? []).map((p: Plan) => `\n${clock(p.start)}–${clock(p.end)} ${p.text}`).join("") + (a.comments ?? []).map((c: Comment) => `\n💬 ${clock(c.at)} ${c.text}`).join("");
   },
   addNodeView() {
     return ReactNodeViewRenderer(DeadlineView);
