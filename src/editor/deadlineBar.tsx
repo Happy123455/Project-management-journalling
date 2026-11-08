@@ -48,9 +48,9 @@ function subscribe(f: () => void) {
   if (!routine) void loadRoutine();
   return () => void listeners.delete(f);
 }
-const useRoutineShared = () => useSyncExternalStore(subscribe, () => routine);
+export const useRoutineShared = () => useSyncExternalStore(subscribe, () => routine);
 
-function useNow() {
+export function useNow() {
   const [now, setNow] = useState(Date.now());
   useEffect(() => visibleInterval(() => setNow(Date.now()), 60_000), []);
   return now;
@@ -191,6 +191,7 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected }: Node
             ))}
           </select>
           <button type="button" className={a.awake ? "on" : ""} onClick={() => setAll(editor, a.tid, { awake: !a.awake })} title="Waking hours only">🌙</button>
+          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("journal:timelines", { detail: { tid: a.tid } }))} title="Days side by side">⇆</button>
         </div>
       )}
       <div className={`dl-row${label.weekend ? " weekend" : ""}`}>

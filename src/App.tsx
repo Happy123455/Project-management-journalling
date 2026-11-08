@@ -55,6 +55,7 @@ import { PanelResizer, SidebarEdge, usePanelWidths, useSidebarToggle } from "./n
 import { activeTab, closeTab, currentLoc, go, loadTabs, locKey, openTab, saveTabs, switchTab, visit, type Loc, type TabsState } from "./nav/tabs";
 import { receiveTyping } from "./sync/liveTyping";
 import { editorSaw, guardSave } from "./sync/saveGuard";
+import { openTimelines, TimelinesHost } from "./editor/TimelinesView";
 import { CaptureHost } from "./editor/CaptureHost";
 import { PdfHost } from "./editor/PdfHost";
 import { PhotoHost } from "./editor/PhotoHost";
@@ -758,6 +759,7 @@ function App() {
     { icon: "💰", label: "Money", run: () => setMoneyOpen(true) },
     { icon: "🕸", label: "Graph", run: () => setGraphOpen(true) },
     { icon: "🧠", label: "Mind map", run: () => setMindOpen(true) },
+    { icon: "⏳", label: "Timelines", run: () => openTimelines() },
     { icon: "⑂", label: "History", run: () => void openNexus() },
     { icon: "⚙︎", label: "Settings", run: () => setSettingsOpen(true) },
   ];
@@ -1059,6 +1061,7 @@ function App() {
       <button type="button" onClick={() => (setDrawerOpen(false), setSearchOpen(true))} title="Search" aria-label="Search">🔍</button>
       <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))} title="Graph view" aria-label="Graph view">🕸</button>
       <button type="button" onClick={() => (setDrawerOpen(false), setMindOpen(true))} title="Mind map" aria-label="Mind map">🧠</button>
+      <button type="button" onClick={() => (setDrawerOpen(false), openTimelines())} title="Timelines" aria-label="Timelines">⏳</button>
       <button type="button" onClick={() => void openNexus()} title="Nexus: this note's history" aria-label="Nexus">⑂</button>
       <button type="button" onClick={async () => (setDrawerOpen(false), await flush(), setChatOpen(true))} title="Chat view" aria-label="Chat view">💬</button>
     </div>
@@ -1298,6 +1301,7 @@ function App() {
           }}
         />
       )}
+      {store && <TimelinesHost store={store} onOpenDay={(d) => void goTo(d)} />}
       {mindOpen && store && (
         <MindMapView store={store} today={today} onClose={() => setMindOpen(false)} onOpenDay={(d) => (setMindOpen(false), void goTo(d))} onOpenPage={(t) => (setMindOpen(false), void handlers.onOpenLink(t))} />
       )}
