@@ -77,8 +77,11 @@ function SideBySide({ t }: { t: Timeline }) {
   const view = useRoutineShared();
   const now = useNow();
   const [shown, setShown] = useState<number | null>(null);
+  // Free time only: everything else fades, the free stretches light up and pulse slowly a few times.
+  const [freeOnly, setFreeOnly] = useState(false);
   return (
-    <div className="tl-side">
+    <div className={`tl-side${freeOnly ? " free-only" : ""}`}>
+      <button type="button" className={`tl-free-btn${freeOnly ? " on" : ""}`} onClick={() => setFreeOnly(!freeOnly)}>{freeOnly ? "Show everything" : "✨ Free time only"}</button>
       <div className="tl-cols">
         {t.rows.map((r, i) => {
           const busy = view ? busyOn(r.day, t.layer, view.config, view.stats, view.days) : [];
@@ -98,7 +101,7 @@ function SideBySide({ t }: { t: Timeline }) {
                   {t.endAt < to && <div className="tl-after" style={{ top: y(t.endAt), height: h(t.endAt, to) }} />}
                   {busy.map((b, k) => <div key={k} className={`tl-busy${b.sleep ? " sleep" : ""}`} style={{ top: y(b.start), height: h(b.start, b.end) }} title={`${b.label} ${clock(b.start)}–${clock(b.end)}`}>{b.icon}</div>)}
                   {plans.map((p) => <div key={p.id} className={`tl-plan${p.ai ? " ai" : ""}`} style={{ top: y(p.start), height: h(p.start, p.end) }}>{p.text}</div>)}
-                  {free.filter((f) => (f.end - f.start) / span > 0.08).map((f, k) => <div key={k} className="tl-free" style={{ top: y(f.start), height: h(f.start, f.end) }}><span>{hm(f.end - f.start)}</span></div>)}
+                  {free.map((f, k) => <div key={`${k}${freeOnly}`} className="tl-free" style={{ top: y(f.start), height: h(f.start, f.end) }}>{(f.end - f.start) / span > 0.08 && <span>{hm(f.end - f.start)}</span>}</div>)}
                   {r.comments.filter((c) => c.at >= from && c.at <= to).map((c, k) => <i key={k} className="tl-dot" style={{ top: y(c.at) }} title={`${clock(c.at)} ${c.text}`} />)}
                   {now >= from && now <= to && <i className="tl-now" style={{ top: y(now) }} />}
                 </div>

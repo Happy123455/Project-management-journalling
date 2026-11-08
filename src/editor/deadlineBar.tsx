@@ -6,8 +6,10 @@ import { loadConfig, loadEntries, ROUTINE_EVENT, viewOf, type RoutineView } from
 import { addDays, dayKey } from "../lib/timestamp";
 import { visibleInterval } from "../lib/power";
 import { reminderTimes, timeLeft } from "../lib/reminders";
-import { Planner } from "./deadlinePlanner";
-import { busyOn, clock, hm, type Free, type Plan, DAY, dayLabel, daysBetween, freeGaps, midnight, shownRange, skyGradient, templateDays, type Layer } from "../lib/deadline";
+import { DeadlineStrip } from "./deadlineStrip";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { busyOn, clock, hm, type Plan, DAY, dayLabel, daysBetween, freeGaps, midnight, shownRange, skyGradient, templateDays, type Layer } from "../lib/deadline";
 import { randomLid } from "../sync/lineIds";
 
 /**
@@ -91,14 +93,27 @@ function Setup({ onMake }: { onMake: (title: string, end: number) => void }) {
   );
 }
 
-function DeadlineView({ node, editor, getPos, updateAttributes, selected }: NodeViewProps) {
+/** Where a bar sits in its deadline (from the fold plugin below). */
+interface Place {
+  index: number;
+  count: number;
+  /** The last bar on screen: it draws the bottom edge. */
+  lastShown: boolean;
+  /** Days folded away under the bottom edge. */
+  hidden: number;
+  collapsed: boolean;
+  show: number;
+}
+
+function DeadlineView({ node, editor, getPos, updateAttributes, selected, decorations }: NodeViewProps) {
   const a = node.attrs as { tid: string; day: string; endAt: number; title: string; layer: Layer; awake: boolean; comments: Comment[]; first: boolean; plans: Plan[]; prefs: string };
+  const place = ((decorations as unknown as { spec?: { dl?: Place } }[]) ?? []).map((d) => d.spec?.dl).find(Boolean) ?? { index: 0, count: 1, lastShown: true, hidden: 0, collapsed: false, show: 0 };
+  const [strip, setStrip] = useState<number | null>(null);
   const now = useNow();
   const view = useRoutineShared();
   const [reminders, setReminders] = useState<{ at: number; text: string }[]>([]);
   const [menu, setMenu] = useState<{ at: number; x: number } | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  const [planning, setPlanning] = useState<Free | null>(null);
 
   useEffect(() => {
     const store = journalStore();
@@ -131,7 +146,7 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected }: Node
       const tid = randomLid();
       const days = daysBetween(dayKey(new Date()), dayKey(new Date(end)));
       const rows = days.flatMap((day, i) => {
-        const bar = { type: "deadlineBar", attrs: { tid, day, endAt: end, title, layer: "avg", awake: false, comments: [], first: i === 0 } };
+        const bar = { type: "deadlineBar", attrs: { tid, day, endAt: end, title, layer: "avg", awake: false, comments: [], first: i === 0, show: days.length > 4 ? 4 : 0 } };
         return i < days.length - 1 ? [bar, { type: "paragraph" }] : [bar];
       });
       editor.chain().insertContentAt({ from: pos, to: pos + node.nodeSize }, rows).run();
@@ -151,8 +166,6 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected }: Node
   const plans = ((a.plans ?? []) as Plan[]).filter((p) => p.end > t0 && p.start < t0 + DAY);
   const taken = [...busy, ...plans.map((p) => ({ ...p, icon: "", label: p.text }))];
   const free = freeGaps(Math.max(from, now), Math.min(to, a.endAt), taken);
-  // The whole free stretch around a tap, ignoring what's planned in it (the planner shows those).
-  const stretch = (f: Free): Free => freeGaps(Math.max(from, now), Math.min(to, a.endAt), busy).find((g) => g.start <= f.start && g.end >= f.end) ?? f;
   const freeTotal = free.reduce((s, f) => s + f.end - f.start, 0);
   const comments = (a.comments ?? []) as Comment[];
   const due = a.endAt >= t0 && a.endAt < t0 + DAY;
@@ -179,34 +192,40 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected }: Node
   return (
     <NodeViewWrapper className={`dl${selected ? " selected" : ""}`} contentEditable={false}>
       {a.first && (
-        <div className="dl-head">
-          <strong>⏳ {a.title || "Deadline"}</strong>
+        <div className="dl-edge top">
+          <button type="button" className="dl-fold-btn" onClick={() => setAll(editor, a.tid, { collapsed: !place.collapsed })} aria-label={place.collapsed ? "Unfold" : "Fold"}>{place.collapsed ? "▸" : "▾"}</button>
+          <span className="dl-name">⏳ {a.title || "Deadline"}</span>
           <span className="dl-left">{a.endAt > now ? `${timeLeft(a.endAt - now)} left` : "due"}</span>
           <span className="dl-due">{new Date(a.endAt).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
-          <select value={a.layer} onChange={(e) => setAll(editor, a.tid, { layer: e.target.value })} aria-label="Routine layer">
-            <option value="off">Routine off</option>
-            <option value="avg">Usual day (this phase)</option>
-            {opts.map((d) => (
-              <option key={d} value={`day:${d}`}>Like {dayLabel(d).text}</option>
-            ))}
-          </select>
-          <button type="button" className={a.awake ? "on" : ""} onClick={() => setAll(editor, a.tid, { awake: !a.awake })} title="Waking hours only">🌙</button>
-          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("journal:timelines", { detail: { tid: a.tid } }))} title="Days side by side">⇆</button>
+          {!place.collapsed && (
+            <span className="dl-tools">
+              <select value={a.layer} onChange={(e) => setAll(editor, a.tid, { layer: e.target.value })} aria-label="Routine layer" title="Routine behind the bars">
+                <option value="off">No routine</option>
+                <option value="avg">Usual day</option>
+                {opts.map((d) => (
+                  <option key={d} value={`day:${d}`}>Like {dayLabel(d).text}</option>
+                ))}
+              </select>
+              <button type="button" className={a.awake ? "on" : ""} onClick={() => setAll(editor, a.tid, { awake: !a.awake })} title="Waking hours only">🌙</button>
+              <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("journal:timelines", { detail: { tid: a.tid } }))} title="Days side by side">⇆</button>
+            </span>
+          )}
         </div>
       )}
-      <div className={`dl-row${label.weekend ? " weekend" : ""}`}>
+      {!place.collapsed && <div className={`dl-row${label.weekend ? " weekend" : ""}`}>
         <div className="dl-day">
-          <span>{label.text}</span>
-          {freeTotal > 0 && <small>{hm(freeTotal)} free</small>}
+          <span>{label.text.split(" ")[0]} <b>{label.text.split(" ")[1]}</b></span>
+          {freeTotal > 0 && <small>{hm(freeTotal)}</small>}
         </div>
         <div
           className="dl-bar"
           style={{ background: gradient }}
           onClick={(e) => {
-            if ((e.target as HTMLElement).closest(".dl-dot, .dl-pop, .dl-free")) return;
+            if ((e.target as HTMLElement).closest(".dl-dot, .dl-pop")) return;
             const box = e.currentTarget.getBoundingClientRect();
-            const at = Math.round(atX(e.clientX, box) / 300_000) * 300_000;
-            setMenu({ at, x: e.clientX - box.left });
+            const at = atX(e.clientX, box);
+            setMenu(null);
+            setStrip(strip === null ? at : null);
           }}
         >
           {now > from && <div className="dl-past" style={{ width: width(from, now) }} />}
@@ -222,7 +241,7 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected }: Node
             </div>
           ))}
           {free.map((f, i) => (
-            <div key={i} className="dl-free" onClick={(e) => (e.stopPropagation(), setMenu(null), setPlanning(stretch(f)))} style={{ left: pct(f.start), width: width(f.start, f.end) }} title={`Free ${clock(f.start)}–${clock(f.end)}`}>
+            <div key={i} className="dl-free" style={{ left: pct(f.start), width: width(f.start, f.end) }} title={`Free ${clock(f.start)}–${clock(f.end)}`}>
               {(f.end - f.start) / span > 0.09 && <span>{hm(f.end - f.start)}</span>}
             </div>
           ))}
@@ -244,7 +263,38 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected }: Node
             </div>
           )}
         </div>
-      </div>
+      </div>}
+      {strip !== null && !place.collapsed && (
+        <DeadlineStrip
+          editor={editor}
+          tid={a.tid}
+          endAt={a.endAt}
+          layer={a.layer}
+          view={view}
+          now={now}
+          focus={strip}
+          onClose={() => setStrip(null)}
+          onComment={(c) => setOpen(c.id)}
+        />
+      )}
+      {(place.lastShown || place.collapsed) && (place.collapsed ? a.first : true) && (
+        <div className="dl-edge bottom">
+          <button type="button" className="dl-fold-btn" onClick={() => setAll(editor, a.tid, { collapsed: !place.collapsed })} aria-label={place.collapsed ? "Unfold" : "Fold"}>{place.collapsed ? "▸" : "▴"}</button>
+          {place.collapsed ? (
+            <span className="hint">{place.count} day{place.count === 1 ? "" : "s"} folded</span>
+          ) : (
+            <>
+              {place.hidden > 0 && <button type="button" className="link" onClick={() => setAll(editor, a.tid, { show: 0 })}>+{place.hidden} more day{place.hidden === 1 ? "" : "s"}</button>}
+              {place.count > 4 && (
+                <label className="dl-show" title="How many days show at once">
+                  <input type="range" min={1} max={place.count} value={place.show || place.count} onChange={(e) => setAll(editor, a.tid, { show: Number(e.target.value) >= place.count ? 0 : Number(e.target.value) })} />
+                  <small>{place.show || place.count} of {place.count} days</small>
+                </label>
+              )}
+            </>
+          )}
+        </div>
+      )}
       {comments.filter((c) => c.id === open).map((c) => (
         <div key={c.id} className="dl-comment">
           <span className="dl-comment-time">💬 {clock(c.at)}</span>
@@ -254,18 +304,6 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected }: Node
           <button type="button" onClick={() => setOpen(null)} aria-label="Close">✓</button>
         </div>
       ))}
-      {planning && (
-        <Planner
-          start={planning.start}
-          end={planning.end}
-          busy={busy.filter((b) => b.end > planning.start - 3_600_000 && b.start < planning.end + 3_600_000)}
-          plans={(a.plans ?? []) as Plan[]}
-          prefs={a.prefs ?? ""}
-          onPlans={(next) => updateAttributes({ plans: next })}
-          onPrefs={(p) => setAll(editor, a.tid, { prefs: p })}
-          onClose={() => setPlanning(null)}
-        />
-      )}
     </NodeViewWrapper>
   );
 }
@@ -298,6 +336,8 @@ export const DeadlineBar = Node.create({
       first: json("first", false),
       plans: json("plans", []),
       prefs: json("prefs", ""),
+      collapsed: json("collapsed", false),
+      show: json("show", 0),
     };
   },
   parseHTML() {
@@ -314,5 +354,48 @@ export const DeadlineBar = Node.create({
   },
   addNodeView() {
     return ReactNodeViewRenderer(DeadlineView);
+  },
+  addProseMirrorPlugins() {
+    return [foldPlugin];
+  },
+});
+
+/**
+ * A deadline's days fold away between its top and bottom edge lines: folded, only the top line
+ * shows; with "show N days", the bars (and the writing between them) after the Nth are hidden
+ * until opened again. Hidden, not removed: nothing in the note changes but two settings.
+ */
+const foldPlugin = new Plugin({
+  key: new PluginKey("deadlineFold"),
+  props: {
+    decorations(state) {
+      const groups = new Map<string, { pos: number; size: number; first: boolean; collapsed: boolean; show: number }[]>();
+      const tops: { pos: number; size: number }[] = [];
+      state.doc.forEach((n, pos) => {
+        tops.push({ pos, size: n.nodeSize });
+        if (n.type.name !== "deadlineBar" || !n.attrs.tid || !n.attrs.day) return;
+        const g = groups.get(n.attrs.tid) ?? [];
+        g.push({ pos, size: n.nodeSize, first: !!n.attrs.first, collapsed: !!n.attrs.collapsed, show: Number(n.attrs.show) || 0 });
+        groups.set(n.attrs.tid, g);
+      });
+      const decos: Decoration[] = [];
+      for (const bars of groups.values()) {
+        const head = bars.find((b) => b.first) ?? bars[0];
+        const count = bars.length;
+        const shown = head.collapsed ? 1 : head.show > 0 && head.show < count ? head.show : count;
+        bars.forEach((b, index) => {
+          const dl: Place = { index, count, lastShown: index === shown - 1, hidden: count - shown, collapsed: head.collapsed, show: head.show };
+          decos.push(Decoration.node(b.pos, b.pos + b.size, {}, { dl }));
+        });
+        if (shown < count) {
+          // Everything after the last shown bar's own day, up to the end of the last bar.
+          const from = bars[shown].pos;
+          const lastEnd = bars[count - 1].pos + bars[count - 1].size;
+          const afterShown = bars[shown - 1].pos + bars[shown - 1].size;
+          for (const t of tops) if (t.pos >= afterShown && t.pos + t.size <= lastEnd && (head.collapsed || t.pos >= from)) decos.push(Decoration.node(t.pos, t.pos + t.size, { class: "dl-fold" }));
+        }
+      }
+      return DecorationSet.create(state.doc, decos);
+    },
   },
 });
