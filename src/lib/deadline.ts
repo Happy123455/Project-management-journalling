@@ -155,3 +155,11 @@ export const clock = (t: number) => {
   const d = new Date(t);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
+
+/** A stretch of time in hours and minutes ("26h", "3h 20m", "45m"): free time is never shown in days. */
+export function hm(ms: number): string {
+  const mins = Math.round(ms / 60_000);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h ? (m ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+}

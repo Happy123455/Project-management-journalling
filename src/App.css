@@ -3196,3 +3196,40 @@ html.at-rest *, html.at-rest *::before, html.at-rest *::after { animation-play-s
 .nexus-removed-meta { grid-column: 1; font-size: 11px; opacity: 0.6; }
 .nexus-removed-text { grid-column: 1; white-space: pre-wrap; word-break: break-word; }
 .nexus-removed-row button { grid-column: 2; grid-row: 1 / span 2; font-size: 18px; }
+
+/* ⏳ Deadline bar (editor/deadlineBar.tsx) */
+.dl { margin: 6px 0; user-select: none; }
+.dl.selected .dl-bar { outline: 2px solid var(--accent); }
+.dl-setup { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 8px; }
+.dl-setup input { min-width: 0; flex: 1 1 120px; }
+.dl-setup-icon { font-size: 18px; }
+.dl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 4px; font-size: 13px; }
+.dl-left { font-weight: 600; color: var(--accent); }
+.dl-due { color: var(--muted); font-size: 12px; }
+.dl-head select { font-size: 12px; max-width: 46vw; }
+.dl-head button { border-radius: 8px; padding: 1px 6px; opacity: 0.55; }
+.dl-head button.on { opacity: 1; background: var(--panel); outline: 1px solid var(--accent); }
+.dl-row { display: grid; grid-template-columns: 70px 1fr; gap: 8px; align-items: center; }
+.dl-day { display: flex; flex-direction: column; font-size: 12px; font-weight: 600; line-height: 1.15; }
+.dl-day small { font-weight: 400; color: var(--muted); font-size: 10px; }
+.dl-row.weekend .dl-day span { color: var(--reminder, #d9534f); }
+.dl-row.weekend .dl-bar { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--reminder, #d9534f) 45%, transparent); }
+.dl-bar { position: relative; height: 34px; border-radius: 10px; overflow: visible; cursor: pointer; }
+.dl-past { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(40, 40, 50, 0.45); border-radius: 10px 0 0 10px; }
+.dl-after { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, rgba(90, 90, 90, 0.55) 0 4px, rgba(90, 90, 90, 0.25) 4px 8px); border-radius: 0 10px 10px 0; }
+.dl-busy { position: absolute; top: 3px; bottom: 3px; background: rgba(255, 255, 255, 0.42); border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden; font-size: 12px; backdrop-filter: blur(2px); }
+.dl-busy.sleep { background: rgba(20, 24, 60, 0.55); border-color: rgba(160, 170, 255, 0.35); }
+.dl-free { position: absolute; top: 0; bottom: 0; display: flex; align-items: flex-end; justify-content: center; pointer-events: none; overflow: hidden; }
+.dl-free span { font-size: 10px; font-weight: 700; color: #1d2a12; background: rgba(214, 255, 196, 0.85); border-radius: 6px; padding: 0 4px; margin-bottom: 2px; white-space: nowrap; }
+.dl-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(0, 0, 0, 0.18); pointer-events: none; }
+.dl-tick b { position: absolute; top: -1px; left: 2px; font-size: 8px; font-weight: 500; opacity: 0.6; font-style: normal; }
+.dl-now { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #ff3b30; border-radius: 2px; pointer-events: none; }
+.dl-flag { position: absolute; top: -14px; transform: translateX(-50%); font-size: 14px; pointer-events: none; }
+.dl-rem { position: absolute; top: 2px; transform: translateX(-50%); font-size: 11px; display: flex; flex-direction: column; align-items: center; line-height: 1; pointer-events: none; }
+.dl-rem small { font-size: 8px; font-weight: 700; background: rgba(255, 255, 255, 0.8); color: #222; border-radius: 4px; padding: 0 2px; }
+.dl-dot { position: absolute; top: -5px; transform: translateX(-50%); width: 11px; height: 11px; padding: 0; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); }
+.dl-dot.empty { opacity: 0.6; }
+.dl-menu { position: absolute; top: 38px; z-index: 5; display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 4px; white-space: nowrap; }
+.dl-comment { display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px; align-items: start; margin: 6px 0 0 78px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 6px 8px; }
+.dl-comment textarea { min-height: 52px; resize: vertical; font: inherit; background: transparent; border: none; color: var(--text); }
+.dl-comment-time { font-size: 12px; color: var(--muted); }

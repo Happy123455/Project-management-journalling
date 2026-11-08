@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { showToast } from "../lib/toast";
 import { plainText } from "../lib/plainText";
+import { DeadlineBar } from "./deadlineBar";
 import { applyTyping, REMOTE, sendTyping, TYPING_EVENT, type TypingMsg } from "../sync/liveTyping";
 import { EditorContent, useEditor, useEditorState, type Editor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -601,6 +602,7 @@ export function JournalEditor({
       LinkCard,
       YoutubeEmbed,
       PromptBlock,
+      DeadlineBar,
       MathBlock,
       LinkHighlight.configure({ onOpenLink: (t) => onOpenLink?.(t), onOpenTag: (t) => onOpenTag?.(t) }),
       LinkSuggest.configure({ pageNames: () => pageNames?.() ?? Promise.resolve([]) }),

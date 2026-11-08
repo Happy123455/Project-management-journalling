@@ -1,7 +1,7 @@
 export type SlashId =
   | "heading" | "task" | "bullet" | "numbered" | "quote" | "code" | "math"
   | "divider" | "timestamp" | "link" | "embed" | "tag" | "reminder"
-  | "attach" | "capture" | "project" | "voice" | "meme" | "sound" | "prompt" | "logproject";
+  | "attach" | "deadline" | "capture" | "project" | "voice" | "meme" | "sound" | "prompt" | "logproject";
 
 export interface SlashItem {
   id: SlashId;
@@ -26,6 +26,7 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: "embed", label: "Embed note", icon: "⧉", keywords: ["transclude", "preview", "inline", "day", "section", "show"] },
   { id: "tag", label: "Tag", icon: "#", keywords: ["hashtag", "label"] },
   { id: "reminder", label: "Reminder", icon: "🔔", keywords: ["future", "remind", "later", "date"] },
+  { id: "deadline", label: "Deadline bar", icon: "⏳", keywords: ["timeline", "due", "time left", "countdown", "schedule", "plan"] },
   { id: "attach", label: "Attach", icon: "📎", keywords: ["file", "pdf", "photo", "image", "upload", "document"] },
   { id: "voice", label: "Voice", icon: "🎙", keywords: ["audio", "record", "voice note", "mic"] },
   { id: "meme", label: "Meme", icon: "😂", keywords: ["gif", "funny", "reaction", "sticker"] },

@@ -78,6 +78,8 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       return chain.insertContent({ type: "mathBlock" }).run();
     case "prompt":
       return chain.insertContent({ type: "promptBlock" }).run();
+    case "deadline":
+      return chain.insertContent({ type: "deadlineBar" }).run();
     case "logproject":
       chain.run();
       window.dispatchEvent(new CustomEvent("journal:new-project", { detail: { editor, logging: true } }));
