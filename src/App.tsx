@@ -54,6 +54,7 @@ import { MacTabBar, NavIsland, TabSwitcher, TitleSearch, type MenuAction } from 
 import { PanelResizer, SidebarEdge, usePanelWidths, useSidebarToggle } from "./nav/PanelResizer";
 import { activeTab, closeTab, currentLoc, go, loadTabs, locKey, openTab, saveTabs, switchTab, visit, type Loc, type TabsState } from "./nav/tabs";
 import { receiveTyping } from "./sync/liveTyping";
+import { editorSaw, guardSave } from "./sync/saveGuard";
 import { CaptureHost } from "./editor/CaptureHost";
 import { PdfHost } from "./editor/PdfHost";
 import { PhotoHost } from "./editor/PhotoHost";
@@ -195,10 +196,22 @@ function App() {
       void store.getDay(open).then((p) => {
         if (!p || pending.current || hasPendingEdits()) return;
         setContent(p.content);
+        editorSaw(`day:${open}`, p.content);
         receiveTyping({ key: `day:${open}`, device: "sync", seq: ++importSeq, full: p.content });
       });
     }
   });
+
+  /** A save from the editor never removes lines the editor didn't show (sync/saveGuard.ts). */
+  const guarded = useCallback(async <T extends { day: string; content: JSONContent; plainText: string }>(next: T): Promise<T> => {
+    if (!store) return next;
+    const stored = (await store.getDay(next.day))?.content;
+    const content = guardSave(`day:${next.day}`, next.content, stored);
+    if (content === next.content) return next;
+    // Show the kept lines in the open note too (merged in, never over what's being typed).
+    receiveTyping({ key: `day:${next.day}`, device: "keep", seq: ++importSeq, full: content });
+    return { ...next, content, plainText: docText(content) };
+  }, [store]);
 
   const flush = useCallback(async () => {
     // The editor hands over its text once typing pauses; take what was typed just now too.
@@ -208,7 +221,7 @@ function App() {
     if (!store || !next) return;
     pending.current = null;
     try {
-      await store.saveDay(next);
+      await store.saveDay(await guarded(next));
       window.dispatchEvent(new Event("journal:saved"));
       setStatus("Saved");
       sync.afterSaved();
@@ -227,6 +240,7 @@ function App() {
       if (cancelled) return;
       setPage(p);
       setContent(p?.content ?? null);
+      editorSaw(`day:${day}`, p?.content);
       setLoadedDay(day);
     });
     return () => {
@@ -522,8 +536,8 @@ function App() {
         pending.current = null;
         window.clearTimeout(timer.current);
         void (async () => {
-          if (before) await store.saveDay(before);
-          await store.saveDay({ day, content, plainText, actor });
+          if (before) await store.saveDay(await guarded(before));
+          await store.saveDay(await guarded({ day, content, plainText, actor }));
           setStatus("Saved");
         })().catch((e) => showError("Save failed", e));
       } else {
