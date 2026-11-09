@@ -48,6 +48,22 @@ export function restMs(level: CoolLevel, burstMs: number, speed: number, best: n
   return Math.min(60_000, Math.max(1500, rest));
 }
 
+/** What the assistant has written so far, as it goes after the prompt's opening <think>. */
+export function continuation(thinking: string, answer: string, think: boolean): string {
+  if (!think) return answer;
+  return answer ? `${thinking.replace(/\s+$/, "")}\n</think>\n\n${answer}` : thinking;
+}
+
+/** Adds one burst's output: Ollama's separate thinking field, or (older versions) a raw </think> in the text. */
+export function addBurst(thinking: string, answer: string, thinkingNow: boolean, t: string, r: string): { thinking: string; answer: string } {
+  thinking += t;
+  if (thinkingNow && !t && r.includes("</think>")) {
+    const s = splitThinking(thinking + r, true);
+    return { thinking: s.thinking, answer: s.answer };
+  }
+  return { thinking, answer: answer + (thinkingNow && !t && !answer ? r.replace(/^\s+/, "") : r) };
+}
+
 export const isChatml = (model: string) => /qwen|qwq/i.test(model);
 
 export interface CoolProgress {
@@ -86,34 +102,39 @@ export async function coolGenerate(o: CoolOptions): Promise<{ thinking: string; 
   const think = o.think !== false;
   const fetcher = await http();
   const base = chatml(o.messages, think);
-  let raw = "";
+  let thinking = "";
+  let answer = "";
   let tokens = 0;
   let best = 0;
   for (;;) {
     const started = performance.now();
+    // Ollama (0.40+) moves the thinking into its own field even in raw mode, so the text so far is
+    // put back together here; once the answer has begun, thinking is off so it lands in `response`.
+    const thinkingNow = think && !answer;
     const res = await fetcher(`${OLLAMA_URL}/api/generate`, {
       method: "POST",
       signal: o.signal,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: o.model,
-        prompt: base + raw,
+        prompt: base + continuation(thinking, answer, think),
         raw: true,
         stream: false,
+        think: thinkingNow,
         keep_alive: "15m",
         options: { num_predict: o.level === "off" ? MAX_TOKENS - tokens : BURST, num_ctx: o.numCtx ?? 16384, stop: ["<|im_end|>", "<|im_start|>"] },
       }),
     });
     if (!res.ok) throw new Error(`The local model answered ${res.status}: ${(await res.text()).slice(0, 160)}`);
     const body = await res.json();
-    raw += body.response ?? "";
+    ({ thinking, answer } = addBurst(thinking, answer, thinkingNow, body.thinking ?? "", body.response ?? ""));
     const count: number = body.eval_count ?? 0;
     tokens += count;
     const speed = body.eval_duration ? count / (body.eval_duration / 1e9) : 0;
     // The first bursts set the cool-chip speed; later ones are compared with it.
     if (count > BURST / 2) best = Math.max(best, speed);
     const finished = body.done_reason !== "length" || count === 0 || tokens >= MAX_TOKENS;
-    const parts = splitThinking(raw, think);
+    const parts = { thinking: thinking.trim(), answer: answer.trim() };
     if (finished) {
       o.onProgress?.({ ...parts, restUntil: 0, speed, hot: false });
       return { ...parts, tokens };
