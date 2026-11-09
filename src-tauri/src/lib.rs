@@ -156,6 +156,14 @@ fn log_panics() {
     }
 }
 
+/// AI chat's rests between bursts (src/ai/chatRunner.ts): waited here, because macOS slows the
+/// timers of a hidden window and a reply would stall while the person works in another app.
+#[cfg(desktop)]
+#[tauri::command]
+async fn ai_rest(ms: u64) {
+    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(std::time::Duration::from_millis(ms.min(120_000)))).await;
+}
+
 #[cfg(desktop)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
@@ -175,7 +183,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         direct::direct_start,
         direct::direct_reply,
         direct::direct_scan,
-        youtube::youtube_port
+        youtube::youtube_port,
+        ai_rest
     ]
 }
 

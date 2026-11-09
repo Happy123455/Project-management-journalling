@@ -38,6 +38,8 @@ import { loadAiSettings } from "./ai/settings";
 import { entryFor, numberEntries, type ProjectEntry } from "./lib/projectDays";
 import { loadGestures, NO_SWIPE, type CanvasAction } from "./lib/gestures";
 import { ChatView } from "./ChatView";
+import { AiBadge } from "./AiBadge";
+import { startMacWorker } from "./ai/chatRunner";
 import { RelativeTime } from "./calendar/RelativeTime";
 import { NexusView, type NexusTab, type NexusTarget } from "./NexusView";
 import { openVoiceRecorder, VoiceRecorder } from "./editor/VoiceRecorder";
@@ -104,6 +106,8 @@ function App() {
   const [nexusTab, setNexusTab] = useState<NexusTab>("history");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  // An AI chat to open (from the 🤖 badge or an "Answer ready" toast).
+  const [openAi, setOpenAi] = useState<string | null>(null);
   // Bumped when another device's changes arrive, so lists and calendars reload.
   const [syncTick, setSyncTick] = useState(0);
   // Bumped to reopen the current page in the editor with what arrived (only when not typing).
@@ -165,6 +169,19 @@ function App() {
     };
   }, [store, route.kind, day]);
 
+  useEffect(() => {
+    const open = (e: Event) => {
+      setOpenAi((e as CustomEvent<string>).detail);
+      void window.__journalFlush?.().then(() => setChatOpen(true));
+    };
+    window.addEventListener("journal:open-ai-chat", open);
+    return () => window.removeEventListener("journal:open-ai-chat", open);
+  }, []);
+  // Mac: answers AI chats sent from the phone (they arrive by sync).
+  useEffect(() => {
+    if (!store || !isDesktopApp()) return;
+    return startMacWorker(store);
+  }, [store]);
   // Mac: notes from the floating bubble window land at the end of today.
   useEffect(() => {
     if (!store || !isDesktopApp()) return;
@@ -1345,13 +1362,15 @@ function App() {
         <ChatView
           store={store}
           day={day}
-          onClose={() => setChatOpen(false)}
+          onClose={() => (setChatOpen(false), setOpenAi(null))}
+          openAi={openAi}
           onChanged={() => {
             setPageVersion((n) => n + 1);
             setSyncTick((n) => n + 1);
           }}
         />
       )}
+      <AiBadge />
       <VoiceRecorder />
       <ReadAloudPlayer />
       <MemeKit />

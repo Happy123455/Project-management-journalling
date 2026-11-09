@@ -69,6 +69,8 @@ export interface CoolOptions {
   numCtx?: number;
   signal?: AbortSignal;
   onProgress?: (p: CoolProgress) => void;
+  /** How to wait between bursts (the Mac waits natively; a hidden window's timers are slowed). */
+  rest?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
 const sleep = (ms: number, signal?: AbortSignal) =>
@@ -123,6 +125,6 @@ export async function coolGenerate(o: CoolOptions): Promise<{ thinking: string; 
     }
     const rest = restMs(o.level, performance.now() - started, speed, best);
     o.onProgress?.({ ...parts, restUntil: Date.now() + rest, speed, hot: best > 0 && speed < best * 0.8 });
-    await sleep(rest, o.signal);
+    await (o.rest ?? sleep)(rest, o.signal);
   }
 }

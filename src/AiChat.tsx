@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { JournalStore } from "./store";
-import { askAi, localAvailable } from "./ai/client";
-import { coolGenerate, isChatml, type CoolProgress, type LocalMessage } from "./ai/local";
-import { agentSystem, parseToolCalls, runTools } from "./ai/agent";
-import { loadAiSettings, modelFor, recordUsage, saveAiSettings } from "./ai/settings";
-import { actorFor } from "./ai/providers";
+import { loadAiSettings, saveAiSettings } from "./ai/settings";
+import type { CoolLevel } from "./ai/local";
+import { blockRows, type BlockRow, type Section } from "./ai/blocks";
+import { currentJob, isMac, listChats, loadChat, newChat, saveChat, sendMessage, stopJob, stopWatching, subscribeJob, watchRemote, type Chat, type Msg } from "./ai/chatRunner";
 import { parseOutline, outlineDoc, type OutlineNode } from "./lib/outline";
 import { appendBlocks, textBlocks } from "./lib/append";
 import { dayKey } from "./lib/timestamp";
@@ -12,52 +11,29 @@ import { docText } from "./lib/words";
 import { showError, showToast } from "./lib/toast";
 
 /**
- * Plain AI chat: just the person and the model, no journal context and no system prompt. On the
- * Mac it runs on the local model, made cool (src/ai/local.ts). "Can edit journal" lets the model
- * read and change the journal with tools; at the end a chat can be summed up as a mind map or as
- * how its logic evolved. Chats stay on this device.
+ * Plain AI chat: just the person and the model, no journal context and no system prompt. Replies
+ * run in the background (src/ai/chatRunner.ts) with a 🤖 badge, on the Mac's local model kept
+ * cool; the phone hands its messages to the Mac. "✎ Can edit" lets the model change the journal,
+ * and "📍 Section" limits it to blocks picked from a note's mini map. Long chats can be summed up as
+ * a mind map or as how their logic evolved.
  */
 
-interface Msg {
-  role: "user" | "assistant";
-  content: string;
-  thinking?: string;
-  /** Tools the model used for this answer. */
-  tools?: string[];
-  kind?: "map" | "evolution";
-  by?: string;
-}
-interface Chat {
-  id: string;
-  title: string;
-  messages: Msg[];
-  updated: number;
-}
-
-const CHATS_KEY = "dynamic-journal.ai-chats";
-const EDIT_KEY = "dynamic-journal.ai-chat-edit";
-const readChats = (): Chat[] => {
+const REMOTE_KEY = "dynamic-journal.ai-chat-remote";
+const LAST_KEY = "dynamic-journal.ai-chat-last";
+const local = (k: string) => {
   try {
-    return JSON.parse(localStorage.getItem(CHATS_KEY) ?? "[]");
+    return localStorage.getItem(k);
   } catch {
-    return [];
+    return null;
   }
 };
-const writeChats = (chats: Chat[]) => {
+const setLocal = (k: string, v: string) => {
   try {
-    localStorage.setItem(CHATS_KEY, JSON.stringify(chats.slice(0, 40)));
+    localStorage.setItem(k, v);
   } catch {
-    // Too big: the chat lasts for this session.
+    // Only a convenience.
   }
 };
-const newChat = (): Chat => ({ id: crypto.randomUUID(), title: "New chat", messages: [], updated: Date.now() });
-
-const MAP_ASK =
-  "Summarise our whole conversation as a mind map. Answer only with a Markdown bullet outline: one root bullet naming the topic, " +
-  "then the main branches indented under it, then their details indented further (at most 4 levels, short phrases).";
-const EVOLUTION_ASK =
-  "Summarise how the logic of our conversation evolved: where we started, each turn the thinking took (what changed it), " +
-  "and where we ended up. Use short numbered stages, then one line: Started → Ended.";
 
 function MapTree({ nodes }: { nodes: OutlineNode[] }) {
   return (
@@ -72,95 +48,138 @@ function MapTree({ nodes }: { nodes: OutlineNode[] }) {
   );
 }
 
-export function AiChat({ store, onChanged }: { store: JournalStore; onChanged: () => void }) {
-  const [chats, setChats] = useState<Chat[]>(readChats);
-  const [chat, setChat] = useState<Chat>(() => readChats()[0] ?? newChat());
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState<CoolProgress | "waiting" | null>(null);
-  const [now, setNow] = useState(Date.now());
-  const [edit, setEdit] = useState(() => {
-    try {
-      return localStorage.getItem(EDIT_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
-  const [cool, setCool] = useState(() => loadAiSettings().cool ?? "cool");
-  const stop = useRef<AbortController | null>(null);
-  const list = useRef<HTMLDivElement>(null);
+/** The reasoning in order: numbered thoughts with the tools used between them. */
+function Steps({ steps, open }: { steps: { kind: "thought" | "tool"; text: string }[]; open?: boolean }) {
+  let n = 0;
+  return (
+    <details className="ai-thinking" open={open}>
+      <summary>🧠 Reasoning · {steps.filter((s) => s.kind === "thought").length} steps</summary>
+      <ol className="ai-steps">
+        {steps.flatMap((s, i) =>
+          s.kind === "tool"
+            ? [<li key={i} className="ai-step-tool">{s.text}</li>]
+            : s.text.split(/\n\s*\n/).filter((p) => p.trim()).map((p, j) => (
+                <li key={`${i}-${j}`} value={++n}>{p.trim()}</li>
+              )),
+        )}
+      </ol>
+    </details>
+  );
+}
 
+/** A note as a mini map of its blocks: tap the first and the last block of the part the AI may edit. */
+function SectionPicker({ store, current, onPick, onClose }: { store: JournalStore; current?: Section | null; onPick: (s: Section | null) => void; onClose: () => void }) {
+  const [day, setDay] = useState(current?.day ?? (current?.title ? "" : dayKey(new Date())));
+  const [title, setTitle] = useState(current?.title ?? "");
+  const [rows, setRows] = useState<BlockRow[]>([]);
+  const [ends, setEnds] = useState<number[]>([]);
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const doc = title ? (await store.getPage(title))?.content : (await store.getDay(day))?.content;
+      if (!live) return;
+      const r = blockRows(doc ?? null);
+      setRows(r);
+      const picked = current ? r.map((x, i) => (current.ids.includes(x.id) ? i : -1)).filter((i) => i >= 0) : [];
+      setEnds(picked.length ? [picked[0], picked[picked.length - 1]] : []);
+    })();
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store, day, title]);
+  const [a, b] = ends.length === 2 ? [Math.min(...ends), Math.max(...ends)] : ends.length === 1 ? [ends[0], ends[0]] : [-1, -1];
+  const tap = (i: number) => setEnds(ends.length === 1 ? [ends[0], i] : [i]);
+  const use = () => {
+    const ids = rows.slice(a, b + 1).map((r) => r.id);
+    const name = title || (day === dayKey(new Date()) ? "Today" : day);
+    const short = (r: BlockRow) => (r.text || r.type).slice(0, 24);
+    onPick({ ...(title ? { title } : { day }), ids, label: `${name} · ${short(rows[a])}${b > a ? ` → ${short(rows[b])}` : ""}` });
+  };
+  return (
+    <div className="ai-section">
+      <div className="ai-chat-bar">
+        <input type="date" value={day} onChange={(e) => (setDay(e.target.value), setTitle(""))} aria-label="Day" />
+        <input value={title} placeholder="or a page title" onChange={(e) => setTitle(e.target.value)} aria-label="Page" />
+        <button type="button" onClick={onClose}>✕</button>
+      </div>
+      <p className="hint">Tap the first and the last block the AI may change.</p>
+      <div className="ai-mini-map">
+        {!rows.length && <p className="hint">Nothing written here yet.</p>}
+        {rows.map((r, i) => (
+          <button key={r.id} type="button" className={`ai-mini-row ${r.type} ${i >= a && i <= b ? "picked" : ""}`} onClick={() => tap(i)}>
+            {(r.text || `(${r.type})`).slice(0, 90)}
+          </button>
+        ))}
+      </div>
+      <div className="ai-summaries">
+        <button type="button" disabled={a < 0} onClick={use}>📍 Only this part</button>
+        <button type="button" onClick={() => onPick(null)}>Whole journal</button>
+      </div>
+    </div>
+  );
+}
+
+export function AiChat({ store, onChanged, openId }: { store: JournalStore; onChanged: () => void; openId?: string | null }) {
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [chat, setChat] = useState<Chat>(newChat);
+  const [draft, setDraft] = useState("");
+  const [picking, setPicking] = useState(false);
+  const [cool, setCool] = useState<CoolLevel>(() => loadAiSettings().cool ?? "cool");
+  const [remote, setRemote] = useState(() => !isMac() && local(REMOTE_KEY) !== "0");
+  const job = useSyncExternalStore(subscribeJob, currentJob);
+  const [now, setNow] = useState(Date.now());
+  const list = useRef<HTMLDivElement>(null);
+  const mine = job?.chatId === chat.id ? job : null;
+
+  // Chats are journal pages (they sync): reload when a job ends or something arrives.
+  const refresh = async (id = chat.id) => {
+    const all = await listChats(store);
+    setChats(all);
+    const c = all.find((x) => x.id === id);
+    if (c) setChat(c);
+    // The phone after a restart: keep watching for the Mac's answer.
+    if (c?.pending && !isMac() && !currentJob()) watchRemote(store, c);
+  };
+  useEffect(() => {
+    void refresh(openId || local(LAST_KEY) || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store, openId]);
+  useEffect(() => {
+    if (!job) void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.chatId]);
   useEffect(() => {
     list.current?.scrollTo({ top: list.current.scrollHeight, behavior: "smooth" });
-  }, [chat.messages.length, busy]);
-  // The rest countdown.
-  const resting = busy && busy !== "waiting" && busy.restUntil > now;
+  }, [chat.messages.length, !!mine]);
   useEffect(() => {
-    if (!busy || busy === "waiting" || !busy.restUntil) return;
+    if (!mine?.progress?.restUntil) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
-  }, [busy]);
+  }, [mine?.progress?.restUntil]);
 
-  const save = (c: Chat) => {
+  const update = async (patch: Partial<Chat>) => {
+    const c = { ...((await loadChat(store, chat.id)) ?? chat), ...patch };
     setChat(c);
-    const all = [c, ...readChats().filter((x) => x.id !== c.id)];
-    writeChats(all);
-    setChats(all);
+    if (c.messages.length) await saveChat(store, c);
+  };
+  const open = (c: Chat) => {
+    setChat(c);
+    setLocal(LAST_KEY, c.id);
   };
 
-  /** One answer to these messages; with editing on, the model may call tools first (a few rounds). */
-  const answer = async (history: Msg[], ask?: string): Promise<Msg> => {
-    const settings = loadAiSettings();
-    const model = modelFor({ ...settings, provider: "local" }, "chat");
-    const msgs: LocalMessage[] = history.map((m) => ({ role: m.role, content: m.content }));
-    if (ask) msgs.push({ role: "user", content: ask });
-    const local = settings.enabled && (await localAvailable());
-    if (!local || !isChatml(model)) {
-      // The phone, or a non-Qwen model: one plain request with the transcript (no tools).
-      const text = msgs.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n") + "\n\nAssistant:";
-      const a = await askAi({ task: "chat", system: "", text, maxTokens: 6000 });
-      return { role: "assistant", content: a.text.trim(), by: a.actor };
-    }
-    const actor = actorFor("local", model);
-    const tools: string[] = [];
-    let thinking = "";
-    if (edit && !ask) msgs.unshift({ role: "system", content: agentSystem() });
-    for (let round = 0; round < 6; round++) {
-      stop.current = new AbortController();
-      const out = await coolGenerate({ model, messages: msgs, level: cool, signal: stop.current.signal, onProgress: setBusy });
-      recordUsage(model, 0, out.tokens);
-      thinking += (thinking && out.thinking ? "\n\n" : "") + out.thinking;
-      const { calls, text } = edit && !ask ? parseToolCalls(out.answer) : { calls: [], text: out.answer };
-      if (!calls.length) return { role: "assistant", content: text, thinking, tools: tools.length ? tools : undefined, by: actor };
-      const r = await runTools(store, calls, actor);
-      tools.push(...r.log);
-      onChanged();
-      msgs.push({ role: "assistant", content: out.answer }, r.message);
-    }
-    return { role: "assistant", content: "(Stopped after several tool rounds.)", thinking, tools, by: actor };
-  };
-
-  const run = async (base: Chat, history: Msg[], ask?: string, kind?: Msg["kind"]) => {
-    setBusy("waiting");
-    try {
-      const reply = await answer(history.filter((m) => !m.kind), ask);
-      const c = { ...base, messages: [...history, { ...reply, kind }], updated: Date.now() };
-      save(c);
-    } catch (e) {
-      if (!(e instanceof DOMException && e.name === "AbortError")) showError("No AI reply", e);
-    } finally {
-      setBusy(null);
-      stop.current = null;
-    }
-  };
-
-  const send = () => {
-    const text = draft.trim();
-    if (!text || busy) return;
+  const send = async (kind?: Msg["kind"]) => {
+    const text = kind ? null : draft.trim();
+    if ((!kind && !text) || mine) return;
     setDraft("");
-    const messages: Msg[] = [...chat.messages, { role: "user", content: text }];
-    const c = { ...chat, title: chat.messages.length ? chat.title : text.slice(0, 48), messages, updated: Date.now() };
-    save(c);
-    void run(c, messages);
+    try {
+      const c = await sendMessage(store, chat, text, kind, remote);
+      open(c);
+      setChats([c, ...chats.filter((x) => x.id !== c.id)]);
+    } catch (e) {
+      if (text) setDraft(text);
+      showError("Couldn't send", e);
+    }
   };
 
   const toJournal = async (m: Msg) => {
@@ -181,60 +200,64 @@ export function AiChat({ store, onChanged }: { store: JournalStore; onChanged: (
     }
   };
 
-  const setLevel = (level: typeof cool) => {
-    setCool(level);
-    saveAiSettings({ ...loadAiSettings(), cool: level });
-  };
-  const status =
-    busy === "waiting" ? "Starting…" : busy ? (resting ? `${busy.hot ? "🌡️ Mac warm, cooling" : "❄️ Cooling"} ${Math.ceil((busy.restUntil - now) / 1000)} s` : `${busy.answer ? "Writing" : "Thinking"}… ${busy.speed ? `${busy.speed.toFixed(0)} tok/s` : ""}`) : "";
-  const live = busy && busy !== "waiting" ? busy : null;
+  const p = mine?.progress;
+  const status = mine?.remote
+    ? "💻 Sent to your Mac, it answers when it gets it"
+    : !p
+      ? job && !mine ? "Waiting for the other reply…" : "Starting…"
+      : p.restUntil > now
+        ? `${p.hot ? "🌡️ Mac warm, cooling" : "❄️ Cooling"} ${Math.ceil((p.restUntil - now) / 1000)} s`
+        : `${p.answer ? "Writing" : "Thinking"}… ${p.speed ? `${p.speed.toFixed(0)} tok/s` : ""}`;
   const enough = chat.messages.filter((m) => !m.kind).length >= 4;
+  const waiting = !!chat.pending || !!mine;
+
+  if (picking) return <SectionPicker store={store} current={chat.section} onClose={() => setPicking(false)} onPick={(s) => (setPicking(false), void update({ section: s, edit: s ? true : chat.edit }))} />;
 
   return (
     <>
       <div className="ai-chat-bar">
-        <select value={chat.id} onChange={(e) => setChat(chats.find((c) => c.id === e.target.value) ?? chat)} aria-label="Chats" disabled={!!busy}>
+        <select value={chat.id} onChange={(e) => open(chats.find((c) => c.id === e.target.value) ?? chat)} aria-label="Chats">
           {!chats.some((c) => c.id === chat.id) && <option value={chat.id}>{chat.title}</option>}
           {chats.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
         </select>
-        <button type="button" onClick={() => setChat(newChat())} disabled={!!busy} title="New chat">＋</button>
-        <select value={cool} onChange={(e) => setLevel(e.target.value as typeof cool)} aria-label="Heat" title="Keep the Mac cool: the model works in bursts with rests (same thinking, just slower)">
+        <button type="button" onClick={() => open(newChat())} title="New chat">＋</button>
+        <select
+          value={cool}
+          onChange={(e) => {
+            const level = e.target.value as CoolLevel;
+            setCool(level);
+            saveAiSettings({ ...loadAiSettings(), cool: level });
+          }}
+          aria-label="Heat"
+          title="Keep the Mac cool: the model works in bursts with rests (same thinking, just slower)"
+        >
           <option value="cool">❄️ Cool</option>
           <option value="cold">🧊 Coldest</option>
-          <option value="off">🔥 Full speed</option>
+          <option value="off">🔥 Full</option>
         </select>
-        <button
-          type="button"
-          className={edit ? "chat-ai active" : "chat-ai"}
-          aria-pressed={edit}
-          title="Let the AI read and change the journal (every change can be undone in Settings → AI changes)"
-          onClick={() => {
-            setEdit(!edit);
-            try {
-              localStorage.setItem(EDIT_KEY, edit ? "0" : "1");
-            } catch {
-              // Only a convenience.
-            }
-          }}
-        >
-          ✎ {edit ? "Can edit" : "Chat only"}
+        {!isMac() && (
+          <button type="button" className={remote ? "chat-ai active" : "chat-ai"} onClick={() => (setRemote(!remote), setLocal(REMOTE_KEY, remote ? "0" : "1"))} title="Answer on my Mac (its local model) or here with Gemini">
+            {remote ? "💻 Mac" : "☁️ Here"}
+          </button>
+        )}
+      </div>
+      <div className="ai-chat-bar ai-chat-scope">
+        <button type="button" className={chat.edit ? "chat-ai active" : "chat-ai"} aria-pressed={!!chat.edit} onClick={() => void update({ edit: !chat.edit, section: chat.edit ? null : chat.section })} title="Let the AI read and change the journal (every change can be undone in Settings → AI changes)">
+          ✎ {chat.edit ? "Can edit" : "Chat only"}
+        </button>
+        <button type="button" className={chat.section ? "chat-ai active" : "chat-ai"} onClick={() => setPicking(true)} title="Limit the AI to one part of a note">
+          📍 {chat.section ? chat.section.label : "Section"}
         </button>
       </div>
       <div ref={list} className="chat-list">
         {!chat.messages.length && (
           <p className="hint chat-empty">
-            Just you and the AI: nothing from your journal is sent. Turn on ✎ to let it read and edit your journal when you ask.
+            Just you and the AI: nothing from your journal is sent. Replies keep going in the background (🤖 at the top). Turn on ✎ to let it edit your journal, or 📍 to limit it to one part of a note.
           </p>
         )}
         {chat.messages.map((m, i) => (
           <div key={i} className={m.role === "user" ? "chat-bubble" : "chat-bubble ai"}>
-            {m.thinking && (
-              <details className="ai-thinking">
-                <summary>Thought it through</summary>
-                <span className="chat-text">{m.thinking}</span>
-              </details>
-            )}
-            {m.tools && <span className="ai-tools">{m.tools.join(" · ")}</span>}
+            {m.steps && <Steps steps={m.steps} />}
             {m.kind === "map" && parseOutline(m.content).length ? <MapTree nodes={parseOutline(m.content)} /> : <span className="chat-text">{m.content}</span>}
             {m.role === "assistant" && (
               <span className="chat-time">
@@ -244,24 +267,24 @@ export function AiChat({ store, onChanged }: { store: JournalStore; onChanged: (
             )}
           </div>
         ))}
-        {busy && (
+        {waiting && (
           <div className="chat-bubble ai thinking">
-            {live?.thinking && !live.answer && <span className="chat-text ai-thinking-live">{live.thinking.slice(-400)}</span>}
-            {live?.answer && <span className="chat-text">{live.answer}</span>}
+            {p?.thinking && <div className="ai-thinking-live">{p.thinking}</div>}
+            {p?.answer && <span className="chat-text">{p.answer}</span>}
             <span className="chat-time">
               {status}
-              <button type="button" className="ai-save" onClick={() => stop.current?.abort()}>Stop</button>
+              <button type="button" className="ai-save" onClick={() => (mine?.remote || !mine ? stopWatching(store, chat.id) : stopJob())}>Stop</button>
             </span>
           </div>
         )}
       </div>
-      {enough && !busy && (
+      {enough && !waiting && (
         <div className="ai-summaries">
-          <button type="button" onClick={() => void run(chat, chat.messages, MAP_ASK, "map")}>🧠 Mind map summary</button>
-          <button type="button" onClick={() => void run(chat, chat.messages, EVOLUTION_ASK, "evolution")}>🧭 How the logic evolved</button>
+          <button type="button" onClick={() => void send("map")}>🧠 Mind map summary</button>
+          <button type="button" onClick={() => void send("evolution")}>🧭 How the logic evolved</button>
         </div>
       )}
-      <form className="chat-compose" onSubmit={(e) => (e.preventDefault(), send())}>
+      <form className="chat-compose" onSubmit={(e) => (e.preventDefault(), void send())}>
         <textarea
           value={draft}
           rows={1}
@@ -270,11 +293,11 @@ export function AiChat({ store, onChanged }: { store: JournalStore; onChanged: (
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              send();
+              void send();
             }
           }}
         />
-        <button type="submit" disabled={!draft.trim() || !!busy} aria-label="Send">➤</button>
+        <button type="submit" disabled={!draft.trim() || waiting} aria-label="Send">➤</button>
       </form>
     </>
   );

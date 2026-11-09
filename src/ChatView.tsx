@@ -39,19 +39,23 @@ const SYSTEM =
   "never lecture or list. Use their language. The day's note so far is given for context.";
 
 /** A day as a chat: its log lines as bubbles; each message sent becomes a new log line. */
-export function ChatView({ store, day, onClose, onChanged }: { store: JournalStore; day: string; onClose: () => void; onChanged: () => void }) {
+export function ChatView({ store, day, onClose, onChanged, openAi }: { store: JournalStore; day: string; onClose: () => void; onChanged: () => void; openAi?: string | null }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [replies, setReplies] = useState<Reply[]>(() => readReplies(day));
   const [thinking, setThinking] = useState(false);
   // "journal": the day as chat bubbles; "ai": plain AI chat (no journal context).
   const [mode, setMode] = useState<"journal" | "ai">(() => {
+    if (openAi) return "ai";
     try {
       return localStorage.getItem("dynamic-journal.chat-mode") === "ai" ? "ai" : "journal";
     } catch {
       return "journal";
     }
   });
+  useEffect(() => {
+    if (openAi) setMode("ai");
+  }, [openAi]);
   const switchMode = (m: "journal" | "ai") => {
     setMode(m);
     try {
@@ -147,7 +151,7 @@ export function ChatView({ store, day, onClose, onChanged }: { store: JournalSto
           🤖 {aiOn ? "On" : "Off"}
         </button>}
       </header>
-      {mode === "ai" ? <AiChat store={store} onChanged={onChanged} /> : <>
+      {mode === "ai" ? <AiChat store={store} onChanged={onChanged} openId={openAi} /> : <>
       <div ref={list} className="chat-list">
         {!messages.length && <p className="hint chat-empty">Write a message below. Each one is added to this day's note as a timestamped log line.</p>}
         {replies.filter((r) => r.after === 0).map((r, j) => (
