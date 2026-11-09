@@ -3575,3 +3575,23 @@ html.dl-dragging, html.dl-dragging * { user-select: none !important; -webkit-use
 .step-gif { width: 1.6em; height: 1.6em; object-fit: cover; border-radius: 6px; vertical-align: middle; }
 .habit-icon .step-gif { width: 2em; height: 2em; }
 .phase-chart.tall svg { max-height: 72vh; }
+
+/* AI chat (src/AiChat.tsx) */
+.chat-modes { display: flex; gap: 2px; margin-left: auto; padding: 2px; border-radius: 999px; border: 1px solid var(--border); }
+.chat-modes button { padding: 3px 9px; border: 0; border-radius: 999px; background: none; font-size: 14px; }
+.chat-modes button.active { background: rgba(var(--heat-rgb), 0.18); }
+.ai-chat-bar { display: flex; gap: 6px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.ai-chat-bar select { min-width: 0; max-width: 46%; font: inherit; font-size: 12px; padding: 4px 6px; border-radius: 8px; }
+.ai-chat-bar select:first-child { flex: 1; }
+.ai-chat-bar .chat-ai { margin-left: 0; }
+.ai-thinking { font-size: 12px; opacity: 0.7; margin-bottom: 4px; }
+.ai-thinking summary { cursor: pointer; }
+.ai-thinking-live { font-size: 12px; opacity: 0.6; font-style: italic; }
+.ai-tools { display: block; font-size: 11px; opacity: 0.75; margin-bottom: 4px; }
+.ai-save { margin-left: 8px; padding: 1px 8px; font-size: 10px; border-radius: 999px; }
+.ai-summaries { display: flex; gap: 8px; justify-content: center; padding: 6px 12px; flex-wrap: wrap; }
+.ai-summaries button { font-size: 12px; padding: 5px 12px; border-radius: 999px; }
+.ai-map, .ai-map ul { margin: 0; padding-left: 16px; list-style: none; }
+.ai-map > li > span { font-weight: 600; }
+.ai-map li { position: relative; padding: 2px 0 2px 10px; border-left: 2px solid rgba(var(--heat-rgb), 0.45); }
+.ai-map li > span { display: inline-block; padding: 1px 8px; border-radius: 8px; background: rgba(var(--heat-rgb), 0.1); }

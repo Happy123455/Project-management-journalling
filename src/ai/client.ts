@@ -85,7 +85,7 @@ async function callGemini(key: string, model: string, req: AiRequest) {
   const http = "__TAURI_INTERNALS__" in window ? (await import("@tauri-apps/plugin-http")).fetch : fetch;
   const body = (thinking: boolean) =>
     JSON.stringify({
-      systemInstruction: { parts: [{ text: req.system }] },
+      ...(req.system ? { systemInstruction: { parts: [{ text: req.system }] } } : {}),
       contents: [{ role: "user", parts }],
       generationConfig: {
         // Thinking models spend part of the output budget thinking: leave room so the answer isn't cut off.
@@ -153,9 +153,11 @@ async function callOllama(model: string, req: AiRequest) {
       // The chat journal gets the reasoning model's thinking (it's local and free); edits stay quick.
       think: req.task === "chat",
       ...(req.schema ? { format: req.schema } : {}),
-      options: { num_ctx: 8192 },
+      // The same window as AI chat (src/ai/local.ts), so switching between them doesn't reload the model.
+      options: { num_ctx: 16384 },
+      keep_alive: "15m",
       messages: [
-        { role: "system", content: req.system },
+        ...(req.system ? [{ role: "system", content: req.system }] : []),
         { role: "user", content: req.text, ...(req.images?.length ? { images: req.images.map((i) => i.data) } : {}) },
       ],
     }),
@@ -201,7 +203,7 @@ async function callClaude(key: string, model: string, req: AiRequest) {
   const response = await client.beta.messages.create({
     model,
     max_tokens: req.maxTokens ?? 16000,
-    system: req.system,
+    ...(req.system ? { system: req.system } : {}),
     messages: [{ role: "user", content }],
     // Quick edits don't need deep thinking.
     output_config: {

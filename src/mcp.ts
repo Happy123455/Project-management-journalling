@@ -2,6 +2,37 @@ import { appendBlocks, textBlocks } from "./lib/append";
 import { dayKey } from "./lib/timestamp";
 import { docText } from "./lib/words";
 import type { JournalStore } from "./store";
+import type { JSONContent } from "@tiptap/react";
+
+/**
+ * The document with the first line containing `find` changed (`find` → `replace`), or null when no
+ * line has it. A match inside one piece of text keeps its formatting; one across formatting makes
+ * that line plain text.
+ */
+export function replaceInDoc(doc: JSONContent, find: string, replace: string): JSONContent | null {
+  let done = false;
+  const walk = (node: JSONContent): JSONContent => {
+    if (done || !node.content) return node;
+    const kids = node.content;
+    if (kids.length && kids.every((k) => k.type === "text" || k.type === "hardBreak")) {
+      const one = kids.findIndex((k) => k.type === "text" && k.text?.includes(find));
+      if (one >= 0) {
+        done = true;
+        return { ...node, content: kids.map((k, i) => (i === one ? { ...k, text: k.text!.replace(find, replace) } : k)).filter((k) => k.type !== "text" || k.text) };
+      }
+      const whole = kids.map((k) => (k.type === "text" ? k.text ?? "" : "\n")).join("");
+      if (whole.includes(find)) {
+        done = true;
+        const next = whole.replace(find, replace);
+        return { ...node, content: next ? [{ type: "text", text: next }] : [] };
+      }
+      return node;
+    }
+    return { ...node, content: kids.map(walk) };
+  };
+  const out = walk(doc);
+  return done ? out : null;
+}
 
 /**
  * The journal's MCP tools (served by src-tauri/src/mcp.rs on the Mac). The Rust side speaks MCP and
@@ -70,6 +101,41 @@ export async function runMcpTool(store: JournalStore, call: Pick<McpCall, "tool"
       await store.saveDay({ day, content, plainText: docText(content), actor: call.actor || "MCP client" });
       window.dispatchEvent(new Event("journal:reload-page"));
       return text(`Added to ${day}. (Shown in the app under Settings → AI changes as "${call.actor}", where it can be undone.)`);
+    }
+    case "replace_text": {
+      const find = str("find");
+      if (!find) return text("find is empty", true);
+      await window.__journalFlush?.();
+      const actor = call.actor || "MCP client";
+      if (str("title")) {
+        const page = await store.getPage(str("title"));
+        if (!page) return text(`No page called "${str("title")}".`, true);
+        const content = replaceInDoc(page.content, find, str("replace"));
+        if (!content) return text(`"${find}" isn't on ${page.title}.`, true);
+        await store.savePage({ id: page.id, content, plainText: docText(content), actor });
+        window.dispatchEvent(new Event("journal:reload-page"));
+        return text(`Changed on ${page.title}.`);
+      }
+      const day = str("date") || dayKey(now);
+      if (!DATE_RE.test(day)) return text("date must be YYYY-MM-DD", true);
+      const page = await store.getDay(day);
+      const content = page && replaceInDoc(page.content, find, str("replace"));
+      if (!content) return text(`"${find}" isn't in ${day}.`, true);
+      await store.saveDay({ day, content, plainText: docText(content), actor });
+      window.dispatchEvent(new Event("journal:reload-page"));
+      return text(`Changed in ${day}.`);
+    }
+    case "add_to_page": {
+      const added = str("text").trim();
+      const title = str("title").trim();
+      if (!added || !title) return text("title and text are needed", true);
+      await window.__journalFlush?.();
+      const actor = call.actor || "MCP client";
+      const page = await store.ensurePage(title, actor);
+      const content = appendBlocks(page.content ?? null, textBlocks(added));
+      await store.savePage({ id: page.id, content, plainText: docText(content), actor });
+      window.dispatchEvent(new Event("journal:reload-page"));
+      return text(`Added to ${page.title}.`);
     }
     default:
       return text(`Unknown tool ${call.tool}`, true);
