@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import type { Editor } from "@tiptap/react";
 import { journalStore } from "./attachments";
@@ -18,6 +18,9 @@ import { DeadlineSheet, savedTemplates } from "./DeadlineSheet";
 import { PlanSheet } from "./PlanSheet";
 import { startFocus } from "./focus";
 import { noteDayOf } from "./noteEdit";
+
+/** The week strip above each day's bar (Monday first). */
+const WEEK_LETTERS = ["M", "T", "W", "Th", "F", "Sa", "Su"];
 
 /**
  * ⏳ Deadline bar: `/deadline`, pick when it's due, and the note gets one bar per day up to then
@@ -136,6 +139,12 @@ interface Place {
   hidden: number;
   collapsed: boolean;
   show: number;
+  /** The first bar on screen (draws the top edge): the first day, or today's in scroll mode. */
+  firstShown?: boolean;
+  /** Scroll mode: days above / below the ones on screen. */
+  before?: number;
+  after?: number;
+  scroll?: boolean;
 }
 
 /** Done / planned / still needed as one soft three-part ring. */
@@ -160,6 +169,9 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
   const a = node.attrs as { tid: string; day: string; endAt: number; title: string; layer: Layer; awake: boolean; comments: Comment[]; first: boolean; plans: Plan[]; prefs: string };
   const info = infoOf(node.attrs);
   const place = ((decorations as unknown as { spec?: { dl?: Place } }[]) ?? []).map((d) => d.spec?.dl).find(Boolean) ?? { index: 0, count: 1, lastShown: true, hidden: 0, collapsed: false, show: 0 };
+  const top = place.firstShown ?? a.first;
+  const rowRef = useRef<HTMLDivElement>(null);
+  useInnerScroll(rowRef, editor, a.tid, !!place.scroll && place.hidden > 0);
   const [strip, setStrip] = useState<number | null>(null);
   const [sheet, setSheet] = useState(false);
   const [planOpen, setPlanOpen] = useState<string | null>(null);
@@ -170,7 +182,7 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
   const [menu, setMenu] = useState<{ at: number; x: number } | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   // The first bar keeps every plan of the deadline (for progress); others only need theirs, until a sheet opens.
-  const allPlans = useDeadlinePlans(editor, a.tid, !!a.day && (a.first || sheet || planOpen !== null));
+  const allPlans = useDeadlinePlans(editor, a.tid, !!a.day && (top || sheet || planOpen !== null));
 
   useEffect(() => (a.tid && a.day ? registerDeadlineEditor(a.tid, editor) : undefined), [a.tid, a.day, editor]);
 
@@ -202,7 +214,7 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
   const busy = useMemo(() => (view && a.day ? busyOn(a.day, a.layer, view.config, view.stats, view.days) : []), [view, a.day, a.layer]);
   const [from, to] = useMemo(() => (a.day ? shownRange(a.day, busy, a.awake) : [0, 1]), [a.day, busy, a.awake]);
   const gradient = useMemo(() => (a.day ? skyGradient(from, to) : ""), [from, to, a.day]);
-  const barDays = a.day && (a.first || sheet || planOpen) ? barsOf(editor, a.tid).map((b) => b.attrs.day as string) : [];
+  const barDays = a.day && (top || sheet || planOpen) ? barsOf(editor, a.tid).map((b) => b.attrs.day as string) : [];
   const busyFor = (d: string) => (view ? busyOn(d, a.layer, view.config, view.stats, view.days) : []);
   const gapsAhead = useMemo(
     () => (barDays.length ? freeAcross(barDays, busyFor, [...allPlans, ...others], now, a.endAt) : []),
@@ -280,7 +292,7 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
 
   return (
     <NodeViewWrapper className={`dl${selected ? " selected" : ""}${info.status ? ` is-${info.status}` : ""}`} contentEditable={false} style={{ ["--dl" as string]: info.color }}>
-      {a.first && (
+      {top && (
         <div className="dl-edge top">
           <button type="button" className="dl-fold-btn" onClick={toggleFold} aria-label={place.collapsed ? "Unfold" : "Fold"}>{place.collapsed ? "▸" : "▾"}</button>
           <button type="button" className="dl-name" onClick={() => (fx("open"), setSheet(true))} title="Deadline settings">
@@ -305,7 +317,7 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
           )}
         </div>
       )}
-      {a.first && !place.collapsed && (need > 0 || missed.length > 0 || info.status === "done") && (
+      {top && !place.collapsed && (need > 0 || missed.length > 0 || info.status === "done") && (
         <div className={`dl-progress st-${progress.status}`}>
           {need > 0 && (
             <i className="dl-meter" title={`${hm(progress.done)} done · ${hm(progress.planned)} planned · ${hm(need)} needed`}>
@@ -322,10 +334,14 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
           {info.status === "done" && info.repeat && <button type="button" onClick={() => (fx("open"), setSheet(true))}>⟳ Next one</button>}
         </div>
       )}
-      {!place.collapsed && <div className={`dl-row${label.weekend ? " weekend" : ""}`}>
-        <div className="dl-day">
-          <span>{label.text.split(" ")[0]} <b>{label.text.split(" ")[1]}</b></span>
-          {freeTotal > 0 && <small>{hm(freeTotal)}</small>}
+      {!place.collapsed && <div ref={rowRef} className={`dl-row${label.weekend ? " weekend" : ""}`}>
+        <div className="dl-week" title={label.text}>
+          {WEEK_LETTERS.map((w, i) => (
+            <span key={w} className={`${i >= 5 ? "we" : ""}${i === (new Date(midnight(a.day)).getDay() + 6) % 7 ? " on" : ""}`}>
+              {w}{i === (new Date(midnight(a.day)).getDay() + 6) % 7 && <b>{label.text.split(" ")[1]}</b>}
+            </span>
+          ))}
+          {freeTotal > 0 && <small>{hm(freeTotal)} free</small>}
         </div>
         <div
           className="dl-bar"
@@ -410,19 +426,28 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
         />
       )}
       {(place.lastShown || place.collapsed) && (place.collapsed ? a.first : true) && (
-        <div className="dl-edge bottom">
+        <div className="dl-edge bottom" onPointerDown={(e) => !place.collapsed && place.count > 1 && dragEdge(e, editor, a.tid, place)}>
+          {!place.collapsed && place.count > 1 && <i className="dl-grip" aria-hidden />}
           <button type="button" className="dl-fold-btn" onClick={toggleFold} aria-label={place.collapsed ? "Unfold" : "Fold"}>{place.collapsed ? "▸" : "▴"}</button>
           {place.collapsed ? (
             <span className="hint">{place.count} day{place.count === 1 ? "" : "s"} folded{info.status === "archived" ? " · archived" : ""}</span>
           ) : (
             <>
-              {place.hidden > 0 && <button type="button" className="link" onClick={() => (fx("open"), setAll(editor, a.tid, { show: 0 }))}>+{place.hidden} more day{place.hidden === 1 ? "" : "s"}</button>}
-              {place.count > 4 && (
-                <label className="dl-show" title="How many days show at once">
-                  <input type="range" min={1} max={place.count} value={place.show || place.count} onChange={(e) => (fx("tick"), setAll(editor, a.tid, { show: Number(e.target.value) >= place.count ? 0 : Number(e.target.value) }))} />
-                  <small>{place.show || place.count} of {place.count} days</small>
-                </label>
+              {place.hidden > 0 && !place.scroll && <button type="button" className="link" onClick={() => (fx("open"), setAll(editor, a.tid, { show: 0 }))}>+{place.hidden} more day{place.hidden === 1 ? "" : "s"}</button>}
+              {place.scroll && place.hidden > 0 && (
+                <span className="dl-scroll-pos">
+                  <button type="button" disabled={!place.before} onClick={() => scrollDays(editor, a.tid, -1)} aria-label="Earlier day">▲</button>
+                  <button type="button" disabled={!place.after} onClick={() => scrollDays(editor, a.tid, 1)} aria-label="Later day">▼</button>
+                  <button type="button" className="link" onClick={() => (fx("tick"), scrollDays(editor, a.tid, null))}>Today first</button>
+                  <small>{place.before} above · {place.after} below</small>
+                </span>
               )}
+              {place.count > 1 && (
+                <button type="button" className={`dl-scroll-toggle${place.scroll ? " on" : ""}`} title="Scroll inside: fixed height, today on the first line" onClick={() => (fx("tick"), scrollDays(editor, a.tid, null), setAll(editor, a.tid, { scroll: !place.scroll, show: !place.scroll && !place.show ? Math.min(3, place.count) : place.show }))}>
+                  ↕ Scroll
+                </button>
+              )}
+              {place.count > 1 && <span className="dl-drag-hint">hold ═ and drag to show {place.hidden ? "more" : "fewer"}</span>}
             </>
           )}
         </div>
@@ -486,6 +511,7 @@ export const DeadlineBar = Node.create({
       prefs: json("prefs", ""),
       collapsed: json("collapsed", false),
       show: json("show", 0),
+      scroll: json("scroll", false),
       emoji: json("emoji", ""),
       color: json("color", ""),
       notes: json("notes", ""),
@@ -523,33 +549,140 @@ export const DeadlineBar = Node.create({
  * shows; with "show N days", the bars (and the writing between them) after the Nth are hidden
  * until opened again. Hidden, not removed: nothing in the note changes but two settings.
  */
-const foldPlugin = new Plugin({
-  key: new PluginKey("deadlineFold"),
+type FoldUi = { off: Map<string, number>; preview: Map<string, number> };
+const foldKey = new PluginKey<FoldUi>("deadlineFold");
+type FoldMeta = { tid: string; scroll?: number | null; preview?: number | null };
+
+/** Scroll mode: move the days on screen by `by` (null: back to today on the first line). */
+export function scrollDays(editor: Editor, tid: string, by: number | null) {
+  editor.view.dispatch(editor.state.tr.setMeta(foldKey, { tid, scroll: by } satisfies FoldMeta));
+}
+
+/** Hold the bottom edge and drag: down shows more days, up fewer (one bar's height a day). */
+function dragEdge(e: ReactPointerEvent, editor: Editor, tid: string, place: Place) {
+  if ((e.target as HTMLElement).closest("button, input, label")) return;
+  const el = (e.currentTarget as HTMLElement).closest(".dl") as HTMLElement | null;
+  const step = Math.max(36, (el?.offsetHeight ?? 60) - 20);
+  const y0 = e.clientY;
+  const from = place.count - place.hidden;
+  let on = false;
+  let n = from;
+  const hold = window.setTimeout(() => ((on = true), fx("tick"), navigator.vibrate?.(15), document.documentElement.classList.add("dl-dragging")), 280);
+  const set = (preview: number | null) => editor.view.dispatch(editor.state.tr.setMeta(foldKey, { tid, preview } satisfies FoldMeta));
+  const move = (ev: PointerEvent) => {
+    if (!on) {
+      if (Math.abs(ev.clientY - y0) > 8) end(); // a scroll, not a hold
+      return;
+    }
+    ev.preventDefault();
+    const next = Math.max(1, Math.min(place.count, from + Math.round((ev.clientY - y0) / step)));
+    if (next !== n) (n = next, fx("tick"), set(n));
+  };
+  const end = () => {
+    window.clearTimeout(hold);
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+    document.documentElement.classList.remove("dl-dragging");
+    if (!on) return;
+    set(null);
+    if (n !== from) setAll(editor, tid, { show: n >= place.count ? 0 : n });
+  };
+  window.addEventListener("pointermove", move, { passive: false });
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+}
+
+/** Scroll mode: wheel or a vertical drag on a day's bar steps through the days. */
+function useInnerScroll(ref: RefObject<HTMLDivElement | null>, editor: Editor, tid: string, on: boolean) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !on) return;
+    let wheel = 0;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      wheel += e.deltaY;
+      if (Math.abs(wheel) < 40) return;
+      scrollDays(editor, tid, wheel > 0 ? 1 : -1);
+      wheel = 0;
+    };
+    let y: number | null = null;
+    let x0 = 0;
+    const onStart = (e: TouchEvent) => ((y = e.touches[0].clientY), (x0 = e.touches[0].clientX));
+    const onMove = (e: TouchEvent) => {
+      if (y === null) return;
+      const dy = e.touches[0].clientY - y;
+      if (Math.abs(e.touches[0].clientX - x0) > Math.abs(dy)) return;
+      e.preventDefault();
+      if (Math.abs(dy) < 34) return;
+      scrollDays(editor, tid, dy < 0 ? 1 : -1);
+      fx("tick");
+      y = e.touches[0].clientY;
+    };
+    const onEnd = () => (y = null);
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchmove", onMove, { passive: false });
+    el.addEventListener("touchend", onEnd);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onMove);
+      el.removeEventListener("touchend", onEnd);
+    };
+  }, [ref, editor, tid, on]);
+}
+
+const foldPlugin = new Plugin<FoldUi>({
+  key: foldKey,
+  state: {
+    init: () => ({ off: new Map(), preview: new Map() }),
+    apply(tr, v) {
+      const m = tr.getMeta(foldKey) as FoldMeta | undefined;
+      if (!m) return v;
+      const next = { off: new Map(v.off), preview: new Map(v.preview) };
+      if (m.scroll !== undefined) m.scroll === null ? next.off.delete(m.tid) : next.off.set(m.tid, (next.off.get(m.tid) ?? 0) + m.scroll);
+      if (m.preview !== undefined) m.preview === null ? next.preview.delete(m.tid) : next.preview.set(m.tid, m.preview);
+      return next;
+    },
+  },
   props: {
     decorations(state) {
-      const groups = new Map<string, { pos: number; size: number; first: boolean; collapsed: boolean; show: number }[]>();
+      const ui = foldKey.getState(state);
+      const today = dayKey(new Date());
+      const groups = new Map<string, { pos: number; size: number; first: boolean; collapsed: boolean; show: number; scroll: boolean; day: string }[]>();
       const tops: { pos: number; size: number }[] = [];
       state.doc.forEach((n, pos) => {
         tops.push({ pos, size: n.nodeSize });
         if (n.type.name !== "deadlineBar" || !n.attrs.tid || !n.attrs.day) return;
         const g = groups.get(n.attrs.tid) ?? [];
-        g.push({ pos, size: n.nodeSize, first: !!n.attrs.first, collapsed: !!n.attrs.collapsed, show: Number(n.attrs.show) || 0 });
+        g.push({ pos, size: n.nodeSize, first: !!n.attrs.first, collapsed: !!n.attrs.collapsed, show: Number(n.attrs.show) || 0, scroll: !!n.attrs.scroll, day: String(n.attrs.day) });
         groups.set(n.attrs.tid, g);
       });
       const decos: Decoration[] = [];
-      for (const bars of groups.values()) {
+      for (const [tid, bars] of groups) {
         const head = bars.find((b) => b.first) ?? bars[0];
         const count = bars.length;
-        const shown = head.collapsed ? 1 : head.show > 0 && head.show < count ? head.show : count;
+        const preview = ui?.preview.get(tid);
+        const shown = head.collapsed ? 1 : preview ? preview : head.show > 0 && head.show < count ? head.show : count;
+        let start = 0;
+        if (head.scroll && !head.collapsed && shown < count) {
+          const t = bars.findIndex((b) => b.day >= today);
+          const base = t < 0 ? count - shown : t;
+          start = Math.max(0, Math.min(count - shown, base + (ui?.off.get(tid) ?? 0)));
+        }
+        const last = start + shown - 1;
         bars.forEach((b, index) => {
-          const dl: Place = { index, count, lastShown: index === shown - 1, hidden: count - shown, collapsed: head.collapsed, show: head.show };
-          decos.push(Decoration.node(b.pos, b.pos + b.size, {}, { dl }));
+          const dl: Place = { index, count, lastShown: index === last, firstShown: index === start, hidden: count - shown, collapsed: head.collapsed, show: head.show, before: start, after: count - 1 - last, scroll: head.scroll && !head.collapsed };
+          decos.push(Decoration.node(b.pos, b.pos + b.size, index < start || index > last ? { class: "dl-fold" } : {}, { dl }));
         });
-        if (shown < count) {
+        // Days above the window (scroll mode): their bars and the writing after them.
+        if (start > 0) for (const t of tops) if (t.pos > bars[0].pos && t.pos + t.size <= bars[start].pos) decos.push(Decoration.node(t.pos, t.pos + t.size, { class: "dl-fold" }));
+        if (last < count - 1) {
           // Everything after the last shown bar's own day, up to the end of the last bar.
-          const from = bars[shown].pos;
+          const from = bars[last + 1].pos;
           const lastEnd = bars[count - 1].pos + bars[count - 1].size;
-          const afterShown = bars[shown - 1].pos + bars[shown - 1].size;
+          const afterShown = bars[last].pos + bars[last].size;
           for (const t of tops) if (t.pos >= afterShown && t.pos + t.size <= lastEnd && (head.collapsed || t.pos >= from)) decos.push(Decoration.node(t.pos, t.pos + t.size, { class: "dl-fold" }));
         }
       }

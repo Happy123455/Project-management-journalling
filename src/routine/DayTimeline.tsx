@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { deviation, fillDay, minutesText, type RoutineStep } from "../lib/routine";
 import type { AgendaItem } from "../lib/reminders";
+import { StepIcon } from "./StepIcon";
 import type { RoutineView } from "./routineData";
 
 const clock = (t: number) => {
@@ -95,7 +96,7 @@ export function DayTimeline({ view, day, agenda = [], onReminder, scrollToNow }:
         return (
           <li key={`s-${r.step.id}-${r.at}`} className={`tl-step ${r.state}`}>
             <span className="tl-time">{est ? "≈" : ""}{clock(r.at)}</span>
-            <span className="tl-icon">{r.step.icon}</span>
+            <span className="tl-icon"><StepIcon item={r.step} /></span>
             <span className="tl-label">
               {r.step.label}
               {r.state === "open" ? " · now" : len >= 60_000 ? ` · ${minutesText(len / 60_000)}` : ""}

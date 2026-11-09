@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { sendDrop, copyClip } from "./clipboard";
+import { sendDrop, copyClip, waitForSink } from "./clipboard";
 import { addDrop, DROP_EVENT, dropData, listDrops, MAX_DROP, removeDrop, saveToDownloads, type DropItem } from "./drop";
 import { bytes } from "./transferLog";
 import { showToast } from "../lib/toast";
@@ -49,20 +49,29 @@ export function DropPanel({ linked, onConnect, onAddToToday }: {
 
   const sendFiles = async (files: File[]) => {
     if (!files.length) return;
-    if (!linked) return void showToast(`Not connected to your ${other}: tap ⚡ Connect first`, "error");
     setBusy(true);
     try {
+      // Back from the photo picker the phone is still re-linking (it unlinks in the background).
+      if (!(await waitForSink(1500))) {
+        onConnect?.();
+        if (!(await waitForSink(12_000))) return void showToast(`Not connected to your ${other}: tap ⚡ Connect first`, "error");
+      }
+      let sent = 0;
       for (const f of files) {
         if (f.size > MAX_DROP) {
           showToast(`${f.name} is over ${bytes(MAX_DROP)}: too big to send over the link`, "error");
           continue;
         }
         const data = await readBase64(f);
-        const c = sendDrop({ name: f.name, mime: f.type, data });
-        if (!c) break;
+        const c = sendDrop({ name: f.name, mime: f.type, data }) ?? ((await waitForSink(8000)) ? sendDrop({ name: f.name, mime: f.type, data }) : null);
+        if (!c) {
+          showToast(`Lost the link to your ${other} before ${f.name}`, "error");
+          break;
+        }
+        sent++;
         await addDrop({ id: c.id, at: c.at, mine: true, name: f.name, mime: f.type, size: f.size }, data);
       }
-      showToast(`📤 ${files.length === 1 ? files[0].name : `${files.length} files`} sent to your ${other}`);
+      if (sent) showToast(`📤 ${sent === 1 ? files[0].name : `${sent} files`} sent to your ${other}`);
     } catch (e) {
       showToast(`Couldn't send: ${e instanceof Error ? e.message : String(e)}`, "error");
     } finally {

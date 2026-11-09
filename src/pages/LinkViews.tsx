@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { JSONContent } from "@tiptap/react";
 import { JournalEditor } from "../editor/JournalEditor";
 import { mentionsWithChildren } from "../lib/links";
-import { dayTitle } from "../lib/timestamp";
+import { dayTitle, formatTimestamp } from "../lib/timestamp";
 import { showError } from "../lib/toast";
 import { ProjectPanel } from "../projects/ProjectPanel";
 import { ProjectTimeline } from "../projects/ProjectTimeline";
@@ -134,6 +134,7 @@ export function BacklinksFooter({ store, target, exclude, handlers, refreshKey, 
 }) {
   const [open, setOpen] = useState(false);
   const [count, setCount] = useState<number | null>(null);
+  const edits = useEditsOn(store, target, refreshKey);
   useEffect(() => {
     let live = true;
     store.references("wikilink", target).then((r) => live && setCount(r.filter((x) => x.blockId !== exclude && x.day !== target).length));
@@ -145,12 +146,60 @@ export function BacklinksFooter({ store, target, exclude, handlers, refreshKey, 
     <section className={`history backlinks-foot${open ? " open" : ""}`}>
       <button type="button" className="backlinks-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span>↩ {title}</span>
-        <span className="backlinks-count">{count ?? "…"}</span>
+        <span className="backlinks-count">{count ?? "…"}{edits.length ? ` · ✎ ${edits.length}` : ""}</span>
         <span aria-hidden>{open ? "▾" : "▸"}</span>
       </button>
+      {open && edits.length > 0 && (
+        <div className="edits-log">
+          <h4>✎ Older notes edited this day</h4>
+          <ul>
+            {edits.map((e) => (
+              <li key={`${e.where}:${e.time}:${e.line}`}>
+                <button type="button" onClick={() => (e.day ? handlers.onOpenDay(e.day, e.line) : handlers.onOpenLink(e.where))}>
+                  <span className="edits-time">{e.time}</span>
+                  <span className="edits-where">{e.day ? shortDay(e.day) : `📄 ${e.where}`}</span>
+                  <span className="edits-line">{e.line || "…"}</span>
+                  <span aria-hidden>›</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {open && <References store={store} kind="wikilink" target={target} exclude={exclude} excludeDay={target} handlers={handlers} refreshKey={refreshKey} onCount={setCount} />}
     </section>
   );
+}
+
+type EditOn = { day: string | null; where: string; time: string; line: string };
+/**
+ * A day's history log: older notes (days and pages) edited on that day, found by their "✎ <that
+ * day>" stamps. Newest edit first; tapping one opens that note at the edited line.
+ */
+function useEditsOn(store: JournalStore, target: string, refreshKey?: unknown): EditOn[] {
+  const [edits, setEdits] = useState<EditOn[]>([]);
+  useEffect(() => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) return void setEdits([]);
+    let live = true;
+    const mark = `✎ ${formatTimestamp(new Date(`${target}T12:00:00`)).split(" ")[0]}`;
+    const re = new RegExp(`${mark.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} [A-Za-z]+ \\((\\d{2}:\\d{2})(?::\\d{2})?\\)\\s*`, "i");
+    void store.search(`"${mark}"`).then((hits) => {
+      if (!live) return;
+      const out: EditOn[] = [];
+      for (const h of hits) {
+        if (h.kind === "file" || h.day === target) continue;
+        for (const line of h.text.split("\n")) {
+          const m = line.match(re);
+          if (m) out.push({ day: h.day, where: h.title ?? h.day ?? "", time: m[1], line: line.replace(re, "").trim().slice(0, 140) });
+        }
+      }
+      setEdits(out.sort((a, b) => b.time.localeCompare(a.time)));
+    });
+    return () => {
+      live = false;
+    };
+  }, [store, target, refreshKey]);
+  return edits;
 }
 
 /** A person, project or topic: its own notes on top, then every day that mentions it (its history). */

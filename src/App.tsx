@@ -59,6 +59,7 @@ import { openTimelines, TimelinesHost } from "./editor/TimelinesView";
 import { deadlineAlarms, useAllDeadlines, watchDeadlines } from "./editor/deadlineStore";
 import { FocusHost } from "./editor/focus";
 import { TodayDeadlines } from "./editor/TodayDeadlines";
+import { useEditorPrefs } from "./lib/editorPrefs";
 import { CaptureHost } from "./editor/CaptureHost";
 import { PdfHost } from "./editor/PdfHost";
 import { PhotoHost } from "./editor/PhotoHost";
@@ -185,6 +186,7 @@ function App() {
     window.__journalFlush = flush;
   });
 
+  const prefs = useEditorPrefs();
   const sync = useSync(store, () => {
     setSyncTick((n) => n + 1);
     window.dispatchEvent(new Event("journal:synced"));
@@ -1165,8 +1167,17 @@ function App() {
               below={
                 <>
                   {store && <TodayAgenda store={store} view={routine} onOpenRoutine={() => setRoutineOpen(true)} />}
-                  {store && <TodayDeadlines store={store} day={day} onOpenDay={(d) => void goTo(d)} />}
-                  <Upcoming inMonth pages={upcoming.filter((r) => r.day !== day)} onPick={goTo} onAction={onReminderAction} />
+                  {prefs.monthDeadlines === "left" ? (
+                    <div className="month-side">
+                      {store && <TodayDeadlines store={store} day={day} onOpenDay={(d) => void goTo(d)} />}
+                      <Upcoming inMonth pages={upcoming.filter((r) => r.day !== day)} onPick={goTo} onAction={onReminderAction} />
+                    </div>
+                  ) : (
+                    <>
+                      <Upcoming inMonth pages={upcoming.filter((r) => r.day !== day)} onPick={goTo} onAction={onReminderAction} />
+                      {store && prefs.monthDeadlines !== "off" && <TodayDeadlines store={store} day={day} onOpenDay={(d) => void goTo(d)} />}
+                    </>
+                  )}
                 </>
               }
               actions={
@@ -1380,6 +1391,10 @@ function App() {
             window.JournalShare?.hideKeyboard?.();
             setTitleHistory(true);
             setTitleSearchOpen(true);
+          }}
+          onPickPast={(p) => {
+            if (p.kind === "text") return void (setQuery(p.key), setSearchOpen(true));
+            openLoc(p.kind === "day" ? { kind: "day", day: p.key } : { kind: "page", title: p.key });
           }}
           onTabs={() => setTabsOpen(true)}
           onSwitchTab={switchToTab}

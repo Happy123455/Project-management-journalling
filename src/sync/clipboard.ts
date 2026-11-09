@@ -52,6 +52,20 @@ export function setClipSink(device: string, send: ((c: Clip) => void) | null, ot
   if (send) window.setTimeout(() => void checkNow(false, true), 600);
 }
 
+/**
+ * Wait (up to `ms`) for the Wi-Fi link. The phone drops the link while it's in the background, so
+ * coming back from the photo picker the link is down for a second or two: sending then has to wait.
+ */
+export function waitForSink(ms: number): Promise<boolean> {
+  if (sink) return Promise.resolve(true);
+  const until = Date.now() + ms;
+  return new Promise((resolve) => {
+    const t = window.setInterval(() => {
+      if (sink || Date.now() > until) (window.clearInterval(t), resolve(!!sink));
+    }, 250);
+  });
+}
+
 /** A short, stable fingerprint of a string (not for security: only "is it the same clip?"). */
 function hashText(s: string): string {
   let h1 = 0x811c9dc5;

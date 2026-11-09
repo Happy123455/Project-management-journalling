@@ -1,7 +1,7 @@
 import { idFromRef } from "../lib/embeds";
 import { safeFileName } from "../lib/files";
 import { extractLinks, uniqueNames } from "../lib/links";
-import { docMatches, matchText, searchTerms } from "../lib/search";
+import { docMatches, docNames, hasFileScope, matchText, searchTerms } from "../lib/search";
 import { dayKey } from "../lib/timestamp";
 import { countWords, docText } from "../lib/words";
 import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
@@ -272,14 +272,15 @@ export class MemoryStore implements JournalStore {
   async search(query: string) {
     const terms = searchTerms(query);
     if (!terms.length) return [];
+    const fileScope = hasFileScope(query);
     const hits: SearchHit[] = [];
     const days = Object.values(this.data.pages).sort((a, b) => b.day.localeCompare(a.day));
     for (const p of days) {
-      const text = docText(p.content);
+      const text = fileScope ? `${docText(p.content)}\n${docNames(p.content)}` : docText(p.content);
       if (matchText(text, terms) && docMatches(p.content, query)) hits.push({ kind: "day", blockId: p.id, day: p.day, title: null, text });
     }
     for (const p of Object.values(this.named)) {
-      const text = `${p.title}\n${docText(p.content)}`;
+      const text = `${p.title}\n${docText(p.content)}${fileScope ? `\n${docNames(p.content)}` : ""}`;
       if (matchText(text, terms) && docMatches(p.content, query, p.title)) hits.push({ kind: "page", blockId: p.id, day: null, title: p.title, text });
     }
     for (const f of await this.listFiles()) {

@@ -63,7 +63,7 @@ type Gesture = {
   y: number;
   t0: number;
   zone: string;
-  mode: "idle" | "swipe" | "up" | "joy" | "quick" | "previews" | "searchHistory";
+  mode: "idle" | "swipe" | "up" | "joy" | "quick" | "previews" | "searchHistory" | "searchPick";
   timer: number;
   /** The finger moved after a long press opened the picker (else the picker stays for a tap). */
   movedAfter: boolean;
@@ -87,7 +87,7 @@ const QUICK: { key: ViewMode | "outline"; icon: string; label: string }[] = [
  * - swipe up from (or hold) the tabs: tab previews float up, slide onto one and let go to open it;
  * - hold the menu: View / Edit / Source / Outline fan out, slide onto one and let go.
  */
-export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onForward, onHome, onHomeDouble, onShiftDay, onSearchHistory, onSearch, onTabs, onSwitchTab, onNewTab, actions }: {
+export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onForward, onHome, onHomeDouble, onShiftDay, onSearchHistory, onPickPast, onSearch, onTabs, onSwitchTab, onNewTab, actions }: {
   /** A panel or sheet covers the page: the island tucks away. */
   away: boolean;
   tabs: TabsState;
@@ -102,6 +102,8 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   onShiftDay?: (days: number, final: boolean) => void;
   /** Hold or swipe up on 🔍: the whole search history. */
   onSearchHistory?: () => void;
+  /** A past search picked from the held 🔍 list: a note to open, or text to search again. */
+  onPickPast?: (p: { kind: "day" | "page" | "text"; key: string; label: string }) => void;
   onSearch: () => void;
   onTabs: () => void;
   onSwitchTab: (id: string) => void;
@@ -110,7 +112,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
 }) {
   const mode = useViewMode();
   const [menu, setMenu] = useState(false);
-  const [picker, setPicker] = useState<null | "quick" | "previews">(null);
+  const [picker, setPicker] = useState<null | "quick" | "previews" | "searchPick">(null);
   const [hover, setHover] = useState<string | null>(null);
   const [joy, setJoy] = useState<number | null>(null);
   const g = useRef<Gesture | null>(null);
@@ -239,6 +241,22 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     setPicker(null);
     setHover(null);
   };
+  const [searchList, setSearchList] = useState(0);
+  /** A row of the held 🔍 list: "p:<n>" opens that search, "s:<n>" stars / unstars it (the list stays). */
+  const pickSearch = (key: string) => {
+    const list = searchPickList();
+    const item = list[Number(key.slice(2))];
+    if (!item) return;
+    if (key.startsWith("s:")) {
+      haptic("tick", 0.8);
+      toggleStar(item);
+      setHover(null);
+      return setSearchList((n) => n + 1);
+    }
+    closePicker();
+    haptic("edge", 0.8);
+    onPickPast?.(item);
+  };
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.pointerType === "mouse") return;
@@ -261,9 +279,10 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     if (zone === "search")
       gesture.timer = window.setTimeout(() => {
         if (g.current !== gesture || gesture.mode !== "idle") return;
-        gesture.mode = "searchHistory";
+        // Held: past searches pop up above it; slide onto one and let go.
+        gesture.mode = "searchPick";
         haptic("press", 0.8);
-        onSearchHistory?.();
+        setPicker("searchPick");
       }, 380);
     if (zone === "home" || zone === "tabs" || zone === "menu")
       gesture.timer = window.setTimeout(() => {
@@ -327,7 +346,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
         haptic("edge", 0.9);
       }
       j.off = Math.max(-100, Math.min(100, dy + j.lift));
-    } else if (s.mode === "quick" || s.mode === "previews") {
+    } else if (s.mode === "quick" || s.mode === "previews" || s.mode === "searchPick") {
       if (Math.hypot(dx, dy) > 14) s.movedAfter = true;
       pickAt(e.clientX, e.clientY);
     }
@@ -346,6 +365,12 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
       return;
     }
     if (s.mode === "joy") return stopJoy();
+    if (s.mode === "searchPick") {
+      const key = pickAt(e.clientX, e.clientY);
+      if (key) return pickSearch(key);
+      // Let go off the list: it stays, to be tapped (✕ or outside closes it).
+      return;
+    }
     if (s.mode === "quick" || s.mode === "previews") {
       const key = pickAt(e.clientX, e.clientY);
       if (key) {
@@ -433,6 +458,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
           document.body,
         )}
       {menu && <ModeMenu mode={mode} actions={actions} onClose={() => setMenu(false)} />}
+      {picker === "searchPick" && <SearchPicker key={searchList} hover={hover} onPick={pickSearch} onAll={() => (closePicker(), onSearchHistory?.())} onClose={closePicker} />}
       {picker === "quick" && <QuickPicker mode={mode} hover={hover} onPick={(k) => (closePicker(), runPick("quick", k))} onClose={closePicker} />}
       {picker === "previews" && <TabPreviews tabs={tabs} today={today} hover={hover} onPick={(k) => (closePicker(), runPick("previews", k))} onClose={closePicker} />}
     </>
@@ -549,6 +575,60 @@ function ModeMenu({ mode, actions, onClose }: { mode: ViewMode; actions: MenuAct
             </button>
           ))}
         </div>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+const STARRED = "journal.starredSearches";
+type PastRef = { kind: "day" | "page" | "text"; key: string; label: string };
+function starred(): PastRef[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(STARRED) ?? "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+const same = (a: PastRef, b: PastRef) => a.kind === b.kind && a.key === b.key;
+function toggleStar(p: PastRef) {
+  const list = starred();
+  const next = list.some((x) => same(x, p)) ? list.filter((x) => !same(x, p)) : [{ kind: p.kind, key: p.key, label: p.label }, ...list];
+  try {
+    localStorage.setItem(STARRED, JSON.stringify(next.slice(0, 40)));
+  } catch {
+    // Not kept.
+  }
+}
+/** Starred first, then the newest searches (notes opened by title and text searches), no repeats. */
+function searchPickList(): (PastRef & { star: boolean })[] {
+  const stars = starred().map((p) => ({ ...p, star: true }));
+  const recent = [...pastSearches().map((p, i) => ({ p, at: p.at || -i })), ...loadRecent().map((t, i) => ({ p: { kind: "text" as const, key: t, label: t, at: 0 }, at: Date.now() - 1 - i * 60_000 }))]
+    .sort((a, b) => b.at - a.at)
+    .map(({ p }) => ({ kind: p.kind, key: p.key, label: p.label, star: false }))
+    .filter((p) => !stars.some((s) => same(s, p)));
+  return [...stars, ...recent.slice(0, 12)];
+}
+
+/** Held 🔍: past searches over the bar, nearest the thumb first. Slide onto one and let go; ☆ stars it. */
+function SearchPicker({ hover, onPick, onAll, onClose }: { hover: string | null; onPick: (k: string) => void; onAll: () => void; onClose: () => void }) {
+  useEscapeToClose(onClose);
+  const list = searchPickList();
+  return createPortal(
+    <>
+      <div className="nav-pick-backdrop" onClick={onClose} />
+      <div className="nav-search-pick" role="menu" aria-label="Search history">
+        {!list.length && <p className="hint">No searches yet.</p>}
+        {list.map((p, i) => (
+          <div key={`${p.kind}:${p.key}`} className={`nsp-row${hover === `p:${i}` ? " hover" : ""}${p.star ? " starred" : ""}`}>
+            <button type="button" role="menuitem" data-pick={`p:${i}`} onClick={() => onPick(`p:${i}`)}>
+              <span aria-hidden>{p.kind === "text" ? "🔎" : p.kind === "day" ? "📅" : "📄"}</span> {p.label}
+            </button>
+            <button type="button" data-pick={`s:${i}`} className={`nsp-star${hover === `s:${i}` ? " hover" : ""}`} onClick={() => onPick(`s:${i}`)} aria-label={p.star ? "Unstar" : "Star"}>{p.star ? "★" : "☆"}</button>
+          </div>
+        ))}
+        <button type="button" className="nsp-all link" onClick={onAll}>All searches…</button>
       </div>
     </>,
     document.body,

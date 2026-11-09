@@ -80,7 +80,9 @@ export function useStamps(editor: Editor, on: boolean): Stamp[] {
 }
 
 export function TimeRail({ editor, onJump }: { editor: Editor; onJump: (pos: number) => void }) {
-  const stamps = useStamps(editor, true);
+  // The ✎ stamps of later edits stay off the rail (they'd stretch it over days); the Time outline lists them.
+  const all = useStamps(editor, true);
+  const stamps = useMemo(() => all.filter((s) => !s.edit), [all]);
   const [active, setActive] = useState(-1);
   const [touching, setTouching] = useState(false);
   const rail = useRef<HTMLDivElement>(null);

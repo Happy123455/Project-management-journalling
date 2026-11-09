@@ -202,15 +202,15 @@ export function OutlinePanel({ editor, onJump, onClose, day }: { editor: Editor;
                 const prev = shownStamps[i - 1];
                 const gap = prev ? s.time - prev.time : 0;
                 return (
-                  <li key={`t-${s.pos}`} className="outline-stamp">
+                  <li key={`t-${s.pos}`} className={`outline-stamp${s.edit ? " edit" : ""}`} style={s.edit && prev && gap > 0 ? { paddingTop: `${Math.min(140, Math.round(8 * Math.log2(1 + gap / 60_000)))}px` } : undefined}>
                     {prev && (
                       <span className="outline-gap" title={gap < 0 ? "Earlier than the timestamp above it" : "Time passed since the one above"}>
                         {gap < 0 ? `↑ ${formatGap(gap)} earlier` : `↓ ${formatGap(gap)}`}
                       </span>
                     )}
                     <button type="button" onClick={() => onJump(s.pos)}>
-                      <span className="outline-icon">🕒</span>
-                      <span className="outline-time-at">{clock(s.time)}</span>
+                      <span className="outline-icon">{s.edit ? "✎" : "🕒"}</span>
+                      <span className="outline-time-at">{s.edit ? `${new Date(s.time).toLocaleDateString([], { day: "numeric", month: "short" })} ${clock(s.time)}` : clock(s.time)}</span>
                       <span className="outline-label">{s.label}</span>
                     </button>
                   </li>

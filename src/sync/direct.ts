@@ -660,7 +660,10 @@ export function startClient(store: JournalStore, address: DirectAddress, opts: C
       void flushTyping();
     },
     sendClip(c) {
-      if (up) void post("/clip", { clip: c }, 60_000).catch(() => {});
+      if (up)
+        void post("/clip", { clip: c }, 120_000).catch((e) => {
+          if (c.drop) void import("../lib/toast").then(({ showToast }) => showToast(`${c.name ?? "That"} didn't reach your Mac: ${e instanceof Error ? e.message : String(e)}`, "error"));
+        });
     },
     kick() {
       retryMs = 3000;

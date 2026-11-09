@@ -306,7 +306,7 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
         // A day opens that day; anywhere else (not a button) opens the week into the month, or folds the month back.
         onClick={(e) => {
           const t = e.target as HTMLElement;
-          if (t.closest("button, a, input, .reminders")) return;
+          if (t.closest("button, a, input, .reminders, .tdl")) return;
           toggle(collapsed);
         }}
         onScroll={(e) => {
@@ -317,7 +317,7 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
         }}
         onWheel={(e) => {
           // The month itself doesn't scroll (only Coming up does, inside it): wheeling down on the month folds it.
-          if (collapsed || e.deltaY <= 0 || (e.target as HTMLElement).closest?.(".reminders")) return void (wheelPast.current = 0);
+          if (collapsed || e.deltaY <= 0 || (e.target as HTMLElement).closest?.(".reminders, .tdl")) return void (wheelPast.current = 0);
           wheelPast.current += e.deltaY;
           if (wheelPast.current > 160) {
             wheelPast.current = 0;
@@ -326,6 +326,8 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
         }}
         onTouchStart={(e) => {
           const t = e.touches[0];
+          // Touching a deadline's day bar (Deadlines today) is for the bar, not for folding the month.
+          if ((e.target as HTMLElement).closest?.(".tdl-bar, .tdl-next")) return void ((drag.current = null), (pull.current = null));
           drag.current = { y: t.clientY, x: t.clientX };
           pull.current = collapsed ? { x: t.clientX, y: t.clientY, t: e.timeStamp, base: section.current?.offsetHeight ?? 0, on: false, dy: 0 } : null;
         }}
@@ -345,7 +347,7 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
           if (dy > 0 && collapsed) toggle(true);
           // Not while the month's own list is being scrolled; but a swipe up at the end of it (Coming up
           // already folded) carries on into the week view.
-          else if (dy < 0 && !collapsed && (atEnd() || (!(e.target as HTMLElement).closest?.(".reminders") && !(section.current && section.current.scrollTop > 0)))) toggle(false);
+          else if (dy < 0 && !collapsed && (atEnd() || (!(e.target as HTMLElement).closest?.(".reminders, .tdl") && !(section.current && section.current.scrollTop > 0)))) toggle(false);
         }}
       >
         <div className="cal-bar">

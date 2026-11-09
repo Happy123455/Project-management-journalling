@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 /** Editor preferences kept on this device (Settings → Editor). */
 export interface EditorPrefs {
   /** Code blocks: scroll sideways (true) or wrap long lines (false). */
@@ -14,10 +16,23 @@ export interface EditorPrefs {
   typingGuide: boolean;
   /** The most characters per second the guide allows. */
   maxCps: number;
+  /** Month view: "⏳ Deadlines today" under Coming up, to its left, or not at all. */
+  monthDeadlines: "below" | "left" | "off";
+}
+
+/** Follows the prefs (Settings changes them while the app runs). */
+export function useEditorPrefs(): EditorPrefs {
+  const [p, setP] = useState(editorPrefs);
+  useEffect(() => {
+    const on = () => setP(editorPrefs());
+    window.addEventListener("journal:editor-prefs", on);
+    return () => window.removeEventListener("journal:editor-prefs", on);
+  }, []);
+  return p;
 }
 
 const KEY = "journal.editor";
-const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true, prettyMath: true, typingGuide: false, maxCps: 6 };
+const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true, prettyMath: true, typingGuide: false, maxCps: 6, monthDeadlines: "below" };
 
 export function editorPrefs(): EditorPrefs {
   try {

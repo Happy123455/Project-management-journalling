@@ -15,6 +15,8 @@ export interface RoutineStep {
   id: string;
   label: string;
   icon: string;
+  /** A GIF (stored file id) shown beside the name instead of the emoji (the emoji stays for text). */
+  gif?: string;
   /** Has a start and an end (Bath start / end); otherwise it's one moment (Wake up). */
   span: boolean;
   /** Filled from the phone's health app (Samsung Health through Health Connect). */
@@ -33,6 +35,8 @@ export interface Habit {
   id: string;
   label: string;
   icon: string;
+  /** A GIF (stored file id) shown instead of the emoji. */
+  gif?: string;
   aliases?: string[];
 }
 

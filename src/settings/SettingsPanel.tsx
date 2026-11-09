@@ -402,6 +402,14 @@ function EditorSettings() {
           <small>About {Math.round(e.maxCps * 12)} words a minute. 5 is calm handwriting pace, 8 is quick typing.</small>
         </label>
       )}
+      <div className="settings-label">⏳ Deadlines today in the month view</div>
+      <div className="project-status" role="radiogroup" aria-label="Deadlines today in the month view">
+        {([["below", "Under Coming up"], ["left", "Left of Coming up"], ["off", "Don't show"]] as const).map(([v, t]) => (
+          <button key={v} type="button" role="radio" aria-checked={e.monthDeadlines === v} className={e.monthDeadlines === v ? "active status-active" : ""} onClick={() => setE(setEditorPrefs({ monthDeadlines: v }))}>
+            {t}
+          </button>
+        ))}
+      </div>
     </section>
   );
 }

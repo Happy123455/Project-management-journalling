@@ -30,6 +30,8 @@ export interface Stamp {
   time: number;
   /** The text of its line after the timestamp (what happened then). */
   label: string;
+  /** An automatic "✎" stamp: the line was changed later, on another day (not a log time). */
+  edit?: boolean;
 }
 
 /**
@@ -48,7 +50,8 @@ export function stampsIn(lines: { pos: number; text: string }[]): Stamp[] {
       const rest = text.slice(m.index + m[0].length);
       const next = rest.search(new RegExp(TIMESTAMP_RE.source));
       const label = (next >= 0 ? rest.slice(0, next) : rest).replace(/^[\s:–—-]+/, "").replace(/\s+/g, " ").trim().slice(0, 60);
-      out.push({ pos: pos + m.index, time, label });
+      const edit = text.slice(Math.max(0, m.index - 2), m.index) === "✎ ";
+      out.push(edit ? { pos: pos + m.index, time, label, edit } : { pos: pos + m.index, time, label });
     }
   }
   return out;

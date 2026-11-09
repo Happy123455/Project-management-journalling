@@ -3209,11 +3209,16 @@ html.at-rest *, html.at-rest *::before, html.at-rest *::after { animation-play-s
 .dl-head select { font-size: 12px; max-width: 46vw; }
 .dl-head button { border-radius: 8px; padding: 1px 6px; opacity: 0.55; }
 .dl-head button.on { opacity: 1; background: var(--panel); outline: 1px solid var(--accent); }
-.dl-row { display: grid; grid-template-columns: 42px 1fr; gap: 8px; align-items: center; }
+.dl-row { display: flex; flex-direction: column; gap: 3px; }
+.dl-week { display: flex; align-items: stretch; gap: 2px; padding: 2px; border-radius: 8px; border: 1px solid var(--border, rgba(127, 127, 127, 0.25)); font-size: 10px; font-weight: 600; line-height: 1; align-self: flex-start; max-width: 100%; }
+.dl-week span { min-width: 22px; padding: 3px 4px; border-radius: 6px; text-align: center; color: var(--muted); }
+.dl-week span.we { background: color-mix(in srgb, var(--reminder, #d9534f) 12%, transparent); color: color-mix(in srgb, var(--reminder, #d9534f) 75%, var(--text, #333)); }
+.dl-week span.on { background: var(--dl, var(--accent, #4a7bd0)); color: #fff; }
+.dl-week span.on b { margin-left: 3px; font-weight: 800; }
+.dl-week small { align-self: center; margin-left: 6px; padding-right: 4px; font-weight: 400; color: var(--muted); white-space: nowrap; }
 .dl-day { display: flex; flex-direction: column; font-size: 11px; font-weight: 600; line-height: 1.15; }
 .dl-day b { font-weight: 700; }
 .dl-day small { font-weight: 400; color: var(--muted); font-size: 10px; }
-.dl-row.weekend .dl-day span { color: var(--reminder, #d9534f); }
 .dl-row.weekend .dl-bar { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--reminder, #d9534f) 45%, transparent); }
 .dl-bar { position: relative; height: 34px; border-radius: 10px; overflow: visible; cursor: pointer; }
 .dl-past { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(40, 40, 50, 0.45); border-radius: 10px 0 0 10px; }
@@ -3520,3 +3525,53 @@ html.at-rest *, html.at-rest *::before, html.at-rest *::after { animation-play-s
 .tl-all-due { position: absolute; top: -8px; transform: translateX(-50%); font-size: 13px; }
 .tl-now-v { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #ff3b30; }
 .tl-together-btn { margin: 0 16px 8px; }
+
+/* Month view: ⏳ Deadlines today to the left of Coming up (Settings › Editor). */
+.month-side { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: start; }
+.month-side > * { min-width: 0; }
+
+/* Deadline block: hold the bottom edge and drag for more or fewer days; ↕ Scroll keeps a fixed window. */
+.dl-edge.bottom { position: relative; touch-action: none; cursor: ns-resize; }
+.dl-grip { position: absolute; left: 50%; bottom: -4px; width: 36px; height: 5px; margin-left: -18px; border-radius: 3px; background: color-mix(in srgb, var(--dl, var(--accent)) 55%, transparent); }
+.dl-drag-hint { margin-left: auto; font-size: 10px; color: var(--muted); }
+.dl-scroll-toggle { padding: 1px 8px; border-radius: 10px; font-size: 11px; border: 1px solid var(--border); }
+.dl-scroll-toggle.on { background: var(--dl, var(--accent)); color: #fff; border-color: transparent; }
+.dl-scroll-pos { display: inline-flex; align-items: center; gap: 4px; }
+.dl-scroll-pos button { padding: 0 5px; font-size: 10px; }
+.dl-scroll-pos small { color: var(--muted); font-size: 10px; }
+html.dl-dragging, html.dl-dragging * { user-select: none !important; -webkit-user-select: none !important; cursor: ns-resize !important; }
+
+/* Held 🔍: past searches over the bar (starred first), slide and let go. */
+.nav-search-pick { position: fixed; z-index: 47; left: max(12px, calc(50vw - 215px)); right: max(12px, calc(50vw - 215px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 66px); max-height: 52vh; overflow-y: auto; display: flex; flex-direction: column-reverse; gap: 2px; padding: 6px; border-radius: 18px; background: var(--panel, var(--bg)); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25); animation: nsp-in 0.22s var(--spring, ease-out); }
+@keyframes nsp-in { from { opacity: 0; transform: translateY(12px) scale(0.97); } }
+.nsp-row { display: flex; align-items: center; border-radius: 12px; }
+.nsp-row > button:first-child { flex: 1; min-width: 0; text-align: left; padding: 10px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nsp-row.hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.nsp-star { padding: 8px 12px; font-size: 18px; color: var(--muted); border-radius: 10px; }
+.nsp-row.starred .nsp-star { color: #e8b023; }
+.nsp-star.hover { background: color-mix(in srgb, #e8b023 25%, transparent); }
+.nsp-all { align-self: center; padding: 6px 10px; font-size: 12px; }
+
+/* Backlinks › history log: older notes edited on this day. */
+.edits-log { margin: 0 0 10px; }
+.edits-log h4 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.edits-log ul { list-style: none; margin: 0; padding: 0; }
+.edits-log button { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 6px 4px; text-align: left; border-radius: 8px; }
+.edits-log button:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.edits-time { flex: none; font-variant-numeric: tabular-nums; font-size: 11px; color: var(--accent); }
+.edits-where { flex: none; font-size: 12px; font-weight: 600; }
+.edits-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--muted); }
+
+/* Time outline: later edits (✎) sit further down the longer after they came. */
+.outline-stamp.edit { position: relative; }
+.outline-stamp.edit::before { content: ""; position: absolute; left: 14px; top: 0; bottom: 50%; border-left: 2px dashed color-mix(in srgb, var(--accent) 45%, transparent); }
+.outline-stamp.edit .outline-time-at { color: var(--accent); }
+
+/* Routine › Setup: drag rows by ⠿; GIF icons. */
+.setup-grip { flex: none; padding: 6px 4px; cursor: grab; touch-action: none; color: var(--muted); font-size: 16px; user-select: none; -webkit-user-select: none; }
+.setup-list li.dragging { opacity: 0.75; background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 10px; }
+.setup-gif { display: inline-flex; align-items: center; justify-content: center; }
+.setup-gif-btn { flex: none; padding: 2px 6px; font-size: 10px; font-weight: 700; border-radius: 6px; border: 1px solid var(--border); }
+.step-gif { width: 1.6em; height: 1.6em; object-fit: cover; border-radius: 6px; vertical-align: middle; }
+.habit-icon .step-gif { width: 2em; height: 2em; }
+.phase-chart.tall svg { max-height: 72vh; }
