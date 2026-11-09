@@ -26,6 +26,10 @@ import {
   type Ringer,
 } from "./direct";
 import { receiveClip, setClipSink, startClipWatch } from "./clipboard";
+import { setSideNames } from "./merge";
+
+// Clash lines are labelled by device (sync/merge.ts): the Mac hosts the Wi-Fi link, the phone joins it.
+setSideNames(canHost() ? "Mac" : "Phone", canHost() ? "Phone" : "Mac");
 
 /** What sync remembers between rounds (what it sent and read), so it only moves what's new. */
 const localMemory: SyncMemory = {

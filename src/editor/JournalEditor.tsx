@@ -46,6 +46,7 @@ import { TimestampChip } from "./timestampChip";
 import { EditStamp } from "./editStamp";
 import { BlockBorn } from "./blockBorn";
 import { LID_INIT, LineIds } from "./lineIds";
+import { Clashes } from "./clash";
 import { GifIcon, insertQuickLog, openQuickLogSetup, useQuickLogs } from "../projects/quickLog";
 
 interface Props {
@@ -614,6 +615,7 @@ export function JournalEditor({
       BlockInfoExtension,
       BlockBorn,
       LineIds,
+      Clashes,
       Blocks,
       AutoPairs,
       MathAuto,

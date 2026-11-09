@@ -306,7 +306,7 @@ export async function startHost(store: JournalStore, opts: HostOptions): Promise
     if (path === "/push") {
       // The phone sends these bytes right behind the push: don't ask for them as well.
       for (const h of body?.sending ?? []) asked.set(h, Date.now());
-      const plan = await importRecords(store, body?.records ?? []);
+      const plan = await importRecords(store, body?.records ?? [], "wifi");
       if (plan.events.length) opts.onImported();
       if (plan.files.length) {
         checkWant = true;
@@ -598,7 +598,7 @@ export function startClient(store: JournalStore, address: DirectAddress, opts: C
           for (const c of r.clips ?? []) opts.onClip(c);
           if (r.want?.length) void sendFiles(r.want.filter((h) => !given.has(h)));
           if (r.records?.length) {
-            const plan = await importRecords(store, r.records);
+            const plan = await importRecords(store, r.records, "wifi");
             if (plan.events.length) opts.onImported();
             if (plan.files.length) void fetchMissing();
           }

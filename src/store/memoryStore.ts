@@ -120,6 +120,10 @@ export class MemoryStore implements JournalStore {
     return counts;
   }
 
+  async eventAfter(id: string) {
+    return this.data.events.find((e) => e.id === id)?.after ?? null;
+  }
+
   async eventsFor(blockId: string) {
     return this.data.events.filter((e) => e.blockId === blockId);
   }

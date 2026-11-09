@@ -1,6 +1,8 @@
 import { Fragment, type Node as PMNode, type Schema } from "@tiptap/pm/model";
 import type { Editor } from "@tiptap/react";
-import { mergeDocs } from "./merge";
+import { mergeDocs, takeMergeNotes } from "./merge";
+import { logAnomaly, short } from "./anomalies";
+import { siblingIds } from "./lineIds";
 
 /**
  * Letter-by-letter typing over the Wi-Fi link (see direct.ts). While the link is up, each change
@@ -16,6 +18,8 @@ export interface TypingMsg {
   key: string;
   device: string;
   seq: number;
+  /** Date.now() on the sending device when sent (for the anomaly log's timings). */
+  at?: number;
   /** Whole note (first message, or every few seconds). */
   full?: unknown;
   /** Replace top-level nodes [from, from + remove) of a note with `base` nodes by `nodes`. */
@@ -86,14 +90,14 @@ function sendNow(key: string, doc: PMNode) {
   if (!o || now - o.fullAt > FULL_EVERY_MS) {
     const seq = (o?.seq ?? Date.now()) + 1; // from the clock: a restarted app still counts up
     out.set(key, { seq, fullAt: now, prev: doc });
-    return sink({ key, device, seq, full: doc.toJSON() });
+    return sink({ key, device, seq, at: now, full: doc.toJSON() });
   }
   if (o.prev === doc) return;
   const [from, remove, nodes] = diffChildren(o.prev, doc);
   o.seq++;
   const base = o.prev.childCount;
   o.prev = doc;
-  sink({ key, device, seq: o.seq, from, remove, base, nodes: nodes.map((n) => n.toJSON()) });
+  sink({ key, device, seq: o.seq, at: now, from, remove, base, nodes: nodes.map((n) => n.toJSON()) });
 }
 
 const seen = new Map<string, number>();
@@ -122,7 +126,16 @@ export function applyTyping(editor: Editor, m: TypingMsg): boolean {
       if (last !== undefined && m.seq <= last) return false;
       next = schema.nodeFromJSON(m.full);
     } else {
-      if (last === undefined || m.seq !== last + 1 || !before || before.childCount !== m.base) return false;
+      if (last === undefined || m.seq !== last + 1 || !before || before.childCount !== m.base) {
+        logAnomaly({
+          kind: "unreadable",
+          path: "wifi-typing",
+          note: m.key,
+          text: last !== undefined && m.seq > last + 1 ? `missed ${m.seq - last - 1} typing message(s); waiting for the next full copy` : "typing patch didn't fit this note; waiting for the next full copy",
+          detail: { device: m.device, seq: m.seq, last, sentAt: m.at, lagMs: m.at ? Date.now() - m.at : undefined },
+        });
+        return false;
+      }
       next = patched(before, m.from!, m.remove!, (m.nodes ?? []).map((n) => schema.nodeFromJSON(n)));
     }
     seen.set(slot, m.seq);
@@ -130,7 +143,10 @@ export function applyTyping(editor: Editor, m: TypingMsg): boolean {
     if (next.eq(doc)) return true;
     // A sync import (App.tsx, only with nothing unsaved here) is the merged saved note: taken as it is.
     const base = m.device === "sync" ? doc : before;
-    const merged = schema.nodeFromJSON(mergeDocs(next.toJSON(), doc.toJSON(), base?.toJSON()));
+    takeMergeNotes();
+    const mergedJson = mergeDocs(next.toJSON(), doc.toJSON(), base?.toJSON(), false);
+    if (m.device !== "sync") noteTyping(m, doc, mergedJson);
+    const merged = schema.nodeFromJSON(mergedJson);
     if (merged.eq(doc)) return true;
     const [from, remove, nodes] = diffChildren(doc, merged);
     replace(tr, doc, from, remove, nodes);
@@ -171,4 +187,18 @@ function replace(tr: Editor["state"]["tr"], doc: PMNode, from: number, remove: n
 export const TYPING_EVENT = "journal:typing";
 export function receiveTyping(m: TypingMsg) {
   window.dispatchEvent(new CustomEvent<TypingMsg>(TYPING_EVENT, { detail: m }));
+}
+
+const textOf = (n: { text?: string; content?: unknown[] }): string => (n.text ?? "") + ((n.content ?? []) as { text?: string }[]).map(textOf).join("");
+
+/** Clashes and lines taken out by the other device's typing, for the anomaly log. */
+function noteTyping(m: TypingMsg, doc: PMNode, merged: ReturnType<typeof mergeDocs>) {
+  const timing = { device: m.device, seq: m.seq, sentAt: m.at, lagMs: m.at ? Date.now() - m.at : undefined };
+  for (const n of takeMergeNotes())
+    logAnomaly({ kind: n.kind, path: "wifi-typing", note: m.key, text: Object.entries(n.texts).map(([k, v]) => `${k}: "${short(v, 60)}"`).join(" / "), detail: { ...timing, line: n.line, texts: n.texts } });
+  const before = doc.toJSON().content ?? [];
+  const kept = new Set(siblingIds(merged.content ?? []));
+  const ids = siblingIds(before);
+  const gone = before.filter((n: { text?: string; content?: unknown[] }, i: number) => !kept.has(ids[i]) && textOf(n).trim()).map((n: { text?: string; content?: unknown[] }) => short(textOf(n)));
+  if (gone.length) logAnomaly({ kind: "lines-removed", path: "wifi-typing", note: m.key, text: `${gone.length} line(s) removed by the other device's typing: ${gone.join(" · ")}`, detail: { ...timing, lines: gone } });
 }

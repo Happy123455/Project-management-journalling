@@ -185,4 +185,6 @@ export interface JournalStore {
    * came before the bytes reached the shared folder. Sync fetches these again every round.
    */
   missingFiles(): Promise<FileRecord[]>;
+  /** The document an event left (its `after`), or null when this device doesn't have that event. */
+  eventAfter?(id: string): Promise<string | null>;
 }

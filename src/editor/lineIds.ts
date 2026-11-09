@@ -90,6 +90,13 @@ export const LineIds = Extension.create({
             parseHTML: (el) => el.getAttribute("data-lid"),
             renderHTML: (attrs) => (attrs[LID] ? { "data-lid": attrs[LID] } : {}),
           },
+          // Which side of a sync clash this line is (sync/merge.ts clashPair, editor/clash.ts).
+          clash: {
+            default: null,
+            keepOnSplit: false,
+            parseHTML: (el) => el.getAttribute("data-clash"),
+            renderHTML: (attrs) => (attrs.clash ? { "data-clash": attrs.clash } : {}),
+          },
         },
       },
     ];

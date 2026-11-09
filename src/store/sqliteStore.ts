@@ -663,6 +663,11 @@ export class SqliteStore implements JournalStore {
     notifyLogged();
   }
 
+  async eventAfter(id: string) {
+    const [row] = await this.db.select<{ after: string | null }[]>("SELECT after FROM events WHERE id = $1", [id]);
+    return row?.after ?? null;
+  }
+
   async eventsFor(blockId: string) {
     const rows = await this.eventsInParts<EventRow>("e.block_id = $1", [blockId], "SELECT e.* FROM events e WHERE 1 = 1");
     return rows.map(toEvent);

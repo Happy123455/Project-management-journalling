@@ -1,5 +1,6 @@
 import type { JSONContent } from "@tiptap/react";
-import { mergeDocs } from "./merge";
+import { mergeDocs, takeMergeNotes } from "./merge";
+import { logAnomaly, short } from "./anomalies";
 
 /**
  * A save from the open editor can only take out lines that editor has seen. The editor saves the
@@ -24,5 +25,14 @@ export function guardSave(key: string, content: JSONContent, stored: JSONContent
   if (!base || !stored) return content;
   const storedKey = JSON.stringify(stored);
   if (storedKey === base || storedKey === JSON.stringify(content)) return content;
-  return mergeDocs(content, stored, JSON.parse(base) as JSONContent);
+  takeMergeNotes();
+  const out = mergeDocs(content, stored, JSON.parse(base) as JSONContent, true);
+  try {
+    const found = takeMergeNotes();
+    logAnomaly({ kind: "stale-save", path: "save", note: key, text: `the open note was behind the stored one; merged (${found.length} line note${found.length === 1 ? "" : "s"})`, detail: { lines: (stored.content?.length ?? 0) + " stored / " + (content.content?.length ?? 0) + " in editor" } });
+    for (const n of found) logAnomaly({ kind: n.kind, path: "save", note: key, text: Object.entries(n.texts).map(([k, v]) => `${k}: "${short(v, 60)}"`).join(" / "), detail: { line: n.line, texts: n.texts } });
+  } catch {
+    // never stops a save
+  }
+  return out;
 }

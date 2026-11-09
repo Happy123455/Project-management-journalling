@@ -27,7 +27,7 @@ const isEmpty = (v: unknown) =>
  * Bookkeeping attrs the app keeps for itself (`born`: when typing in a line began). They are not
  * written into Source mode; reading back puts them back from the note as it was (SourceMemory).
  */
-const HIDDEN = ["born", "lid"];
+const HIDDEN = ["born", "lid", "clash"];
 
 function extras(attrs: Attrs | undefined, handled: string[]): Attrs | null {
   const out: Attrs = {};
