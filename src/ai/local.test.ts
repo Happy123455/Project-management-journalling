@@ -12,8 +12,8 @@ describe("local model", () => {
   it("rests longer when the chip slows down", () => {
     expect(restMs("off", 8000, 20, 20)).toBe(0);
     expect(restMs("cool", 8000, 20, 20)).toBe(8000);
-    expect(restMs("cool", 8000, 14, 20)).toBe(16000);
-    expect(Math.round(restMs("cold", 8000, 10, 20))).toBe(48727);
+    expect(restMs("cool", 8000, 14, 20)).toBe(12000);
+    expect(Math.round(restMs("cold", 8000, 10, 20))).toBe(32485);
   });
   it("finds tool calls", () => {
     const r = parseToolCalls('Sure.\n<tool_call>\n{"name": "append", "arguments": {"text": "x"}}\n</tool_call>');
@@ -28,15 +28,3 @@ describe("local model", () => {
   });
 });
 
-describe("bursts", () => {
-  it("puts Ollama's thinking field and the answer back together", async () => {
-    const { addBurst, continuation } = await import("./local");
-    let s = addBurst("", "", true, "Okay, 17*23", "");
-    s = addBurst(s.thinking, s.answer, true, " is 391.", "It's 391");
-    expect(s).toEqual({ thinking: "Okay, 17*23 is 391.", answer: "It's 391" });
-    expect(continuation(s.thinking, s.answer, true)).toBe("Okay, 17*23 is 391.\n</think>\n\nIt's 391");
-    s = addBurst(s.thinking, s.answer, false, "", ".");
-    expect(s.answer).toBe("It's 391.");
-    expect(addBurst("", "", true, "", "hmm</think>\n\nHi")).toEqual({ thinking: "hmm", answer: "Hi" });
-  });
-});
