@@ -11,6 +11,7 @@ import { agendaAction } from "../routine/agenda";
 import { changeDay, currentDoc, loadConfig, loadEntries, ROUTINE_EVENT, viewOf, writeLog } from "../routine/routineData";
 import { EVENT_LOGGED } from "../store/logged";
 import { FAV_EVENT, favouriteFormulas } from "./formulas";
+import { allDeadlinesNow, changePlansAnywhere, plansOf } from "../editor/deadlineStore";
 
 /**
  * Galaxy Watch app (watch/ in the repo, Wear OS). The phone app is the watch's only link to the
@@ -67,7 +68,7 @@ export async function watchState(store: JournalStore): Promise<WatchState> {
       next: plan.get(s.id),
     })),
     habits: config.habits.map((h) => ({ id: h.id, icon: h.icon, label: h.label, today: log?.habits.get(h.id)?.length ?? 0 })),
-    agenda: todayAgenda(doc ? { content: doc, reminder: !!page?.props.reminder } : null, repeating, today).map((a) => ({ id: a.id, at: a.at, text: a.text, done: a.done })),
+    agenda: [...todayAgenda(doc ? { content: doc, reminder: !!page?.props.reminder } : null, repeating, today).map((a) => ({ id: a.id, at: a.at, text: a.text, done: a.done })), ...deadlineAgenda(today)].sort((a, b) => a.at - b.at),
     tasks: doc ? extractTasks(doc).filter((t) => t.text).slice(0, 40).map((t) => ({ day: today, path: t.path, text: t.text, done: t.checked })) : [],
     projects: projects.filter((p) => (p.props.project?.status ?? "active") === "active").map((p) => p.title).slice(0, 20),
     formulas: favouriteFormulas(),
@@ -145,6 +146,12 @@ async function apply(store: JournalStore, item: InboxItem): Promise<string | nul
     }
     await writeLog(store, s, edge, new Date(item.at));
     return `${s.icon} ${s.label}${edge === "start" ? " started" : edge === "end" ? " done" : ""}`;
+  }
+  if (item.t === "agenda" && item.id.startsWith("dl|")) {
+    // A deadline's plan: dl|note|tid|planId
+    const [, note, tid, planId] = item.id.split("|");
+    await changePlansAnywhere(store, note, tid, (plans) => plans.map((p) => (p.id === planId ? { ...p, done: item.done } : p)));
+    return null;
   }
   if (item.t === "agenda") {
     const doc = await currentDoc(store, today);
@@ -249,4 +256,19 @@ export function startWatch(store: JournalStore): () => void {
     window.removeEventListener(FAV_EVENT, tapped);
     document.removeEventListener("visibilitychange", onVisible);
   };
+}
+
+/** Today's deadline plans as agenda rows on the watch ("⏳ Write intro · ESD2 · 1h 20m left"). */
+function deadlineAgenda(today: string) {
+  const out: { id: string; at: number; text: string; done: boolean }[] = [];
+  const now = Date.now();
+  for (const t of allDeadlinesNow()) {
+    if (t.info.status || t.endAt < now) continue;
+    for (const p of plansOf(t)) {
+      if (dayKey(new Date(p.start)) !== today) continue;
+      const left = Math.max(0, Math.round((t.endAt - now) / 3_600_000));
+      out.push({ id: `dl|${t.note}|${t.tid}|${p.id}`, at: p.start, text: `${t.info.emoji} ${p.text} · ${t.title} · ${left}h left`, done: !!p.done });
+    }
+  }
+  return out;
 }

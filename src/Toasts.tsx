@@ -11,6 +11,7 @@ export function Toasts() {
       {toasts.map((t) => (
         <div key={t.id} className={`toast ${t.kind}`}>
           <span className="toast-text">{t.kind === "error" ? "⚠️ " : ""}{t.message}</span>
+          {t.action && <button type="button" className="toast-action" onClick={() => (dismissToast(t.id), t.action!.run())}>{t.action.label}</button>}
           <button type="button" onClick={() => dismissToast(t.id)} aria-label="Close message">✕</button>
         </div>
       ))}

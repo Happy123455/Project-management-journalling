@@ -56,6 +56,9 @@ import { activeTab, closeTab, currentLoc, go, loadTabs, locKey, openTab, saveTab
 import { receiveTyping } from "./sync/liveTyping";
 import { editorSaw, guardSave } from "./sync/saveGuard";
 import { openTimelines, TimelinesHost } from "./editor/TimelinesView";
+import { deadlineAlarms, useAllDeadlines, watchDeadlines } from "./editor/deadlineStore";
+import { FocusHost } from "./editor/focus";
+import { TodayDeadlines } from "./editor/TodayDeadlines";
 import { CaptureHost } from "./editor/CaptureHost";
 import { PdfHost } from "./editor/PdfHost";
 import { PhotoHost } from "./editor/PhotoHost";
@@ -498,11 +501,15 @@ function App() {
         return s ? [{ id: `routine|${routine.day}|${p.id}`, at: p.start, title: `🧭 ${s.icon} ${s.label}`, body: "Usually about now. At your own pace.", day: today }] : [];
       });
   }, [routine, today]);
+  // Deadlines: plan reminders and due alerts ring like reminders.
+  useEffect(() => (store ? watchDeadlines(store) : undefined), [store]);
+  const deadlines = useAllDeadlines();
+  const deadlineRings = useMemo(() => deadlineAlarms(deadlines, Date.now()), [deadlines, today]);
   // The phone's notifications and home-screen widget follow the reminders.
   useEffect(() => {
     const own = todayDoc && !reminders.some((r) => r.day === today) ? [{ day: today, content: todayDoc, marked: true }] : [];
-    publishReminders(reminders, today, own, nudges);
-  }, [reminders, today, todayDoc, nudges]);
+    publishReminders(reminders, today, own, [...nudges, ...deadlineRings]);
+  }, [reminders, today, todayDoc, nudges, deadlineRings]);
   useEffect(() => startInAppNudges((d) => void goTo(d)), []);
   // A tapped notification or widget row opens its day.
   useEffect(() => {
@@ -1158,6 +1165,7 @@ function App() {
               below={
                 <>
                   {store && <TodayAgenda store={store} view={routine} onOpenRoutine={() => setRoutineOpen(true)} />}
+                  {store && <TodayDeadlines store={store} day={day} onOpenDay={(d) => void goTo(d)} />}
                   <Upcoming inMonth pages={upcoming.filter((r) => r.day !== day)} onPick={goTo} onAction={onReminderAction} />
                 </>
               }
@@ -1302,6 +1310,7 @@ function App() {
         />
       )}
       {store && <TimelinesHost store={store} onOpenDay={(d) => void goTo(d)} />}
+      {store && <FocusHost store={store} />}
       {mindOpen && store && (
         <MindMapView store={store} today={today} onClose={() => setMindOpen(false)} onOpenDay={(d) => (setMindOpen(false), void goTo(d))} onOpenPage={(t) => (setMindOpen(false), void handlers.onOpenLink(t))} />
       )}

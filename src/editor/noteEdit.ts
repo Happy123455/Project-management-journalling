@@ -19,6 +19,12 @@ export function registerOpenNote(key: string, editor: Editor): () => void {
   };
 }
 
+/** The day ("2026-11-04") an open editor shows, or "" when it isn't a day note. */
+export function noteDayOf(editor: Editor): string {
+  for (const [k, e] of open) if (e === editor && k.startsWith("day:")) return k.slice(4);
+  return "";
+}
+
 /** The open editor of a day, or null (not open, or in Source mode, where the text box is the truth). */
 export function openDayEditor(day: string): Editor | null {
   const e = open.get(`day:${day}`);

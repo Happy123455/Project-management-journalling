@@ -9,8 +9,15 @@ import { reminderTimes, timeLeft } from "../lib/reminders";
 import { DeadlineStrip } from "./deadlineStrip";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import { busyOn, clock, hm, type Plan, DAY, dayLabel, daysBetween, freeGaps, midnight, shownRange, skyGradient, templateDays, type Layer } from "../lib/deadline";
+import { BUILT_IN_TEMPLATES, busyOn, clock, DAY, dayLabel, firstFit, freeAcross, freeGaps, freeHint, hm, infoOf, midnight, missedPlans, needMins, parseDuration, PLAN_KINDS, progressOf, shownRange, skyGradient, templateDays, type Layer, type Plan, type Progress } from "../lib/deadline";
 import { randomLid } from "../sync/lineIds";
+import { fx } from "../lib/fx";
+import { showToast } from "../lib/toast";
+import { barsOf, deadlineRows, plansIn, plansOf, registerDeadlineEditor, savePlans, setAll, useAllDeadlines } from "./deadlineStore";
+import { DeadlineSheet, savedTemplates } from "./DeadlineSheet";
+import { PlanSheet } from "./PlanSheet";
+import { startFocus } from "./focus";
+import { noteDayOf } from "./noteEdit";
 
 /**
  * ⏳ Deadline bar: `/deadline`, pick when it's due, and the note gets one bar per day up to then
@@ -66,29 +73,55 @@ interface Comment {
   page?: string;
 }
 
-/** Changes every bar of this deadline at once (its settings are shared). */
-function setAll(editor: Editor, tid: string, attrs: Record<string, unknown>) {
-  const tr = editor.state.tr;
-  editor.state.doc.descendants((n, pos) => {
-    if (n.type.name === "deadlineBar" && n.attrs.tid === tid) tr.setNodeMarkup(pos, undefined, { ...n.attrs, ...attrs });
-    return n.isBlock && !n.isTextblock;
-  });
-  if (tr.docChanged) editor.view.dispatch(tr);
+/** The deadline's plans across all its bars, kept fresh on the first bar (other bars' changes don't re-render it). */
+function useDeadlinePlans(editor: Editor, tid: string, on: boolean): Plan[] {
+  const [plans, setPlans] = useState<Plan[]>(() => (on ? plansIn(editor, tid) : []));
+  useEffect(() => {
+    if (!on) return;
+    let key = "";
+    const read = () => {
+      const list = plansIn(editor, tid);
+      const k = JSON.stringify(list);
+      if (k !== key) {
+        key = k;
+        setPlans(list);
+      }
+    };
+    read();
+    editor.on("update", read);
+    return () => void editor.off("update", read);
+  }, [editor, tid, on]);
+  return plans;
 }
 
-function Setup({ onMake }: { onMake: (title: string, end: number) => void }) {
+function Setup({ onMake }: { onMake: (title: string, end: number, extra: Record<string, unknown>) => void }) {
   const tomorrow = addDays(dayKey(new Date()), 2);
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(tomorrow);
   const [time, setTime] = useState("18:00");
+  const [tpl, setTpl] = useState("");
+  const [needText, setNeedText] = useState("");
+  const templates = [...BUILT_IN_TEMPLATES, ...savedTemplates()];
   const end = new Date(`${date}T${time || "23:59"}`).getTime();
+  const make = () => {
+    const t = templates.find((x) => x.name === tpl);
+    const extra: Record<string, unknown> = { need: parseDuration(needText) ?? 0 };
+    if (t) Object.assign(extra, { emoji: t.emoji, color: t.color, prefs: t.prefs ?? "", steps: t.steps.map((s) => ({ id: randomLid(), text: s.text, mins: s.mins })) });
+    fx("done");
+    onMake(title.trim() || t?.name || "", end, extra);
+  };
   return (
     <div className="dl-setup">
       <span className="dl-setup-icon">⏳</span>
-      <input placeholder="What's due?" value={title} onChange={(e) => setTitle(e.target.value)} />
+      <input placeholder="What's due?" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && end > Date.now() && make()} />
       <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
       <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
-      <button type="button" disabled={!(end > Date.now())} onClick={() => onMake(title.trim(), end)}>Make</button>
+      <select value={tpl} onChange={(e) => (fx("tick"), setTpl(e.target.value))} aria-label="Template">
+        <option value="">Blank</option>
+        {templates.map((t) => <option key={t.name} value={t.name}>{t.emoji} {t.name}</option>)}
+      </select>
+      <input className="dl-setup-need" placeholder="Work needed (12h)" value={needText} onChange={(e) => setNeedText(e.target.value)} />
+      <button type="button" className="primary" disabled={!(end > Date.now())} onClick={make}>Make</button>
     </div>
   );
 }
@@ -105,15 +138,41 @@ interface Place {
   show: number;
 }
 
+/** Done / planned / still needed as one soft three-part ring. */
+function Ring({ p, color }: { p: Progress; color: string }) {
+  const total = Math.max(p.need, p.done + p.planned, 1);
+  const r = 9;
+  const c = 2 * Math.PI * r;
+  const done = Math.min(1, p.done / total) * c;
+  const planned = Math.min(1 - done / c, p.planned / total) * c;
+  return (
+    <svg className="dl-ring" viewBox="0 0 24 24" width="22" height="22" aria-hidden>
+      <circle cx="12" cy="12" r={r} className="dl-ring-bg" />
+      <circle cx="12" cy="12" r={r} stroke={color} strokeOpacity={0.35} strokeDasharray={`${planned} ${c}`} strokeDashoffset={-done} transform="rotate(-90 12 12)" />
+      <circle cx="12" cy="12" r={r} stroke={color} strokeDasharray={`${done} ${c}`} transform="rotate(-90 12 12)" />
+    </svg>
+  );
+}
+
+const STATUS_TEXT: Record<Progress["status"], string> = { none: "", done: "🎉 Done", ok: "On track", tight: "Tight", behind: "Behind" };
+
 function DeadlineView({ node, editor, getPos, updateAttributes, selected, decorations }: NodeViewProps) {
   const a = node.attrs as { tid: string; day: string; endAt: number; title: string; layer: Layer; awake: boolean; comments: Comment[]; first: boolean; plans: Plan[]; prefs: string };
+  const info = infoOf(node.attrs);
   const place = ((decorations as unknown as { spec?: { dl?: Place } }[]) ?? []).map((d) => d.spec?.dl).find(Boolean) ?? { index: 0, count: 1, lastShown: true, hidden: 0, collapsed: false, show: 0 };
   const [strip, setStrip] = useState<number | null>(null);
+  const [sheet, setSheet] = useState(false);
+  const [planOpen, setPlanOpen] = useState<string | null>(null);
   const now = useNow();
   const view = useRoutineShared();
+  const all = useAllDeadlines();
   const [reminders, setReminders] = useState<{ at: number; text: string }[]>([]);
   const [menu, setMenu] = useState<{ at: number; x: number } | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  // The first bar keeps every plan of the deadline (for progress); others only need theirs, until a sheet opens.
+  const allPlans = useDeadlinePlans(editor, a.tid, !!a.day && (a.first || sheet || planOpen !== null));
+
+  useEffect(() => (a.tid && a.day ? registerDeadlineEditor(a.tid, editor) : undefined), [a.tid, a.day, editor]);
 
   useEffect(() => {
     const store = journalStore();
@@ -135,21 +194,26 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
     };
   }, [a.day]);
 
+  // Plans of other open deadlines take time too.
+  const others = useMemo(
+    () => all.filter((t) => t.tid !== a.tid && !t.info.status).flatMap((t) => plansOf(t).map((p) => ({ ...p, color: t.info.color, title: t.title }))),
+    [all, a.tid],
+  );
   const busy = useMemo(() => (view && a.day ? busyOn(a.day, a.layer, view.config, view.stats, view.days) : []), [view, a.day, a.layer]);
   const [from, to] = useMemo(() => (a.day ? shownRange(a.day, busy, a.awake) : [0, 1]), [a.day, busy, a.awake]);
   const gradient = useMemo(() => (a.day ? skyGradient(from, to) : ""), [from, to, a.day]);
+  const barDays = a.day && (a.first || sheet || planOpen) ? barsOf(editor, a.tid).map((b) => b.attrs.day as string) : [];
+  const busyFor = (d: string) => (view ? busyOn(d, a.layer, view.config, view.stats, view.days) : []);
+  const gapsAhead = useMemo(
+    () => (barDays.length ? freeAcross(barDays, busyFor, [...allPlans, ...others], now, a.endAt) : []),
+    [barDays.join(), allPlans, others, now, a.endAt, view, a.layer],
+  );
 
   if (!a.day || !a.endAt) {
-    const make = (title: string, end: number) => {
+    const make = (title: string, end: number, extra: Record<string, unknown>) => {
       const pos = getPos();
       if (typeof pos !== "number") return;
-      const tid = randomLid();
-      const days = daysBetween(dayKey(new Date()), dayKey(new Date(end)));
-      const rows = days.flatMap((day, i) => {
-        const bar = { type: "deadlineBar", attrs: { tid, day, endAt: end, title, layer: "avg", awake: false, comments: [], first: i === 0, show: days.length > 4 ? 4 : 0 } };
-        return i < days.length - 1 ? [bar, { type: "paragraph" }] : [bar];
-      });
-      editor.chain().insertContentAt({ from: pos, to: pos + node.nodeSize }, rows).run();
+      editor.chain().insertContentAt({ from: pos, to: pos + node.nodeSize }, deadlineRows(end, title, extra)).run();
     };
     return (
       <NodeViewWrapper className="dl" contentEditable={false}>
@@ -164,12 +228,21 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
   const label = dayLabel(a.day);
   const t0 = midnight(a.day);
   const plans = ((a.plans ?? []) as Plan[]).filter((p) => p.end > t0 && p.start < t0 + DAY);
-  const taken = [...busy, ...plans.map((p) => ({ ...p, icon: "", label: p.text }))];
+  const otherHere = others.filter((p) => p.end > t0 && p.start < t0 + DAY);
+  const taken = [...busy, ...plans.map((p) => ({ ...p, icon: "", label: p.text })), ...otherHere.map((p) => ({ ...p, icon: "", label: p.text }))];
   const free = freeGaps(Math.max(from, now), Math.min(to, a.endAt), taken);
   const freeTotal = free.reduce((s, f) => s + f.end - f.start, 0);
   const comments = (a.comments ?? []) as Comment[];
   const due = a.endAt >= t0 && a.endAt < t0 + DAY;
   const opts = view ? templateDays(view.config, view.days, view.day) : [];
+  const need = needMins(info) * 60_000;
+  const progress = progressOf(allPlans, need, now, gapsAhead.reduce((s, g) => s + g.end - g.start, 0), info.status === "done");
+  const missed = missedPlans(allPlans, now);
+  const miles = info.steps.filter((s) => s.at && s.at >= t0 && s.at < t0 + DAY);
+  const openPlan = planOpen ? allPlans.find((p) => p.id === planOpen) ?? null : null;
+  const noteDay = noteDayOf(editor);
+  const nextFree = (len: number, after: number, ignore: string) =>
+    firstFit(freeAcross(barDays, busyFor, [...allPlans.filter((p) => p.id !== ignore), ...others], Math.max(now, after), a.endAt), len, after);
 
   const atX = (clientX: number, box: DOMRect) => from + ((clientX - box.left) / box.width) * span;
   const addComment = (at: number) => {
@@ -188,28 +261,65 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
     updateAttributes({ comments: comments.filter((c) => c.id !== id) });
     setOpen(null);
   };
+  const moveMissed = () => {
+    let list = allPlans.filter((p) => !missed.includes(p));
+    let placed = 0;
+    for (const m of missed) {
+      const len = m.end - m.start;
+      const at = firstFit(freeAcross(barDays, busyFor, [...list, ...others], now, a.endAt), len, now);
+      if (at === null) continue;
+      list = [...list, { ...m, start: at, end: at + len }];
+      placed++;
+    }
+    if (!placed) return fx("warn"), showToast("No free time left for them before the deadline");
+    list = [...list, ...missed.filter((m) => !list.some((p) => p.id === m.id))];
+    fx("drop");
+    savePlans(editor, a.tid, list, `Moved ${placed} missed plan${placed === 1 ? "" : "s"} to free time`);
+  };
+  const toggleFold = () => (fx(place.collapsed ? "open" : "close"), setAll(editor, a.tid, { collapsed: !place.collapsed }));
 
   return (
-    <NodeViewWrapper className={`dl${selected ? " selected" : ""}`} contentEditable={false}>
+    <NodeViewWrapper className={`dl${selected ? " selected" : ""}${info.status ? ` is-${info.status}` : ""}`} contentEditable={false} style={{ ["--dl" as string]: info.color }}>
       {a.first && (
         <div className="dl-edge top">
-          <button type="button" className="dl-fold-btn" onClick={() => setAll(editor, a.tid, { collapsed: !place.collapsed })} aria-label={place.collapsed ? "Unfold" : "Fold"}>{place.collapsed ? "▸" : "▾"}</button>
-          <span className="dl-name">⏳ {a.title || "Deadline"}</span>
-          <span className="dl-left">{a.endAt > now ? `${timeLeft(a.endAt - now)} left` : "due"}</span>
+          <button type="button" className="dl-fold-btn" onClick={toggleFold} aria-label={place.collapsed ? "Unfold" : "Fold"}>{place.collapsed ? "▸" : "▾"}</button>
+          <button type="button" className="dl-name" onClick={() => (fx("open"), setSheet(true))} title="Deadline settings">
+            {(need > 0 || info.status === "done") && <Ring p={progress} color={info.color} />}
+            <span>{info.emoji} {a.title || "Deadline"}</span>
+          </button>
+          <span className="dl-left">{info.status === "done" ? "done" : a.endAt > now ? `${timeLeft(a.endAt - now)} left` : "due"}</span>
           <span className="dl-due">{new Date(a.endAt).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
           {!place.collapsed && (
             <span className="dl-tools">
-              <select value={a.layer} onChange={(e) => setAll(editor, a.tid, { layer: e.target.value })} aria-label="Routine layer" title="Routine behind the bars">
+              <select value={a.layer} onChange={(e) => (fx("tick"), setAll(editor, a.tid, { layer: e.target.value }))} aria-label="Routine layer" title="Routine behind the bars">
                 <option value="off">No routine</option>
                 <option value="avg">Usual day</option>
                 {opts.map((d) => (
                   <option key={d} value={`day:${d}`}>Like {dayLabel(d).text}</option>
                 ))}
               </select>
-              <button type="button" className={a.awake ? "on" : ""} onClick={() => setAll(editor, a.tid, { awake: !a.awake })} title="Waking hours only">🌙</button>
-              <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("journal:timelines", { detail: { tid: a.tid } }))} title="Days side by side">⇆</button>
+              <button type="button" className={a.awake ? "on" : ""} onClick={() => (fx("tick"), setAll(editor, a.tid, { awake: !a.awake }))} title="Waking hours only">🌙</button>
+              <button type="button" onClick={() => (fx("open"), window.dispatchEvent(new CustomEvent("journal:timelines", { detail: { tid: a.tid } })))} title="Days side by side">⇆</button>
+              <button type="button" onClick={() => (fx("open"), setSheet(true))} title="Settings, steps, AI re-plan">⚙</button>
             </span>
           )}
+        </div>
+      )}
+      {a.first && !place.collapsed && (need > 0 || missed.length > 0 || info.status === "done") && (
+        <div className={`dl-progress st-${progress.status}`}>
+          {need > 0 && (
+            <i className="dl-meter" title={`${hm(progress.done)} done · ${hm(progress.planned)} planned · ${hm(need)} needed`}>
+              <b className="m-done" style={{ width: `${Math.min(100, (progress.done / Math.max(need, progress.done + progress.planned)) * 100)}%` }} />
+              <b className="m-plan" style={{ width: `${Math.min(100, (progress.planned / Math.max(need, progress.done + progress.planned)) * 100)}%` }} />
+            </i>
+          )}
+          <span className="dl-st">{STATUS_TEXT[progress.status]}</span>
+          {need > 0 && <span>✓ {hm(progress.done)} · ◔ {hm(progress.planned)} · of {hm(need)}</span>}
+          {progress.status !== "done" && progress.short > 0 && <span className="dl-hint">Short by {hm(progress.short)} · {freeHint(gapsAhead, now)}</span>}
+          {missed.length > 0 && progress.status !== "done" && (
+            <button type="button" className="dl-missed" onClick={moveMissed}>⚠ {missed.length} missed · ⇥ move to free time</button>
+          )}
+          {info.status === "done" && info.repeat && <button type="button" onClick={() => (fx("open"), setSheet(true))}>⟳ Next one</button>}
         </div>
       )}
       {!place.collapsed && <div className={`dl-row${label.weekend ? " weekend" : ""}`}>
@@ -221,10 +331,11 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
           className="dl-bar"
           style={{ background: gradient }}
           onClick={(e) => {
-            if ((e.target as HTMLElement).closest(".dl-dot, .dl-pop")) return;
+            if ((e.target as HTMLElement).closest(".dl-dot, .dl-pop, .dl-plan")) return;
             const box = e.currentTarget.getBoundingClientRect();
             const at = atX(e.clientX, box);
             setMenu(null);
+            fx(strip === null ? "open" : "close");
             setStrip(strip === null ? at : null);
           }}
         >
@@ -235,11 +346,28 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
               <span>{b.icon}</span>
             </div>
           ))}
-          {plans.map((p) => (
-            <div key={p.id} className={`dl-plan${p.ai ? " ai" : ""}`} style={{ left: pct(p.start), width: width(p.start, p.end) }} title={`${clock(p.start)}–${clock(p.end)} ${p.text}`}>
-              <span>{p.text}</span>
-            </div>
+          {otherHere.map((p) => (
+            <div key={`o${p.id}`} className="dl-other" style={{ left: pct(p.start), width: width(p.start, p.end), ["--c" as string]: p.color }} title={`${p.title}: ${clock(p.start)}–${clock(p.end)} ${p.text}`} />
           ))}
+          {plans.map((p) => {
+            const isMissed = !p.done && p.end <= now && !p.actual?.length;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                className={`dl-plan${p.ai ? " ai" : ""}${p.done ? " done" : ""}${isMissed ? " missed" : ""}`}
+                style={{ left: pct(p.start), width: width(p.start, p.end), ["--c" as string]: PLAN_KINDS.find((k) => k.id === (p.kind ?? "focus"))?.color }}
+                title={`${clock(p.start)}–${clock(p.end)} ${p.text}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  fx("open");
+                  setPlanOpen(p.id);
+                }}
+              >
+                <span>{p.done ? "✓ " : ""}{p.text}</span>
+              </button>
+            );
+          })}
           {free.map((f, i) => (
             <div key={i} className="dl-free" style={{ left: pct(f.start), width: width(f.start, f.end) }} title={`Free ${clock(f.start)}–${clock(f.end)}`}>
               {(f.end - f.start) / span > 0.09 && <span>{hm(f.end - f.start)}</span>}
@@ -251,6 +379,7 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
           {reminders.filter((r) => r.at >= from && r.at <= to).map((r, i) => (
             <span key={i} className="dl-rem" style={{ left: pct(r.at) }} title={`${clock(r.at)} ${r.text}`}>🔔<small>{clock(r.at)}</small></span>
           ))}
+          {miles.map((s) => <span key={s.id} className={`dl-mile${s.done ? " done" : ""}`} style={{ left: pct(s.at!) }} title={`🚩 ${s.text} · ${clock(s.at!)}`}>🚩</span>)}
           {now >= from && now <= to && <i className="dl-now" style={{ left: pct(now) }} />}
           {due && <span className="dl-flag" style={{ left: pct(a.endAt) }} title={`Due ${clock(a.endAt)}`}>🏁</span>}
           {comments.filter((c) => c.at >= from && c.at <= to).map((c) => (
@@ -273,21 +402,24 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
           view={view}
           now={now}
           focus={strip}
+          others={others}
+          steps={info.steps}
           onClose={() => setStrip(null)}
           onComment={(c) => setOpen(c.id)}
+          onOpenPlan={(id) => setPlanOpen(id)}
         />
       )}
       {(place.lastShown || place.collapsed) && (place.collapsed ? a.first : true) && (
         <div className="dl-edge bottom">
-          <button type="button" className="dl-fold-btn" onClick={() => setAll(editor, a.tid, { collapsed: !place.collapsed })} aria-label={place.collapsed ? "Unfold" : "Fold"}>{place.collapsed ? "▸" : "▴"}</button>
+          <button type="button" className="dl-fold-btn" onClick={toggleFold} aria-label={place.collapsed ? "Unfold" : "Fold"}>{place.collapsed ? "▸" : "▴"}</button>
           {place.collapsed ? (
-            <span className="hint">{place.count} day{place.count === 1 ? "" : "s"} folded</span>
+            <span className="hint">{place.count} day{place.count === 1 ? "" : "s"} folded{info.status === "archived" ? " · archived" : ""}</span>
           ) : (
             <>
-              {place.hidden > 0 && <button type="button" className="link" onClick={() => setAll(editor, a.tid, { show: 0 })}>+{place.hidden} more day{place.hidden === 1 ? "" : "s"}</button>}
+              {place.hidden > 0 && <button type="button" className="link" onClick={() => (fx("open"), setAll(editor, a.tid, { show: 0 }))}>+{place.hidden} more day{place.hidden === 1 ? "" : "s"}</button>}
               {place.count > 4 && (
                 <label className="dl-show" title="How many days show at once">
-                  <input type="range" min={1} max={place.count} value={place.show || place.count} onChange={(e) => setAll(editor, a.tid, { show: Number(e.target.value) >= place.count ? 0 : Number(e.target.value) })} />
+                  <input type="range" min={1} max={place.count} value={place.show || place.count} onChange={(e) => (fx("tick"), setAll(editor, a.tid, { show: Number(e.target.value) >= place.count ? 0 : Number(e.target.value) }))} />
                   <small>{place.show || place.count} of {place.count} days</small>
                 </label>
               )}
@@ -304,6 +436,22 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
           <button type="button" onClick={() => setOpen(null)} aria-label="Close">✓</button>
         </div>
       ))}
+      {sheet && (
+        <DeadlineSheet editor={editor} info={info} prefs={a.prefs ?? ""} plans={allPlans} gaps={gapsAhead} now={now} onClose={() => setSheet(false)} />
+      )}
+      {openPlan && (
+        <PlanSheet
+          plan={openPlan}
+          plans={allPlans}
+          days={barDays}
+          steps={info.steps}
+          endAt={a.endAt}
+          nextFree={nextFree}
+          onSave={(list, message) => savePlans(editor, a.tid, list, message)}
+          onFocus={(p) => startFocus({ note: noteDay, tid: a.tid, planId: p.id, title: p.text || a.title || "Focus", planEnd: p.end })}
+          onClose={() => setPlanOpen(null)}
+        />
+      )}
     </NodeViewWrapper>
   );
 }
@@ -338,6 +486,16 @@ export const DeadlineBar = Node.create({
       prefs: json("prefs", ""),
       collapsed: json("collapsed", false),
       show: json("show", 0),
+      emoji: json("emoji", ""),
+      color: json("color", ""),
+      notes: json("notes", ""),
+      need: json("need", 0),
+      steps: json("steps", []),
+      status: json("status", ""),
+      remind: json("remind", 10),
+      dueAlerts: json("dueAlerts", true, "due-alerts"),
+      snap: json("snap", 5),
+      repeat: json("repeat", ""),
     };
   },
   parseHTML() {

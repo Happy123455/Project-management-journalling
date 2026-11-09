@@ -2,6 +2,8 @@ export interface Toast {
   id: number;
   message: string;
   kind: "error" | "info";
+  /** A button on the message (Undo); pressing it closes the message. */
+  action?: { label: string; run: () => void };
 }
 
 type Listener = (toasts: Toast[]) => void;
@@ -14,13 +16,13 @@ const listeners = new Set<Listener>();
 const emit = () => listeners.forEach((l) => l(toasts));
 
 /** Shows a floating message over the page (never pushes the layout); it hides itself after a few seconds. */
-export function showToast(message: string, kind: Toast["kind"] = "info"): number {
+export function showToast(message: string, kind: Toast["kind"] = "info", action?: Toast["action"]): number {
   // The same message again just restarts its timer instead of stacking up.
   toasts = toasts.filter((t) => t.message !== message);
-  const toast = { id: nextId++, message, kind };
+  const toast: Toast = { id: nextId++, message, kind, action };
   toasts = [...toasts, toast].slice(-3);
   emit();
-  setTimeout(() => dismissToast(toast.id), AUTO_HIDE_MS[kind]);
+  setTimeout(() => dismissToast(toast.id), action ? 6000 : AUTO_HIDE_MS[kind]);
   return toast.id;
 }
 

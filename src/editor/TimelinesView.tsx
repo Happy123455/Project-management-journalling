@@ -1,76 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import type { JSONContent } from "@tiptap/react";
 import type { JournalStore } from "../store";
-import { busyOn, clock, DAY, dayLabel, freeGaps, hm, midnight, shownRange, skyGradient, type Layer, type Plan } from "../lib/deadline";
+import { busyOn, clock, DAY, dayLabel, freeGaps, hm, midnight, shownRange, skyGradient } from "../lib/deadline";
 import { timeLeft } from "../lib/reminders";
 import { addDays, dayKey } from "../lib/timestamp";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
 import { useNow, useRoutineShared } from "./deadlineBar";
-import { openDayEditor } from "./noteEdit";
+import { allTimelines, type Timeline } from "./deadlineStore";
 
 /** Opens ⏳ Timelines: every deadline bar made, or (with a tid) one of them side by side. */
 export const TIMELINES_EVENT = "journal:timelines";
 export const openTimelines = (detail?: { tid: string; note: string }) => window.dispatchEvent(new CustomEvent(TIMELINES_EVENT, { detail }));
 
-interface Row {
-  day: string;
-  comments: { at: number; text: string }[];
-  plans: Plan[];
-  /** What was written in the note after this day's bar, before the next one. */
-  between: string[];
-}
-export interface Timeline {
-  tid: string;
-  title: string;
-  endAt: number;
-  layer: Layer;
-  awake: boolean;
-  /** The day note the bars are in. */
-  note: string;
-  rows: Row[];
-}
-
-const textOf = (n: JSONContent): string => (n.text ?? "") + (n.content ?? []).map(textOf).join(n.type === "doc" ? "\n" : "");
-
-/** Every deadline in one note, with the text written between its days. */
-export function timelinesIn(doc: JSONContent | null | undefined, note: string): Timeline[] {
-  const out = new Map<string, Timeline>();
-  let last: Row | null = null;
-  for (const n of doc?.content ?? []) {
-    if (n.type === "deadlineBar" && n.attrs?.tid && n.attrs.day) {
-      const a = n.attrs;
-      const t: Timeline = out.get(a.tid) ?? { tid: a.tid, title: a.title || "Deadline", endAt: a.endAt, layer: a.layer ?? "avg", awake: !!a.awake, note, rows: [] };
-      if (a.first) Object.assign(t, { title: a.title || "Deadline", layer: a.layer ?? "avg", awake: !!a.awake });
-      last = { day: a.day, comments: a.comments ?? [], plans: a.plans ?? [], between: [] };
-      t.rows.push(last);
-      out.set(a.tid, t);
-      continue;
-    }
-    const text = textOf(n).trim();
-    if (last && text) last.between.push(text);
-  }
-  // Text after the last day's bar isn't "between".
-  for (const t of out.values()) {
-    const end = t.rows[t.rows.length - 1];
-    if (end) end.between = [];
-  }
-  return [...out.values()];
-}
-
-/** Every deadline in the day notes of the last `back` days and all later ones, newest deadline first. */
-async function allTimelines(store: JournalStore, back = 120): Promise<Timeline[]> {
-  const from = addDays(dayKey(new Date()), -back);
-  const out: Timeline[] = [];
-  for (const day of await store.listDays()) {
-    if (day < from) continue;
-    const editor = openDayEditor(day);
-    const doc = editor ? editor.getJSON() : (await store.getDay(day))?.content;
-    if (!JSON.stringify(doc ?? "").includes("deadlineBar")) continue;
-    out.push(...timelinesIn(doc, day));
-  }
-  return out.sort((a, b) => b.endAt - a.endAt);
-}
+export { timelinesIn, type Timeline } from "./deadlineStore";
 
 /** One deadline, its days side by side as tall columns; ➜ marks where text was written between two days. */
 function SideBySide({ t }: { t: Timeline }) {
@@ -123,10 +65,44 @@ function SideBySide({ t }: { t: Timeline }) {
   );
 }
 
+/** Every open deadline on one set of day rows, each in its own colour: who claims which evening. */
+function AllTogether({ list, now }: { list: Timeline[]; now: number }) {
+  const live = list.filter((t) => !t.info.status && t.endAt > now);
+  const today = dayKey(new Date(now));
+  const last = live.reduce((m, t) => Math.max(m, t.endAt), now);
+  const days: string[] = [];
+  for (let d = today; midnight(d) <= last && days.length < 21; d = addDays(d, 1)) days.push(d);
+  if (!live.length) return <p className="hint">No open deadlines.</p>;
+  return (
+    <div className="tl-all">
+      <div className="tl-legend">{live.map((t) => <span key={t.tid} style={{ ["--c" as string]: t.info.color }}>{t.info.emoji} {t.title}</span>)}</div>
+      {days.map((d) => {
+        const a = midnight(d) + 6 * 3_600_000;
+        const z = midnight(d) + DAY;
+        const pct = (t: number) => `${(((Math.min(Math.max(t, a), z) - a) / (z - a)) * 100).toFixed(2)}%`;
+        const l = dayLabel(d);
+        return (
+          <div key={d} className={`tl-all-row${l.weekend ? " weekend" : ""}`}>
+            <b>{l.text}</b>
+            <div className="tl-all-bar" style={{ background: skyGradient(a, z) }}>
+              {live.flatMap((t) => t.rows.flatMap((r) => r.plans).filter((p) => p.end > a && p.start < z).map((p) => (
+                <i key={p.id} className={`tl-all-plan${p.done ? " done" : ""}`} style={{ left: pct(p.start), width: `calc(${pct(p.end)} - ${pct(p.start)})`, ["--c" as string]: t.info.color }} title={`${t.title}: ${clock(p.start)}–${clock(p.end)} ${p.text}`} />
+              )))}
+              {live.filter((t) => t.endAt >= a && t.endAt <= z).map((t) => <span key={t.tid} className="tl-all-due" style={{ left: pct(t.endAt) }} title={`${t.title} due ${clock(t.endAt)}`}>{t.info.emoji}</span>)}
+              {now >= a && now <= z && <i className="tl-now-v" style={{ left: pct(now) }} />}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /** ⏳ Timelines: every deadline in one place; tap one for its days side by side. */
 export function TimelinesHost({ store, onOpenDay }: { store: JournalStore; onOpenDay: (day: string) => void }) {
   const [open, setOpen] = useState<{ tid?: string; note?: string } | null>(null);
   const [list, setList] = useState<Timeline[] | null>(null);
+  const [together, setTogether] = useState(false);
   const now = useNow();
   useEffect(() => {
     const on = (e: Event) => setOpen((e as CustomEvent).detail ?? {});
@@ -156,17 +132,23 @@ export function TimelinesHost({ store, onOpenDay }: { store: JournalStore; onOpe
           <p className="hint">{picked.endAt > now ? `${timeLeft(picked.endAt - now)} left` : "Due"} · due {new Date(picked.endAt).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</p>
           <SideBySide t={picked} />
         </>
+      ) : together ? (
+        <>
+          <button type="button" className="tl-free-btn on tl-together-btn" onClick={() => setTogether(false)}>▦ All together</button>
+          <AllTogether list={list} now={now} />
+        </>
       ) : !list.length ? (
         <p className="hint">No deadlines yet. Type /deadline in a note to make one.</p>
       ) : (
         <ul className="tl-list">
+          <li><button type="button" className="tl-together" onClick={() => setTogether(true)}><strong>▦ All together</strong><span>Every open deadline on the same days, each in its own colour</span></button></li>
           {list.map((t) => {
             const total = t.endAt - midnight(t.rows[0]?.day ?? dayKey(new Date()));
             const done = Math.min(1, Math.max(0, 1 - (t.endAt - now) / Math.max(1, total)));
             return (
-              <li key={t.tid}>
+              <li key={t.tid} className={t.info.status ? `is-${t.info.status}` : ""} style={{ ["--c" as string]: t.info.color }}>
                 <button type="button" onClick={() => setOpen({ tid: t.tid, note: t.note })}>
-                  <strong>{t.title}</strong>
+                  <strong>{t.info.emoji} {t.title}{t.info.status === "done" ? " ✓" : ""}</strong>
                   <span>{t.endAt > now ? `${timeLeft(t.endAt - now)} left` : "past"} · {t.rows.length} day{t.rows.length === 1 ? "" : "s"} · in {dayLabel(t.note).text}</span>
                   <i className="tl-progress"><b style={{ width: `${done * 100}%` }} /></i>
                 </button>
