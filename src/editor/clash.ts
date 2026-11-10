@@ -5,6 +5,7 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { CLASH, clashOf } from "../sync/merge";
 import { LID } from "../sync/lineIds";
 import { logAnomaly, short } from "../sync/anomalies";
+import { onlyTextInLines } from "./blocks";
 
 /**
  * Sync clashes in the open note: both devices changed the same line differently, so both versions
@@ -138,7 +139,8 @@ export const Clashes = Extension.create({
         key,
         state: {
           init: (_c, state) => build(state),
-          apply: (tr, old, _o, state) => (tr.docChanged ? build(state) : old),
+          // Letters typed in a line never make or end a clash (those are line marks): the marks just move.
+          apply: (tr, old, _o, state) => (!tr.docChanged ? old : onlyTextInLines(tr) ? old.map(tr.mapping, tr.doc) : build(state)),
         },
         props: { decorations: (state) => key.getState(state) },
       }),

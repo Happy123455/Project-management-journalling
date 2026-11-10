@@ -3,6 +3,7 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { cleanInfo, infoLabel, loadInfoDefaults, type BlockInfo } from "../lib/blockInfo";
+import { onlyTextInLines } from "./blocks";
 
 const TYPES = ["paragraph", "heading", "listItem", "taskItem"];
 /** Blocks that can carry info; only text blocks take the "new blocks" defaults. */
@@ -68,7 +69,7 @@ export const BlockInfoExtension = Extension.create({
         // Show a block's info as a small line under it (worked out again only when the note changes).
         state: {
           init: (_, { doc }) => infoDecorations(doc),
-          apply: (tr, old) => (tr.docChanged ? infoDecorations(tr.doc) : old),
+          apply: (tr, old) => (!tr.docChanged ? old : onlyTextInLines(tr) ? old.map(tr.mapping, tr.doc) : infoDecorations(tr.doc)),
         },
         props: {
           decorations(state) {

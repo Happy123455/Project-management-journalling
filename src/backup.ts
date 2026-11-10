@@ -1,4 +1,4 @@
-import { backupFileName, backupsToDelete, inspectBackup, unzipBackup, zipBackup, type BackupSummary } from "./lib/backup";
+import { backupFileName, backupsToDelete, inspectBackup, unzipBackup, zipBackupAsync, type BackupSummary } from "./lib/backup";
 import { dayKey } from "./lib/timestamp";
 import type { JournalStore } from "./store";
 
@@ -10,7 +10,7 @@ const KEEP_DAILY = 14;
 
 /** One-tap export: zips the whole journal and lets the user pick where to save it. Returns where it went, or null if cancelled. */
 export async function exportBackup(store: JournalStore): Promise<string | null> {
-  const zip = zipBackup(await store.exportFiles());
+  const zip = await zipBackupAsync(await store.exportFiles());
   const name = backupFileName(dayKey(new Date()));
   if (!inTauri()) {
     const a = document.createElement("a");
@@ -37,7 +37,7 @@ export async function autoBackup(store: JournalStore): Promise<boolean> {
   const file = `${AUTO_DIR}/${backupFileName(dayKey(new Date()))}`;
   if (await fs.exists(file, opts)) return false;
   await fs.mkdir(AUTO_DIR, { ...opts, recursive: true });
-  await fs.writeFile(file, zipBackup(await store.exportFiles()), opts);
+  await fs.writeFile(file, await zipBackupAsync(await store.exportFiles()), opts);
   const names = (await fs.readDir(AUTO_DIR, opts)).map((e) => e.name);
   for (const old of backupsToDelete(names, KEEP_DAILY)) await fs.remove(`${AUTO_DIR}/${old}`, opts);
   return true;
@@ -70,7 +70,7 @@ export async function restoreBackup(store: JournalStore, pending: PendingRestore
     const base = { baseDir: fs.BaseDirectory.AppData };
     await fs.mkdir("backups", { ...base, recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    await fs.writeFile(`backups/before-restore-${stamp}.zip`, zipBackup(await store.exportFiles()), base);
+    await fs.writeFile(`backups/before-restore-${stamp}.zip`, await zipBackupAsync(await store.exportFiles()), base);
   }
   await store.restore(pending.entries, pending.name);
 }

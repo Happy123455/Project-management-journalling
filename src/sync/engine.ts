@@ -114,7 +114,13 @@ export async function syncOnce(store: JournalStore, plainFolder: SyncFolder, mem
   });
   const saved = memory.get("journal.sync");
   let mem: Remembered = saved ? JSON.parse(saved) : { files: [], ids: [], hashes: [], seen: [] };
-  const remember = () => memory.set("journal.sync", JSON.stringify(mem));
+  // Written only when something changed: it holds every id ever sent (hundreds of KB by now), and
+  // most rounds (a poll with nothing new) change nothing.
+  let written = saved;
+  const remember = () => {
+    const next = JSON.stringify(mem);
+    if (next !== written) memory.set("journal.sync", (written = next));
+  };
 
   // 1. Export.
   const ownFiles = (await folder.list(`events/${me}`)).filter((f) => f.endsWith(".jsonl"));

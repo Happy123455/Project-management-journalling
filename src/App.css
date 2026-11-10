@@ -1489,6 +1489,9 @@ button {
 button:hover { background: var(--lg-sheen), var(--glass-strong); }
 @media (prefers-reduced-motion: no-preference) {
   button, .ts-chip { will-change: auto; transition: transform 0.4s var(--spring), background-color 0.2s, box-shadow 0.2s; }
+  /* Every task box on screen was its own GPU layer (plus the lines overlapping them), redrawn and
+     re-layered on each letter typed; the squish animates the same without it. */
+  .editor-body ul[data-type="taskList"] input { will-change: auto; }
   button:active { transform: scale(0.94); box-shadow: var(--lg-rim), 0 2px 6px rgba(0, 0, 0, 0.1); transition-duration: 0.06s; }
   @media (hover: none) { button:hover { transform: none; } }
 }
