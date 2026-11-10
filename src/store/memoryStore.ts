@@ -12,6 +12,7 @@ import { withPatch } from "./props";
 import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
 import type { JSONContent } from "@tiptap/react";
 import { notifyLogged } from "./logged";
+import { thinnable } from "./thin";
 
 interface Snapshot {
   pages: Record<string, DayPage>;
@@ -118,6 +119,16 @@ export class MemoryStore implements JournalStore {
       if (page.day >= from && page.day <= to) counts[page.day] = countWords(docText(page.content));
     }
     return counts;
+  }
+
+  thinHistory(cutoff: string) {
+    return this.writes.run(async () => {
+      const gone = thinnable(this.data.events.map((e, seq) => ({ ...e, seq })), cutoff);
+      if (!gone.size) return 0;
+      this.data.events = this.data.events.filter((e) => !gone.has(e.id));
+      this.storage?.setItem(KEY, JSON.stringify(this.data));
+      return gone.size;
+    });
   }
 
   async eventAfter(id: string) {

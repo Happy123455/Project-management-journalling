@@ -187,4 +187,8 @@ export interface JournalStore {
   missingFiles(): Promise<FileRecord[]>;
   /** The document an event left (its `after`), or null when this device doesn't have that event. */
   eventAfter?(id: string): Promise<string | null>;
+  /** Thins edits older than `cutoff` (see store/thin.ts); returns how many were taken out. */
+  thinHistory?(cutoff: string): Promise<number>;
+  /** Gives the space freed by thinning back to the device (SQLite VACUUM). */
+  reclaimSpace?(): Promise<void>;
 }

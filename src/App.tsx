@@ -50,6 +50,7 @@ import { mediaIdsIn } from "./lib/media";
 import { autoBackup, exportBackup } from "./backup";
 import { fileUrl, mediaNode, openFile, setAttachmentStore, showPdf, showPhoto } from "./editor/attachments";
 import { flushPendingEdits, hasPendingEdits, JournalEditor } from "./editor/JournalEditor";
+import { startHistoryThinning } from "./store/thinRunner";
 import { useTouchDevice } from "./editor/KeyboardBar";
 import { rememberScroll, recallScroll, restoreScroll, scrollKey } from "./nav/scrollMemory";
 import { MacTabBar, NavIsland, TabSwitcher, TitleSearch, type MenuAction } from "./nav/NavIsland";
@@ -290,6 +291,9 @@ function App() {
     const timer = window.setInterval(run, 60 * 60 * 1000);
     return () => window.clearInterval(timer);
   }, [store]);
+
+  // Edit history older than a month thinned once a day, after the daily backup (store/thin.ts).
+  useEffect(() => (store ? startHistoryThinning(store) : undefined), [store]);
 
   const backUpNow = async () => {
     if (!store) return;

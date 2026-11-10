@@ -13,6 +13,7 @@ import { beforeKey, docKey, eventDocument, eventKey, type BlockMeta, type LocalS
 import { withPatch } from "./props";
 import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
 import { notifyLogged } from "./logged";
+import { THIN_SQL } from "./thin";
 
 interface BlockRow {
   id: string;
@@ -662,6 +663,23 @@ export class SqliteStore implements JournalStore {
       [newId(), this.device, actor, blockId, op, before, after, JSON.stringify(last.map((e) => e.id)), now],
     );
     notifyLogged();
+  }
+
+  thinHistory(cutoff: string) {
+    return this.writes.run(async () => {
+      const ids = (await this.db.select<{ id: string }[]>(THIN_SQL, [cutoff])).map((r) => r.id);
+      for (let i = 0; i < ids.length; i += 400) {
+        const part = ids.slice(i, i + 400);
+        await this.db.execute(`DELETE FROM events WHERE id IN (${part.map((_, k) => `$${k + 1}`).join(",")})`, part);
+      }
+      return ids.length;
+    });
+  }
+
+  reclaimSpace() {
+    return this.writes.run(async () => {
+      await this.db.execute("VACUUM");
+    });
   }
 
   async eventAfter(id: string) {

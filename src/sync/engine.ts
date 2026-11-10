@@ -48,7 +48,7 @@ interface Remembered {
   hashes: string[];
   seen: string[];
   /** Per note: the last content event sent and a hash of the note it left, so the next file can point at it. */
-  last?: Record<string, [id: string, afterHash: string][]>;
+  last?: Record<string, [id: string, afterHash: string, at?: string][]>;
   /** Newest sync log entry already copied to logs/<device>.json. */
   logAt?: number;
 }
@@ -66,6 +66,8 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 
 const PART_BYTES = 4 * 1024 * 1024;
+/** Sync files point at earlier edits only from these last days (see store/thin.ts, which keeps 30). */
+const REF_MAX_DAYS = 14;
 /** On mobile data, attachments bigger than this wait for Wi-Fi (up and down). */
 const SMALL_FILE = 300 * 1024;
 const BIG_DOWNLOAD = 1024 * 1024;
@@ -172,10 +174,13 @@ export async function syncOnce(store: JournalStore, plainFolder: SyncFolder, mem
   const heldIds = new Set(cellular && held ? (await store.listFiles()).filter((f) => !uploaded.has(f.hash)).map((f) => f.id) : []);
   const missing = (await store.syncRecords(sent)).filter((r) => !(r.meta.kind === "file" && heldIds.has(r.meta.file.id)));
   const lastOut = (mem.last ??= {});
-  for (const [blockId, id, h] of arrived.splice(0)) knownNote(lastOut, blockId, id, h);
+  for (const [blockId, id, h, at] of arrived.splice(0)) knownNote(lastOut, blockId, id, h, at);
   const ref = (blockId: string, before: string) => {
     const h = hash(before);
-    return lastOut[blockId]?.find((l) => l[1] === h)?.[0] ?? null;
+    // Only a recent edit: older ones may have been thinned out of the other device's history
+    // (store/thin.ts), and a file pointing at one could never be read there.
+    const since = new Date(Date.now() - REF_MAX_DAYS * 86_400_000).toISOString();
+    return lastOut[blockId]?.find((l) => l[1] === h && !!l[2] && l[2] >= since)?.[0] ?? null;
   };
   // Batch 17: in parts of ~4 MB, each remembered once it's on Drive. One file holding a backlog of
   // whole-page edits grew past what one Drive upload takes; it failed at the end and was sent again
@@ -183,7 +188,7 @@ export async function syncOnce(store: JournalStore, plainFolder: SyncFolder, mem
   for (const part of inParts(missing, PART_BYTES)) {
     const name = `${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 6)}.jsonl`;
     await folder.write(`events/${me}/${name}`, enc.encode(toLines(part, ref)));
-    for (const r of part) if ((r.event.op === "update" || r.event.op === "create") && r.event.after && r.meta.kind === "block") knownNote(lastOut, r.event.blockId, r.event.id, hash(r.event.after));
+    for (const r of part) if ((r.event.op === "update" || r.event.op === "create") && r.event.after && r.meta.kind === "block") knownNote(lastOut, r.event.blockId, r.event.id, hash(r.event.after), r.event.createdAt);
     mem.files.push(name);
     mem.ids.push(...part.map((r) => r.event.id));
     remember();
@@ -274,10 +279,10 @@ export async function syncOnce(store: JournalStore, plainFolder: SyncFolder, mem
  * changes nothing the second time. File bytes are not fetched here.
  */
 /** Notes both devices have as an event: [block, event id, hash of its after] (see toLines `ref`). */
-const arrived: [string, string, string][] = [];
-function knownNote(last: Record<string, [string, string][]>, blockId: string, id: string, h: string) {
+const arrived: [string, string, string, string][] = [];
+function knownNote(last: Record<string, [string, string, string?][]>, blockId: string, id: string, h: string, at: string) {
   const list = (last[blockId] ?? []).filter((l) => l[0] !== id);
-  list.unshift([id, h]);
+  list.unshift([id, h, at]);
   last[blockId] = list.slice(0, 4);
 }
 
@@ -310,7 +315,7 @@ async function importNow(store: JournalStore, incoming: SyncRecord[], via: Path)
   for (const b of plan.blocks) {
     if (b.merged || !b.content) continue;
     const e = plan.events.find((r) => r.event.blockId === b.blockId && r.event.after === b.content)?.event;
-    if (e) arrived.push([b.blockId, e.id, hash(b.content)]);
+    if (e) arrived.push([b.blockId, e.id, hash(b.content), e.createdAt]);
   }
   if (arrived.length > 200) arrived.splice(0, arrived.length - 200);
   return plan;
