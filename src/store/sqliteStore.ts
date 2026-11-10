@@ -679,6 +679,8 @@ export class SqliteStore implements JournalStore {
   reclaimSpace() {
     return this.writes.run(async () => {
       await this.db.execute("VACUUM");
+      // VACUUM writes the whole new file through the WAL, which SQLite keeps at that size: give it back too.
+      await this.db.execute("PRAGMA wal_checkpoint(TRUNCATE)").catch(() => {});
     });
   }
 
