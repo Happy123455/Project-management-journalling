@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type { Transaction } from "@tiptap/pm/state";
+import { onlyTextInLines } from "./blocks";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
@@ -340,15 +342,35 @@ function MathView(props: NodeViewProps) {
   useEffect(() => setDraft(latex), [latex]);
   const shown = editing ? draft : latex;
   const { html, ok } = useMemo(() => render(shown), [shown]);
-  // Recalculated whenever the note changes (a variable above may have).
-  const [tick, setTick] = useState(0);
+  // Recalculated when the lines above change (a variable may have). Typing elsewhere is looked at
+  // once it pauses, and only an actual change in those lines draws the block again (every math
+  // block used to redraw and walk the note above it on each key).
+  const propsRef = useRef(props);
+  propsRef.current = props;
+  const [above, setAbove] = useState(() => linesAbove(props));
   useEffect(() => {
-    const f = () => setTick((n) => n + 1);
+    let key = linesAbove(propsRef.current).join("\n");
+    let timer = 0;
+    const check = () => {
+      const lines = linesAbove(propsRef.current);
+      const k = lines.join("\n");
+      if (k !== key) {
+        key = k;
+        setAbove(lines);
+      }
+    };
+    const f = ({ transaction }: { transaction: Transaction }) => {
+      window.clearTimeout(timer);
+      if (onlyTextInLines(transaction)) timer = window.setTimeout(check, 250);
+      else check();
+    };
     props.editor.on("update", f);
-    return () => void props.editor.off("update", f);
+    return () => {
+      window.clearTimeout(timer);
+      props.editor.off("update", f);
+    };
   }, [props.editor]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const w = useMemo(() => work(linesAbove(props), shown), [shown, tick]);
+  const w = useMemo(() => work(above, shown), [above, shown]);
   const live: Vars = useMemo(() => {
     const v = new Map(w.vars);
     for (const [k, x] of Object.entries(tweaks)) if (w.used.includes(k) && Number.isFinite(x)) v.set(k, x);
@@ -359,7 +381,6 @@ function MathView(props: NodeViewProps) {
   const lineAnswers = useMemo(() => {
     const plain = blockLines(shown);
     if (plain.length < 2) return [];
-    const above = linesAbove(props);
     return plain.map((line, i) => {
       const vars: Vars = new Map();
       for (const d of definitionsIn([...above, ...plain.slice(0, i)])) vars.set(d.name, d.value);
@@ -369,8 +390,7 @@ function MathView(props: NodeViewProps) {
       const plainDef = r && /^[A-Za-z_][A-Za-z0-9_]*$/.test(lhs) && evaluateIsNumber(line.split("=")[1] ?? "");
       return { line, answer: r && !plainDef ? r.answer : "" };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shown, tick]);
+  }, [shown, above]);
   const tweaked = Object.keys(tweaks).some((k) => w.used.includes(k) && tweaks[k] !== w.vars.get(k));
   const commit = (v: string) => {
     if (v !== latex) props.updateAttributes({ latex: v });

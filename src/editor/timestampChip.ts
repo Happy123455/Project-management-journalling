@@ -1,7 +1,8 @@
 import { Extension } from "@tiptap/react";
-import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Decoration } from "@tiptap/pm/view";
+import { decorateAll, redecorate } from "./textblockDecos";
 import { skyForStamp } from "../lib/sky";
 import { TIMESTAMP_RE } from "../lib/timestamp";
 
@@ -48,7 +49,7 @@ function chip(full: string, date: { day: string; month: string; year: string }, 
 }
 
 /** Chips for the timestamps in `node` (the whole doc, or one paragraph starting at `start`). */
-function chipsIn(node: PMNode, start: number, out: Decoration[]) {
+export function chipsIn(node: PMNode, start: number, out: Decoration[]) {
   node.descendants((child, pos) => {
     if (!child.isText || !child.text) return;
     for (const m of child.text.matchAll(TIMESTAMP_RE)) {
@@ -66,40 +67,6 @@ function chipsIn(node: PMNode, start: number, out: Decoration[]) {
   });
 }
 
-function decorate(doc: PMNode): DecorationSet {
-  const decorations: Decoration[] = [];
-  chipsIn(doc, 0, decorations);
-  return DecorationSet.create(doc, decorations);
-}
-
-/**
- * After an edit, only the paragraphs it touched are searched again (not the whole note on every
- * letter typed); the other chips just move along.
- */
-function redecorate(tr: Transaction, old: DecorationSet): DecorationSet {
-  let set = old.map(tr.mapping, tr.doc);
-  const blocks = new Map<number, PMNode>();
-  tr.mapping.maps.forEach((map, i) => {
-    map.forEach((_a, _b, newStart, newEnd) => {
-      const rest = tr.mapping.slice(i + 1);
-      const from = Math.min(rest.map(newStart, -1), tr.doc.content.size);
-      const to = Math.min(rest.map(newEnd, 1), tr.doc.content.size);
-      tr.doc.nodesBetween(from, to, (node, pos) => {
-        if (!node.isTextblock) return true;
-        blocks.set(pos, node);
-        return false;
-      });
-    });
-  });
-  if (blocks.size > 50) return decorate(tr.doc);
-  const fresh: Decoration[] = [];
-  for (const [pos, node] of blocks) {
-    set = set.remove(set.find(pos, pos + node.nodeSize));
-    chipsIn(node, pos + 1, fresh);
-  }
-  return set.add(tr.doc, fresh);
-}
-
 /** Shows timestamps as sky-coloured chips. Only a display decoration: the stored text is unchanged. */
 export const TimestampChip = Extension.create({
   name: "timestampChip",
@@ -108,8 +75,9 @@ export const TimestampChip = Extension.create({
       new Plugin({
         key: new PluginKey("timestampChip"),
         state: {
-          init: (_, { doc }) => decorate(doc),
-          apply: (tr, old) => (tr.docChanged ? redecorate(tr, old) : old),
+          init: (_, { doc }) => decorateAll(doc, chipsIn),
+          // Only the paragraphs an edit touched are searched again; the other chips move along.
+          apply: (tr, old) => redecorate(tr, old, chipsIn),
         },
         props: {
           decorations(state) {

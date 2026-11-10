@@ -164,6 +164,22 @@ async fn ai_rest(ms: u64) {
     let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(std::time::Duration::from_millis(ms.min(120_000)))).await;
 }
 
+/// How many times anything was copied on this Mac (NSPasteboard's changeCount), so the shared
+/// clipboard only reads the clipboard when it changed. Reading it every second, and a picture on
+/// it every 2.5 s (a whole screenshot's pixels each time), kept the Mac busy while linked.
+#[cfg(desktop)]
+#[tauri::command]
+fn clipboard_changes() -> i64 {
+    #[cfg(target_os = "macos")]
+    {
+        objc2_app_kit::NSPasteboard::generalPasteboard().changeCount() as i64
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        -1
+    }
+}
+
 #[cfg(desktop)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
@@ -184,7 +200,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         direct::direct_reply,
         direct::direct_scan,
         youtube::youtube_port,
-        ai_rest
+        ai_rest,
+        clipboard_changes
     ]
 }
 

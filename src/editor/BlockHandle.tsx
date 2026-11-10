@@ -30,7 +30,9 @@ export function BlockHandle({ editor, touch, onInfo }: { editor: Editor; touch: 
       const r = dom.getBoundingClientRect();
       const c = container.getBoundingClientRect();
       setIndex(i);
-      setBox({ top: r.top - c.top, height: Math.min(r.height, 40) || 24 });
+      // The same place as before (most letters typed): no new render.
+      const next = { top: r.top - c.top, height: Math.min(r.height, 40) || 24 };
+      setBox((b) => (b && b.top === next.top && b.height === next.height ? b : next));
     },
     [domOf, editor],
   );
@@ -38,10 +40,16 @@ export function BlockHandle({ editor, touch, onInfo }: { editor: Editor; touch: 
   // Which block: the one under the mouse (Mac), or the one with the cursor (phone).
   useEffect(() => {
     host.current = editor.view.dom.closest(".editor");
+    // Once per frame, not on every transaction: measuring the block forced a layout of the note
+    // on each letter typed.
+    let frame = 0;
     const fromSelection = () => {
-      if (drag.current || menu) return;
-      if (touch && !editor.isFocused) return place(null);
-      if (touch || !host.current?.matches(":hover")) place(blockIndexAt(editor.state.doc, editor.state.selection.from));
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (drag.current || menu || editor.isDestroyed) return;
+        if (touch && !editor.isFocused) return place(null);
+        if (touch || !host.current?.matches(":hover")) place(blockIndexAt(editor.state.doc, editor.state.selection.from));
+      });
     };
     const onMove = (e: MouseEvent) => {
       if (drag.current || menu || touch) return;
@@ -58,6 +66,7 @@ export function BlockHandle({ editor, touch, onInfo }: { editor: Editor; touch: 
     host.current?.addEventListener("mousemove", onMove);
     const h = host.current;
     return () => {
+      cancelAnimationFrame(frame);
       editor.off("selectionUpdate", fromSelection);
       editor.off("update", fromSelection);
       editor.off("focus", fromSelection);

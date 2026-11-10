@@ -152,7 +152,23 @@ async function checkPhone(force = false, seed = false) {
 
 let imageAt = 0;
 /** Mac: read the clipboard and send it if it's new. */
+/** macOS's count of copies when the clipboard was last read (null: not known, read every time). */
+let macCount: number | null = null;
+async function macChangeCount(): Promise<number | null> {
+  try {
+    const n = await (await import("@tauri-apps/api/core")).invoke<number>("clipboard_changes");
+    return n >= 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 async function checkMac(seed = false) {
+  // Nothing copied since the last look: nothing to read (the clipboard was read every second, and
+  // a picture on it decoded every 2.5 s, as long as the link was up).
+  const count = await macChangeCount();
+  if (count !== null && count === macCount && !seed) return;
+  macCount = count;
   const { readText, readImage } = await import("@tauri-apps/plugin-clipboard-manager");
   let text = "";
   try {
@@ -167,8 +183,9 @@ async function checkMac(seed = false) {
     if (!seed) send({ text });
     return;
   }
-  // No text: maybe an image (a screenshot, "Copy image"). Looked at less often, it's heavier.
-  if (Date.now() - imageAt < 2500 && !seed) return;
+  // No text: maybe an image (a screenshot, "Copy image"). Looked at less often, it's heavier
+  // (without the change count; with it, only once per copy).
+  if (count === null && Date.now() - imageAt < 2500 && !seed) return;
   imageAt = Date.now();
   try {
     const image = await readImage();

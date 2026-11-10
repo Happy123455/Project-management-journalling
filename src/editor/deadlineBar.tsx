@@ -7,7 +7,8 @@ import { addDays, dayKey } from "../lib/timestamp";
 import { visibleInterval } from "../lib/power";
 import { reminderTimes, timeLeft } from "../lib/reminders";
 import { DeadlineStrip } from "./deadlineStrip";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
+import { onlyTextInLines } from "./blocks";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { BUILT_IN_TEMPLATES, busyOn, clock, DAY, dayLabel, firstFit, freeAcross, freeGaps, freeHint, hm, infoOf, midnight, missedPlans, needMins, parseDuration, PLAN_KINDS, progressOf, shownRange, skyGradient, templateDays, type Layer, type Plan, type Progress } from "../lib/deadline";
 import { randomLid } from "../sync/lineIds";
@@ -91,8 +92,11 @@ function useDeadlinePlans(editor: Editor, tid: string, on: boolean): Plan[] {
       }
     };
     read();
-    editor.on("update", read);
-    return () => void editor.off("update", read);
+    // Letters typed in a line never change a bar's plans (they're the bars' own data), so typing
+    // doesn't make every bar look through the whole note on each key.
+    const onUpdate = ({ transaction }: { transaction: Transaction }) => void (onlyTextInLines(transaction) || read());
+    editor.on("update", onUpdate);
+    return () => void editor.off("update", onUpdate);
   }, [editor, tid, on]);
   return plans;
 }

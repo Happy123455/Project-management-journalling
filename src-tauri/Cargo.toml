@@ -42,6 +42,10 @@ rodio = { version = "0.21", default-features = false, features = ["playback"] }
 # The Mac floating bubble's global shortcut.
 tauri-plugin-global-shortcut = "2"
 
+# The shared clipboard asks macOS whether anything was copied (a number) before reading it.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard"] }
+
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

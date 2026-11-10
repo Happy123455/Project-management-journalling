@@ -34,9 +34,13 @@ export function useEditorPrefs(): EditorPrefs {
 const KEY = "journal.editor";
 const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true, prettyMath: true, typingGuide: false, maxCps: 6, monthDeadlines: "below" };
 
+/** Read on every letter typed (formulas, edit stamps…): parsed again only when the stored text changes. */
+let cached: { raw: string | null; prefs: EditorPrefs } | null = null;
 export function editorPrefs(): EditorPrefs {
   try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
+    const raw = localStorage.getItem(KEY);
+    if (cached?.raw !== raw) cached = { raw, prefs: { ...DEFAULTS, ...JSON.parse(raw ?? "{}") } };
+    return { ...cached!.prefs };
   } catch {
     return DEFAULTS;
   }

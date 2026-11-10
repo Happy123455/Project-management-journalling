@@ -2,6 +2,7 @@ import { Extension } from "@tiptap/react";
 import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { decorateAll, redecorate } from "./textblockDecos";
 import katex from "katex";
 import { inlineFormulas } from "../lib/mathSmart";
 import { editorPrefs } from "../lib/editorPrefs";
@@ -12,26 +13,23 @@ import { editorPrefs } from "../lib/editorPrefs";
  * cursor in it shows the plain text so it can be edited. Settings → Editor → Draw formulas.
  */
 
-type Hit = { from: number; to: number; latex: string; para: number };
-const found = new WeakMap<PMNode, Hit[]>();
-
-function hitsIn(doc: PMNode): Hit[] {
-  let hits = found.get(doc);
-  if (hits) return hits;
-  hits = [];
-  const list = hits;
-  doc.descendants((node, pos) => {
-    if (node.type.name === "codeBlock" || node.type.name === "mathBlock") return false;
-    if (!node.isTextblock) return true;
-    // Text pieces one by one, so a link or code mark breaks the run.
-    node.forEach((child, offset) => {
-      if (!child.isText || !child.text || child.marks.some((m) => m.type.name === "code" || m.type.name === "link")) return;
-      for (const h of inlineFormulas(child.text)) list.push({ from: pos + 1 + offset + h.from, to: pos + 1 + offset + h.to, latex: h.latex, para: pos });
-    });
-    return false;
+/** Formulas in one paragraph: the drawn formula, and the typed text hidden behind it. */
+export function formulasIn(node: PMNode, start: number, out: Decoration[]) {
+  if (node.type.name === "codeBlock" || node.type.name === "mathBlock") return;
+  // Text pieces one by one, so a link or code mark breaks the run.
+  node.forEach((child, offset) => {
+    if (!child.isText || !child.text || child.marks.some((m) => m.type.name === "code" || m.type.name === "link")) return;
+    const text = child.text;
+    for (const h of inlineFormulas(text)) {
+      const from = start + offset + h.from;
+      const to = start + offset + h.to;
+      const raw = text.slice(h.from, h.to);
+      out.push(
+        Decoration.widget(from, () => formulaEl(h.latex, raw), { side: -1, key: `pm:${h.latex}`, ignoreSelection: true }),
+        Decoration.inline(from, to, { class: "pm-raw" }),
+      );
+    }
   });
-  found.set(doc, hits);
-  return hits;
 }
 
 function formulaEl(latex: string, raw: string): HTMLElement {
@@ -47,22 +45,25 @@ function formulaEl(latex: string, raw: string): HTMLElement {
   return el;
 }
 
+/**
+ * Worked out once per paragraph as it changes (it used to be every formula of the whole note on
+ * every letter typed); the paragraph with the cursor shows its plain text.
+ */
+interface MathState {
+  on: boolean;
+  set: DecorationSet;
+}
+const key = new PluginKey<MathState>("mathInline");
+const build = (doc: PMNode): MathState => (editorPrefs().prettyMath ? { on: true, set: decorateAll(doc, formulasIn) } : { on: false, set: DecorationSet.empty });
+
 function decorations(state: EditorState): DecorationSet {
-  if (!editorPrefs().prettyMath) return DecorationSet.empty;
-  const hits = hitsIn(state.doc);
-  if (!hits.length) return DecorationSet.empty;
+  const { on, set } = key.getState(state)!;
+  if (!on || !editorPrefs().prettyMath || set === DecorationSet.empty) return DecorationSet.empty;
   const $from = state.selection.$from;
-  const editing = $from.depth > 0 ? $from.before($from.depth) : -1;
-  const decos: Decoration[] = [];
-  for (const h of hits) {
-    if (h.para === editing) continue;
-    const raw = state.doc.textBetween(h.from, h.to);
-    decos.push(
-      Decoration.widget(h.from, () => formulaEl(h.latex, raw), { side: -1, key: `pm:${h.latex}`, ignoreSelection: true }),
-      Decoration.inline(h.from, h.to, { class: "pm-raw" }),
-    );
-  }
-  return DecorationSet.create(state.doc, decos);
+  if ($from.depth === 0) return set;
+  const start = $from.before($from.depth);
+  const editing = set.find(start, start + $from.parent.nodeSize);
+  return editing.length ? set.remove(editing) : set;
 }
 
 export const MathInline = Extension.create({
@@ -70,7 +71,12 @@ export const MathInline = Extension.create({
   addProseMirrorPlugins() {
     return [
       new Plugin({
-        key: new PluginKey("mathInline"),
+        key,
+        state: {
+          init: (_, { doc }) => build(doc),
+          // Settings → Editor → Draw formulas switched: done again with the next change.
+          apply: (tr, old) => (old.on !== editorPrefs().prettyMath ? build(tr.doc) : old.on && tr.docChanged ? { on: true, set: redecorate(tr, old.set, formulasIn) } : old),
+        },
         props: { decorations },
       }),
     ];
