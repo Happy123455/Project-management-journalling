@@ -1,5 +1,5 @@
 /**
- * Thinning old edit history (Hapi chose it, 2026-11-10).
+ * Thinning old edit history (Hapi chose it, 2026-11-10). A month would have let the log reach ~2 GB first, so it starts after 3 days.
  *
  * Every save while typing logs the whole page twice (before and after), so the log grew far faster
  * than the notes: on the Mac 555 MB of history for under 1 MB of notes, 50–90 MB on a busy day.
@@ -13,7 +13,7 @@
  * Sync files only point at edits from the last REF_MAX_DAYS days (engine.ts), well inside that.
  */
 
-export const THIN_AFTER_DAYS = 30;
+export const THIN_AFTER_DAYS = 3;
 export const KEEP_NEWEST = 8;
 
 export interface ThinRow {

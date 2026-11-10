@@ -66,8 +66,8 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 
 const PART_BYTES = 4 * 1024 * 1024;
-/** Sync files point at earlier edits only from these last days (see store/thin.ts, which keeps 30). */
-const REF_MAX_DAYS = 14;
+/** Sync files point at earlier edits only from these last days (see store/thin.ts, which thins after 3). */
+const REF_MAX_DAYS = 1;
 /** On mobile data, attachments bigger than this wait for Wi-Fi (up and down). */
 const SMALL_FILE = 300 * 1024;
 const BIG_DOWNLOAD = 1024 * 1024;
