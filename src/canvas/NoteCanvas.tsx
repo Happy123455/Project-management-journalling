@@ -10,6 +10,9 @@ import { skyAt } from "../lib/sky";
 import { formatTimestamp } from "../lib/timestamp";
 import { readAloud, stopReading, subscribeReadAloud } from "../lib/readAloud";
 import { loadAiSettings } from "../ai/settings";
+import { useEscapeToClose } from "../ui/useEscapeToClose";
+import { docText } from "../lib/words";
+import { GRAPH_PREFIX, loadoutFrom, loadoutPageContent, parseLoadout, type Loadout } from "../lib/canvasLoadout";
 import type { JournalStore } from "../store";
 import "./canvas.css";
 import { loadCanvasData, sortIntoTopics, summarize, summaryHash, updateCanvasData, type NoteCanvasData, type SummaryScope } from "./canvasData";
@@ -44,6 +47,7 @@ const GROUPS: { mode: GroupMode; label: string; title: string }[] = [
   { mode: "tags", label: "Tags", title: "#tags and [[links]] in each line" },
 ];
 const GROUP_KEY = "journal.canvas.group";
+const GRAPH_KEY = "journal.canvas.graph";
 /** Below this width (the map's, not the window's) the details become a sheet from the bottom. */
 const NARROW = 640;
 const ls = {
@@ -71,8 +75,11 @@ const hhmm = (ms: number) => {
 };
 
 /** The note as a growing mind map: its lines placed by when they were written, on branches by topic. */
-export default function NoteCanvas({ editor, source, onJump }: { editor: Editor; source: CanvasSource; onJump: (item: CanvasItem) => void }) {
-  const { store, title, day, refreshKey } = source;
+export default function NoteCanvas({ editor, source, onJump, onClose }: { editor: Editor; source: CanvasSource; onJump: (item: CanvasItem) => void; onClose: () => void }) {
+  const { store, day, refreshKey } = source;
+  const noteTitle = source.title;
+  /** A phone: Canvas fills the screen, the bar packs tight, motion is kept cheap. */
+  const [phone] = useState(() => typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches && window.innerWidth <= 760);
 
   // ── The note's lines ──
   const [ownDoc, setOwnDoc] = useState<JSONContent>(() => editor.getJSON());
@@ -93,9 +100,9 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
   useEffect(() => {
     if (day) return;
     let live = true;
-    void store.references("wikilink", title).then((refs) => {
+    void store.references("wikilink", noteTitle).then((refs) => {
       const list = refs
-        .flatMap((r) => (r.day ? [entryFor(r.day, r.content as never, title)] : []))
+        .flatMap((r) => (r.day ? [entryFor(r.day, r.content as never, noteTitle)] : []))
         .filter((e): e is NonNullable<typeof e> => !!e)
         .map((e) => ({ day: e.day, doc: (e.doc ?? []) as JSONContent[] }))
         .sort((a, b) => a.day.localeCompare(b.day));
@@ -106,14 +113,43 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
     return () => {
       live = false;
     };
-  }, [store, title, day, refreshKey]);
+  }, [store, noteTitle, day, refreshKey]);
 
-  const items = useMemo(() => {
+  // ── Graph loadouts: ready-made graphs (pages "Graph · …") shown instead of the note ──
+  const [graphs, setGraphs] = useState<string[]>([]);
+  const [graph, setGraphState] = useState<string>(() => ls.get(`${GRAPH_KEY}:${source.key}`) ?? "");
+  const [loadout, setLoadout] = useState<Loadout | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    let live = true;
+    void store.pageNames().then((names) => live && setGraphs(names.filter((n) => n.startsWith(GRAPH_PREFIX)).sort()));
+    return () => {
+      live = false;
+    };
+  }, [store, refreshKey]);
+  useEffect(() => {
+    if (!graph) return setLoadout(null);
+    let live = true;
+    void store.getPage(graph).then((page) => {
+      if (!live) return;
+      const text = page?.content?.content?.[0]?.content?.[0]?.text ?? (page ? JSON.stringify(page.content) : "");
+      const d = page ? parseLoadout(page.content?.content?.[0]?.type === "codeBlock" ? text : docText(page.content)) : null;
+      setLoadout(d ? loadoutFrom(d, graph.slice(GRAPH_PREFIX.length)) : null);
+      if (!d) setStatus(`"${graph}" has no graph in it.`);
+    });
+    return () => {
+      live = false;
+    };
+  }, [store, graph]);
+  const isGraph = !!graph && !!loadout;
+  const title = isGraph ? loadout!.title : noteTitle;
+
+  const noteItems = useMemo(() => {
     const out: CanvasItem[] = [];
-    entries.forEach((e, i) => out.push(...itemsFromBlocks(e.doc, { day: e.day, self: title, fallbackMs: entryStart(e.doc, e.day), startOrder: (i + 1) * 100_000 })));
+    entries.forEach((e, i) => out.push(...itemsFromBlocks(e.doc, { day: e.day, self: noteTitle, fallbackMs: entryStart(e.doc, e.day), startOrder: (i + 1) * 100_000 })));
     const earliest = out.length ? Math.min(...out.map((it) => it.ms)) : NaN;
     const fallback = day ? noonOf(day) : Number.isFinite(earliest) ? earliest - 3_600_000 : Date.parse(source.updatedAt ?? "") || Date.now();
-    out.unshift(...itemsFromBlocks(ownDoc.content ?? [], { day: day ?? null, self: title, fallbackMs: fallback }));
+    out.unshift(...itemsFromBlocks(ownDoc.content ?? [], { day: day ?? null, self: noteTitle, fallbackMs: fallback }));
     // Keys must be unique (a line copied into two days keeps its id).
     const seen = new Set<string>();
     for (const it of out) {
@@ -123,17 +159,20 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
       seen.add(k);
     }
     return out.sort(byTime);
-  }, [entries, ownDoc, title, day, source.updatedAt]);
+  }, [entries, ownDoc, noteTitle, day, source.updatedAt]);
+  const items = isGraph ? loadout!.items : noteItems;
+  /** Topics and summaries are kept per note, and per graph. */
+  const dataKey = isGraph ? `graph:${graph}` : source.key;
 
   // ── Saved topics and summaries ──
   const [data, setData] = useState<NoteCanvasData>({});
   useEffect(() => {
     let live = true;
-    void loadCanvasData(store, source.key).then((d) => live && setData(d));
+    void loadCanvasData(store, dataKey).then((d) => live && setData(d));
     return () => {
       live = false;
     };
-  }, [store, source.key, refreshKey]);
+  }, [store, dataKey, refreshKey]);
   const hasTopics = !!data.topics && Object.keys(data.topics).length > 0;
   const [group, setGroupState] = useState<GroupMode | null>(() => (ls.get(`${GROUP_KEY}:${source.key}`) as GroupMode | null) ?? null);
   const mode: GroupMode = group === "topics" && !hasTopics ? "keywords" : (group ?? (hasTopics ? "topics" : "keywords"));
@@ -141,9 +180,9 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
     setGroupState(g);
     ls.set(`${GROUP_KEY}:${source.key}`, g);
   };
-  const branchMap = useMemo(() => branchOf(items, mode, title, data.topics), [items, mode, title, data.topics]);
+  const branchMap = useMemo(() => (isGraph ? loadout!.branches : branchOf(items, mode, title, data.topics)), [isGraph, loadout, items, mode, title, data.topics]);
   const L: CanvasLayout = useMemo(() => layoutCanvas(items, branchMap), [items, branchMap]);
-  const unsorted = mode === "topics" ? items.filter((it) => !data.topics?.[it.key]).length : 0;
+  const unsorted = !isGraph && mode === "topics" ? items.filter((it) => !data.topics?.[it.key]).length : 0;
 
   // ── Time ──
   const moments = useMemo(() => momentsOf(L.items), [L.items]);
@@ -163,7 +202,10 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
   const wide = () => (stageRef.current?.getBoundingClientRect().width ?? 0) > NARROW;
   const [query, setQuery] = useState("");
   const [focusBranch, setFocusBranch] = useState<string | null>(null);
-  const [full, setFull] = useState(false);
+  const [full, setFull] = useState(phone);
+  const [more, setMore] = useState(false);
+  const slide = useRef(0);
+  const slideFrame = useRef(0);
   const byKey = useMemo(() => new Map(L.items.map((it) => [it.key, it])), [L.items]);
   const q = query.trim().toLowerCase();
   const hits = useMemo(() => (q ? new Set(L.items.filter((it) => it.text.toLowerCase().includes(q)).map((it) => it.key)) : null), [q, L.items]);
@@ -178,7 +220,7 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
     if (!w) return;
     const { x, y, z } = cam.current;
     w.style.transition = smooth && !reduceMotion() ? "transform 0.5s cubic-bezier(0.2, 0.9, 0.3, 1)" : "";
-    w.style.transform = `translate(${x}px, ${y}px) scale(${z})`;
+    w.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${z})`;
     w.dataset.far = z < 0.45 ? "1" : "";
   }, []);
   /** Room the details card takes on the right (wide) or at the bottom (narrow). */
@@ -202,7 +244,8 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
   const home = useCallback(() => {
     const r = stageSize();
     const room = r.width - covered(r).right;
-    const z = Math.max(0.42, Math.min(0.9, (r.height - 20) / L.height));
+    // A phone shows a little more of the map at once (still readable).
+    const z = Math.max(0.42, Math.min(phone ? 0.68 : 0.9, (r.height - 20) / L.height));
     const x = L.width * z <= room ? (room - L.width * z) / 2 : room - L.width * z;
     cam.current = { z, x, y: Math.max(6, (r.height - L.height * z) / 2) };
     apply();
@@ -226,15 +269,17 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
     },
     [apply],
   );
+  const placedFor = useRef("");
   useEffect(() => {
-    if (!ready || !L.items.length || placed.current) return;
+    if (!ready || !L.items.length || placedFor.current === dataKey) return;
+    placedFor.current = dataKey;
     placed.current = true;
     if (wide()) {
       setPanel(true);
       panelRef.current = true;
     }
     requestAnimationFrame(home);
-  }, [ready, L.items.length, home]);
+  }, [ready, L.items.length, home, dataKey]);
   // The stage was moved (full screen in or out): put the world back where it was.
   const firstFull = useRef(true);
   useEffect(() => {
@@ -290,7 +335,7 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
       cam.current.x += e.clientX - o.x;
       cam.current.y += e.clientY - o.y;
       g.moved += Math.abs(e.clientX - o.x) + Math.abs(e.clientY - o.y);
-      if (g.moved > 6 && !stageRef.current?.hasPointerCapture(e.pointerId)) stageRef.current?.setPointerCapture(e.pointerId);
+      if (g.moved > (phone ? 10 : 6) && !stageRef.current?.hasPointerCapture(e.pointerId)) stageRef.current?.setPointerCapture(e.pointerId);
       apply();
     }
     g.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -395,7 +440,7 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
       const h = summaryHash(ctx.items);
       setData((d) => ({ ...d, summaries: { ...d.summaries, [key]: { h, text, by, at: new Date().toISOString() } } }));
       setStatus(`Summary by ${by}.`);
-      void updateCanvasData(store, source.key, (d) => ({ ...d, summaries: { ...d.summaries, [key]: { h, text, by, at: new Date().toISOString() } } }), by).catch(() => {});
+      void updateCanvasData(store, dataKey, (d) => ({ ...d, summaries: { ...d.summaries, [key]: { h, text, by, at: new Date().toISOString() } } }), by).catch(() => {});
     } catch (e) {
       setStatus(`Couldn't summarize: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -436,6 +481,35 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
     }
   };
 
+  // ── Graphs ──
+  const setGraph = (g: string) => {
+    setGraphState(g);
+    ls.set(`${GRAPH_KEY}:${source.key}`, g);
+    setPlaying(false);
+    setCur(Infinity);
+    setFreshAt(null);
+    setSel({ kind: "root" });
+    setFocusBranch(null);
+    setQuery("");
+    setStatus("");
+  };
+  /** A graph from a file (the prompt map's .html, or its .json): saved as a page, so the phone has it too. */
+  const importGraph = async (file: File) => {
+    try {
+      const d = parseLoadout(await file.text());
+      if (!d) return setStatus(`No graph found in ${file.name}.`);
+      const name = (d.title || file.name.replace(/\.(html?|json)$/i, "").replace(/[_-]+/g, " ")).trim().slice(0, 60) || "Graph";
+      const pageTitle = `${GRAPH_PREFIX}${name}`;
+      const page = await store.ensurePage(pageTitle);
+      await store.savePage({ id: page.id, content: loadoutPageContent(d), plainText: `Graph: ${name} (${d.segs.length} nodes)` });
+      setGraphs((g) => [...new Set([...g, pageTitle])].sort());
+      setGraph(pageTitle);
+      setStatus(`Added "${name}": ${d.segs.length} nodes on ${d.features.length} branches.`);
+    } catch (e) {
+      setStatus(`Couldn't add the graph: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
   // ── Selecting ──
   const pick = useCallback(
     (s: Sel, focus = true) => {
@@ -453,10 +527,14 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
     [byKey, L.branches, L.pillX, focusOn],
   );
   const openInNote = (it: CanvasItem) => {
-    if (full) setFull(false);
+    if (isGraph) return;
+    if (full && !phone) setFull(false);
     if (it.day && it.day !== day) source.onOpenDay?.(it.day, it.text.split("\n")[0]);
     else onJump(it);
   };
+
+  // Esc (and the phone's Back) in full screen: the details first, then full screen (on the phone, Canvas).
+  useEscapeToClose(() => (panelRef.current ? setPanel(false) : phone ? onClose() : setFull(false)), full);
 
   // Keys on the map (not while typing in the search).
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -468,11 +546,8 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
     else if (e.key === "f") fit();
     else if (e.key === "+" || e.key === "=") zoomAt(1.25, r.width / 2, r.height / 2);
     else if (e.key === "-") zoomAt(0.8, r.width / 2, r.height / 2);
-    else if (e.key === "Escape") {
-      if (full) setFull(false);
-      else if (panel) setPanel(false);
-      else return;
-    } else return;
+    else if (e.key === "Escape" && !full && panel) setPanel(false);
+    else return;
     e.preventDefault();
     e.stopPropagation();
   };
@@ -510,12 +585,18 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
   const shownBranches = L.branches.filter((b) => b.ms <= shownCur).length;
   const ticks = useMemo(() => sliderTicks(tMin, tMax, L.unit, 5), [tMin, tMax, L.unit]);
   const selItem = sel.kind === "item" ? byKey.get(sel.key) : undefined;
+  // While playing (or stepping), what just appeared: a line at the bottom instead of the whole card.
+  const caption = freshAt != null ? L.items.find((it) => it.ms === freshAt) : undefined;
+  const selInfo = selItem && isGraph ? loadout!.info.get(selItem.key) : undefined;
   const selBranch = sel.kind === "branch" ? branchByName.get(sel.name) : selItem ? branchByName.get(selItem.branch) : undefined;
   const dim = (it: PlacedItem) => (hits ? !hits.has(it.key) : focusBranch ? it.branch !== focusBranch : false);
 
   if (!items.length) {
     return (
       <div className="note-canvas nc-empty">
+        {phone && (
+          <button type="button" onClick={onClose}>‹ Back to the note</button>
+        )}
         <p>Nothing to map yet. Write a few lines (or link days to this note with [[{title}]]) and they'll grow here as a mind map.</p>
       </div>
     );
@@ -525,12 +606,14 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
     <div className={`note-canvas${full ? " nc-is-full" : ""}`} onKeyDown={onKeyDown}>
       <div className="nc-bar">
         <div className="nc-row">
+          {phone && (
+            <button type="button" className="nc-close" onClick={onClose} aria-label="Back to the note">‹</button>
+          )}
           <button type="button" className="nc-play" onClick={play} aria-label={playing ? "Pause" : "Play how this note grew"}>
             {playing ? "❚❚" : "▶"} <span className="nc-l">{playing ? "Pause" : "Play"}</span>
           </button>
           <button type="button" className="nc-speed" onClick={() => setSpeed((s) => (s >= 4 ? 1 : s * 2))} title="Playing speed">{speed}×</button>
-          <button type="button" onClick={() => (setPlaying(false), step(-1))} aria-label="Earlier line" disabled={shownCur <= tMin}>◀</button>
-          <button type="button" onClick={() => (setPlaying(false), step(1))} aria-label="Later line" disabled={atEnd}>▶</button>
+          <button type="button" className="nc-step" onClick={() => (setPlaying(false), step(-1))} aria-label="Earlier line" disabled={shownCur <= tMin}>◀</button>
           <div className="nc-slider">
             <input
               type="range"
@@ -538,12 +621,18 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
               max={Math.max(1, Math.round((tMax - tMin) / 60_000))}
               step={1}
               value={Math.round((shownCur - tMin) / 60_000)}
-              aria-label="Show the note as it was at this time"
+              aria-label="Show the map as it was at this time"
               onChange={(e) => {
                 setPlaying(false);
                 const ms = tMin + Number(e.target.value) * 60_000;
-                setCur(ms >= tMax ? Infinity : ms);
-                setFreshAt(null);
+                // One redraw a frame, however fast the thumb moves.
+                slide.current = ms >= tMax ? Infinity : ms;
+                if (!slideFrame.current)
+                  slideFrame.current = requestAnimationFrame(() => {
+                    slideFrame.current = 0;
+                    setCur(slide.current);
+                    setFreshAt(null);
+                  });
               }}
             />
             <div className="nc-ticks" aria-hidden>
@@ -552,38 +641,82 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
               ))}
             </div>
           </div>
+          <button type="button" className="nc-step" onClick={() => (setPlaying(false), step(1))} aria-label="Later line" disabled={atEnd}>▶</button>
+          {phone && (
+            <button type="button" className={`nc-more${more ? " active" : ""}`} onClick={() => setMore((m) => !m)} aria-expanded={more} aria-label="More: graph, find, branches by">⋯</button>
+          )}
         </div>
         <div className="nc-row nc-row2">
-          <span className="nc-now" title="Shown up to">{formatTimestamp(new Date(shownCur))}</span>
-          <span className="nc-stats">{shownCount} of {L.items.length} lines · {shownBranches} branches</span>
-          <input className="nc-find" type="search" placeholder="Find…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Find words on the map" />
-          <div className="nc-groups" role="radiogroup" aria-label="Branches by">
-            {GROUPS.map((g) => (
-              <button
-                key={g.mode}
-                type="button"
-                role="radio"
-                aria-checked={mode === g.mode}
-                className={mode === g.mode ? "active" : ""}
-                title={g.title}
-                disabled={g.mode === "topics" && !!busy}
-                onClick={() => {
-                  if (g.mode === "topics" && !hasTopics) {
-                    if (!aiOn) return setStatus("Turn AI on in Settings → AI to sort lines into topics.");
-                    void sortTopics(false);
+          {(!phone || more) && (
+            <>
+              <select
+                className="nc-graph"
+                value={isGraph ? graph : ""}
+                aria-label="Which graph"
+                onChange={(e) => {
+                  if (e.target.value === "+") {
+                    e.target.value = isGraph ? graph : "";
+                    fileRef.current?.click();
                     return;
                   }
-                  setGroup(g.mode);
-                  setFocusBranch(null);
+                  setGraph(e.target.value);
                 }}
               >
-                {g.label}
-              </button>
-            ))}
-          </div>
-          <button type="button" className="nc-fullbtn" onClick={() => setFull((f) => !f)} aria-label={full ? "Leave full screen" : "Full screen"} title={full ? "Leave full screen (Esc)" : "Full screen"}>
-            {full ? "⤡" : "⛶"}
-          </button>
+                <option value="">🗺️ {noteTitle}</option>
+                {graphs.map((g) => (
+                  <option key={g} value={g}>🧩 {g.slice(GRAPH_PREFIX.length)}</option>
+                ))}
+                <option value="+">＋ Add a graph from a file…</option>
+              </select>
+              <input
+                ref={fileRef}
+                type="file"
+                hidden
+                accept=".html,.htm,.json,text/html,application/json"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (f) void importGraph(f);
+                }}
+              />
+            </>
+          )}
+          <span className="nc-now" title="Shown up to">{formatTimestamp(new Date(shownCur))}</span>
+          <span className="nc-stats">{shownCount} of {L.items.length} {isGraph ? "nodes" : "lines"} · {shownBranches} branches</span>
+          {(!phone || more) && (
+            <input className="nc-find" type="search" placeholder="Find…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Find words on the map" />
+          )}
+          {!isGraph && (!phone || more) && (
+            <div className="nc-groups" role="radiogroup" aria-label="Branches by">
+              {GROUPS.map((g) => (
+                <button
+                  key={g.mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === g.mode}
+                  className={mode === g.mode ? "active" : ""}
+                  title={g.title}
+                  disabled={g.mode === "topics" && !!busy}
+                  onClick={() => {
+                    if (g.mode === "topics" && !hasTopics) {
+                      if (!aiOn) return setStatus("Turn AI on in Settings → AI to sort lines into topics.");
+                      void sortTopics(false);
+                      return;
+                    }
+                    setGroup(g.mode);
+                    setFocusBranch(null);
+                  }}
+                >
+                  {g.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {!phone && (
+            <button type="button" className="nc-fullbtn" onClick={() => setFull((f) => !f)} aria-label={full ? "Leave full screen" : "Full screen"} title={full ? "Leave full screen (Esc)" : "Full screen"}>
+              {full ? "⤡" : "⛶"}
+            </button>
+          )}
         </div>
         <div className="nc-chips" role="list" aria-label="Branches">
           {L.branches.map((b) => (
@@ -624,7 +757,7 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onClickCapture={(e) => {
-          if (gesture.current.moved > 6) e.stopPropagation();
+          if (gesture.current.moved > (phone ? 10 : 6)) e.stopPropagation();
         }}
       >
         <div className="nc-world" ref={worldRef} style={{ width: L.width, height: L.height }}>
@@ -691,12 +824,21 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
               dim={dim(it)}
               dot={dot.get(it.key)!}
               hue={hueColor(branchByName.get(it.branch)?.hue ?? -1)}
-              onPick={() => pick({ kind: "item", key: it.key }, false)}
+              // On a phone the details cover the lower half: the tapped line moves up into view.
+              onPick={() => pick({ kind: "item", key: it.key }, phone)}
               onOpen={() => openInNote(it)}
             />
           ))}
         </div>
 
+        {caption && !panel && (
+          <button type="button" className="nc-caption" onClick={() => pick({ kind: "item", key: caption.key }, false)} style={{ ["--hue" as string]: hueColor(branchByName.get(caption.branch)?.hue ?? -1) }}>
+            <i aria-hidden />
+            <time>{shortWhen(caption.ms)}</time>
+            <span>{caption.label}</span>
+            <small>{caption.branch}</small>
+          </button>
+        )}
         <div className="nc-zoom">
           <button type="button" aria-label="Zoom in" onClick={() => zoomAt(1.3, stageSize().width / 2, stageSize().height / 2)}>＋</button>
           <button type="button" aria-label="Zoom out" onClick={() => zoomAt(1 / 1.3, stageSize().width / 2, stageSize().height / 2)}>－</button>
@@ -735,8 +877,18 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
                       {formatTimestamp(new Date(selItem.ms))}
                       {selItem.when === "near" ? " (about)" : selItem.when === "guess" ? " (time not written)" : ""}
                       <br />
-                      {selItem.day ? `In the note of ${shortWhen(noonOf(selItem.day)).split(",")[0]}` : "In this note"}
-                      {selItem.section ? ` · under ${selItem.section}` : ""}
+                      {selInfo ? (
+                        <>
+                          Prompt {selInfo.prompt + 1} of {selInfo.promptCount}
+                          {selInfo.parts.length > 1 ? ` · part ${selInfo.parts.indexOf(selItem.key) + 1} of ${selInfo.parts.length}` : ""}
+                          {selInfo.thread ? ` · ${selInfo.thread}` : ""}
+                        </>
+                      ) : (
+                        <>
+                          {selItem.day ? `In the note of ${shortWhen(noonOf(selItem.day)).split(",")[0]}` : "In this note"}
+                          {selItem.section ? ` · under ${selItem.section}` : ""}
+                        </>
+                      )}
                     </p>
                   </>
                 )}
@@ -750,7 +902,7 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
               <button type="button" onClick={listen} className={reading ? "active" : ""}>
                 {reading ? "■ Stop" : "🔊 Listen"}
               </button>
-              {selItem && (
+              {selItem && !isGraph && (
                 <button type="button" onClick={() => openInNote(selItem)} title="Open this line in its note">↗ Open</button>
               )}
             </div>
@@ -792,7 +944,34 @@ export default function NoteCanvas({ editor, source, onJump }: { editor: Editor;
               )}
               {selItem && (
                 <>
+                  {selInfo && selInfo.parts.length > 1 && (
+                    <>
+                      <div className="nc-label">This prompt was split across</div>
+                      <div className="nc-list-chips">
+                        {selInfo.parts.map((k) => {
+                          const part = byKey.get(k);
+                          if (!part) return null;
+                          return (
+                            <button key={k} type="button" className={`nc-chip${k === selItem.key ? " active" : ""}`} style={{ ["--hue" as string]: hueColor(branchByName.get(part.branch)?.hue ?? -1) }} onClick={() => pick({ kind: "item", key: k })}>
+                              <i aria-hidden /> {part.branch}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="nc-label">This part, word for word</div>
+                    </>
+                  )}
                   <div className="nc-text">{highlight(selItem.text, q)}</div>
+                  {selInfo && selInfo.parts.length > 1 && (
+                    <details className="nc-full-prompt">
+                      <summary>The whole prompt (this part marked)</summary>
+                      <div className="nc-text">
+                        {selInfo.full.slice(0, selInfo.start)}
+                        <mark>{selInfo.full.slice(selInfo.start, selInfo.end)}</mark>
+                        {selInfo.full.slice(selInfo.end)}
+                      </div>
+                    </details>
+                  )}
                   <div className="nc-nav">
                     {(() => {
                       const b = branchByName.get(selItem.branch);

@@ -309,6 +309,7 @@
   .nc-panel { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 56%; border-radius: 20px 20px 0 0; animation-name: nc-sheet-in; }
   .nc-panel header::before { content: ""; position: absolute; left: 50%; top: 6px; width: 38px; height: 4px; border-radius: 2px; transform: translateX(-50%); background: color-mix(in srgb, var(--muted) 40%, transparent); }
   .nc-zoom { left: auto; right: 10px; bottom: 10px; flex-direction: column; }
+  .nc-caption { left: 10px; right: 60px; bottom: 10px; transform: none; max-width: none; }
 }
 @container nc (max-width: 520px) {
   .nc-ticks span:not(.first):not(.last) { display: none; }
@@ -346,3 +347,83 @@
 :where(html[data-theme="neu"]) .nc-chip.active { box-shadow: var(--neu-in-xs), inset 0 0 0 1.5px var(--hue); }
 :where(html[data-theme="neu"]) .nc-summary { background: var(--bg); border-color: transparent; box-shadow: var(--neu-in-sm); }
 :where(html[data-theme="neu"]) .nc-full-host::before { display: none; }
+
+/* ───────────── Graph picker, prompt details, caption ───────────── */
+.nc-graph {
+  flex: 0 1 220px;
+  min-width: 0;
+  max-width: 260px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 28px 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  color: inherit;
+  text-overflow: ellipsis;
+}
+.nc-label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.nc-full-prompt summary { cursor: pointer; font-size: 13px; color: var(--accent); padding: 4px 0; }
+.nc-full-prompt .nc-text { margin-top: 6px; max-height: 40vh; overflow-y: auto; font-size: 13px; }
+.nc-caption {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 120px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--hue) 45%, transparent);
+  background: var(--glass-strong, var(--bg));
+  box-shadow: var(--glass-shadow, 0 6px 18px rgba(0, 0, 0, 0.18));
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+}
+.nc-caption i { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--hue); }
+.nc-caption time { flex: none; font: 500 11px ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
+.nc-caption span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.nc-caption small { flex: none; color: var(--muted); max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nc-close { font-size: 22px !important; width: 38px; padding: 0 !important; line-height: 1 !important; }
+.nc-more { width: 38px; padding: 0 !important; font-size: 18px !important; }
+:where(html[data-theme="neu"]) .nc-graph { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .nc-caption { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-sm), inset 3px 0 0 var(--hue); }
+
+/* ───────────── Phones: full screen, a tight bar, cheap motion ─────────────
+   Every node used to grow in with a springy scale and a soft shadow, the edges drew themselves and
+   the glass blurred whatever moved under it: on the phone that is a repaint of the whole map each
+   frame, so stepping and following lagged behind. Here nodes only fade, nothing blurs, and the map
+   is one layer the GPU moves. */
+@media (pointer: coarse) {
+  .nc-world { will-change: transform; }
+  .nc-node, .nc-pill { transform: none !important; transition: opacity 0.22s ease, border-color 0.2s; box-shadow: none; }
+  .nc-node.sel, .nc-node.fresh { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
+  .nc-edge { transition: opacity 0.25s; stroke-dasharray: none; stroke-dashoffset: 0; opacity: 0; }
+  .nc-edge.on { opacity: 1; }
+  .nc-edge.on.dim { opacity: 0.18; }
+  .nc-cell { transition: opacity 0.25s; }
+  .nc-panel, .nc-zoom button, .nc-bar, .nc-caption { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .nc-panel { background: var(--glass-strong, var(--panel)); background: color-mix(in srgb, var(--bg) 94%, var(--text)); }
+  .nc-stage { background: color-mix(in srgb, var(--bg) 96%, var(--text)); }
+  :where(html[data-theme="neu"]) .nc-node { box-shadow: none; border: 1px solid color-mix(in srgb, var(--hue) 35%, var(--border)); }
+  :where(html[data-theme="neu"]) .nc-node.sel, :where(html[data-theme="neu"]) .nc-node.fresh { box-shadow: 0 0 0 2px var(--accent); }
+  :where(html[data-theme="neu"]) .nc-pill { box-shadow: inset 0 0 0 1.6px color-mix(in srgb, var(--hue) 70%, transparent); }
+  :where(html[data-theme="neu"]) .nc-cell { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent); }
+  :where(html[data-theme="neu"]) .nc-stage { box-shadow: var(--neu-in-sm); }
+  .nc-is-full .nc-bar { padding: 6px; gap: 4px; border-radius: 16px; }
+  .nc-is-full .nc-row2:not(:has(select)) .nc-stats { display: inline; }
+  .nc-is-full .nc-row2 { gap: 6px; }
+  .nc-is-full .nc-row2 .nc-now { order: 0; flex: 1 1 auto; font-size: 11px; padding: 2px 8px; }
+  .nc-is-full .nc-graph { flex: 1 1 100%; max-width: none; }
+  .nc-is-full .nc-chips { padding-bottom: 1px; }
+  .nc-is-full .nc-step { width: 36px; padding: 0 !important; }
+  .nc-is-full .nc-play { min-width: 40px; }
+  .nc-full-host { padding-top: max(6px, env(safe-area-inset-top)); padding-bottom: max(6px, env(safe-area-inset-bottom)); animation: none; }
+  .nc-full-host::before { display: none; }
+  .nc-is-full { gap: 6px; }
+}

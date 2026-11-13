@@ -885,6 +885,7 @@ export function JournalEditor({
           <NoteCanvas
             editor={editor}
             source={canvas}
+            onClose={() => setViewMode(modeBeforeCanvas())}
             onJump={(item: CanvasItem) => {
               // Back to the note, at that line.
               setViewMode(modeBeforeCanvas());
