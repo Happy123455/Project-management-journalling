@@ -1227,6 +1227,7 @@ function App() {
                   initialContent={content}
                   onChange={onChange}
                   liveKey={`day:${day}`}
+                  canvas={store ? { key: `day:${day}`, title: dayTitle(day), day, store, refreshKey: syncTick, onOpenDay: handlers.onOpenDay } : undefined}
                   onReminder={pickReminderDay}
                   autofocus={!previewNext.current && restoring.current == null}
                   pastDay={day < today}

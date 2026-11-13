@@ -1,0 +1,348 @@
+/* ───────────── Canvas: a note as a mind map growing over time ─────────────
+   Built on the app's glass tokens (--glass, --glass-strong, --glass-shadow…), so Liquid glass gets
+   frosted panels and Soft UI (which maps those tokens to its soft surface) gets raised shapes; the
+   Soft UI rules at the bottom only fine-tune depth. */
+
+.note-canvas {
+  --nc-ink: var(--text);
+  --nc-line: color-mix(in srgb, var(--muted) 30%, transparent);
+  --nc-surface: var(--glass-strong, var(--panel));
+  --nc-node: color-mix(in srgb, var(--bg) 80%, var(--glass-strong, #fff));
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 0 12px;
+  container: nc / inline-size;
+  color: var(--nc-ink);
+}
+.note-canvas.nc-empty { padding: 28px 18px; border-radius: 20px; background: var(--nc-surface); color: var(--muted); text-align: center; }
+
+/* Full screen: the whole window, safe areas kept. */
+.nc-full-host {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  background: var(--bg);
+  animation: nc-in 0.28s cubic-bezier(0.2, 1.1, 0.4, 1) both;
+}
+.nc-full-host::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60vmax 50vmax at 8% -10%, var(--wash-1, transparent), transparent 70%),
+    radial-gradient(50vmax 50vmax at 100% 10%, var(--wash-2, transparent), transparent 70%);
+}
+.nc-full-host > .note-canvas { flex: 1; min-height: 0; margin: 0; }
+@keyframes nc-in { from { transform: scale(0.985); } }
+
+/* ── The bar: time on top, then how branches are made, then the branches ── */
+.nc-bar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px 8px;
+  border-radius: 20px;
+  background: var(--glass, var(--panel));
+  border: 1px solid var(--glass-edge, var(--border));
+  box-shadow: var(--glass-shadow, none), inset 0 1px 0 var(--glass-rim, transparent);
+  -webkit-backdrop-filter: var(--glass-blur, none);
+  backdrop-filter: var(--glass-blur, none);
+}
+.nc-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.nc-row2 { flex-wrap: wrap; row-gap: 6px; }
+.nc-bar button {
+  min-height: 32px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 13px;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+.nc-bar button:disabled { opacity: 0.4; }
+.nc-play { font-weight: 600; color: var(--accent); min-width: 74px; }
+.nc-speed { font: 600 12px ui-monospace, "SF Mono", Menlo, monospace; min-width: 40px; color: var(--muted); }
+.nc-slider { flex: 1; min-width: 120px; display: flex; flex-direction: column; gap: 1px; padding: 0 6px; }
+.nc-slider input { width: 100%; margin: 0; accent-color: var(--accent); height: 22px; cursor: pointer; }
+.nc-ticks { position: relative; height: 13px; font: 500 10px ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
+.nc-ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.nc-ticks span.first { transform: none; }
+.nc-ticks span.last { transform: translateX(-100%); }
+.nc-now { font: 600 12px ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.nc-stats { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.nc-find {
+  flex: 1 1 110px;
+  min-width: 90px;
+  max-width: 220px;
+  margin-left: auto;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  color: inherit;
+}
+.nc-groups { display: flex; gap: 2px; padding: 2px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 12%, transparent); }
+.nc-bar .nc-groups button { border: 0; box-shadow: none; background: transparent; color: var(--muted); min-height: 28px; padding: 3px 10px; font-size: 12.5px; }
+.nc-bar .nc-groups button.active { background: var(--glass-strong, var(--bg)); color: var(--text); font-weight: 600; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12); }
+.nc-fullbtn { font-size: 15px !important; width: 36px; padding: 0 !important; }
+
+.nc-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 1px 3px; margin: 0 -2px; -webkit-mask-image: linear-gradient(90deg, #000 92%, transparent); mask-image: linear-gradient(90deg, #000 92%, transparent); }
+.nc-chips::-webkit-scrollbar { display: none; }
+.nc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  min-height: 28px !important;
+  padding: 3px 10px !important;
+  border-radius: 999px;
+  font-size: 12.5px !important;
+  border: 1px solid color-mix(in srgb, var(--hue, var(--muted)) 35%, transparent);
+  background: color-mix(in srgb, var(--hue, var(--muted)) 9%, transparent);
+  color: inherit;
+  transition: opacity 0.3s, background 0.2s;
+}
+.nc-chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--hue, var(--muted)); flex: none; }
+.nc-chip small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.nc-chip.active { background: color-mix(in srgb, var(--hue, var(--muted)) 22%, transparent); border-color: var(--hue, var(--muted)); font-weight: 600; }
+.nc-chip.later { opacity: 0.45; }
+.nc-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); padding: 2px 4px 0; }
+.nc-status button { min-height: 28px !important; padding: 2px 10px !important; font-size: 12.5px !important; color: var(--accent); }
+.nc-spin { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent); animation: nc-spin 0.8s linear infinite; vertical-align: -2px; }
+@keyframes nc-spin { to { transform: rotate(360deg); } }
+
+/* ── The stage: drag to move, pinch or ⌘-scroll to zoom ── */
+.nc-stage {
+  position: relative;
+  overflow: hidden;
+  height: clamp(380px, 68vh, 760px);
+  border-radius: 22px;
+  border: 1px solid var(--glass-edge, var(--border));
+  background:
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--muted) 22%, transparent) 1px, transparent 1.4px) 0 0 / 22px 22px,
+    color-mix(in srgb, var(--glass, var(--panel)) 70%, transparent);
+  box-shadow: inset 0 1px 0 var(--glass-rim, transparent), var(--glass-shadow, none);
+  touch-action: none;
+  cursor: grab;
+  outline: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.nc-is-full .nc-stage { flex: 1; height: auto; min-height: 0; }
+.nc-stage.dragging { cursor: grabbing; }
+.nc-stage:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.nc-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.nc-stage.dragging .nc-world { will-change: transform; }
+
+.nc-col { position: absolute; top: 0; border-left: 1px dashed var(--nc-line); }
+.nc-col.alt { background: color-mix(in srgb, var(--muted) 5%, transparent); }
+.nc-col.gap { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--muted) 9%, transparent) 6px 7px); }
+.nc-col-label { position: sticky; top: 0; padding: 10px 10px 0; display: flex; flex-direction: column; line-height: 1.25; white-space: nowrap; }
+.nc-col-label b { font: 600 12px ui-monospace, "SF Mono", Menlo, monospace; color: var(--text); }
+.nc-col-label small { font: 500 10.5px ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
+.nc-world[data-far="1"] .nc-col-label b { font-size: 22px; }
+.nc-world[data-far="1"] .nc-col-label small { font-size: 16px; }
+
+.nc-cell {
+  position: absolute;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--c) 18%, transparent);
+  border: 1.2px solid color-mix(in srgb, var(--c) 60%, transparent);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+.nc-cell.on { opacity: 1; }
+.nc-cell.on.dim { opacity: 0.25; }
+
+.nc-edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.nc-edge { fill: none; stroke-width: 1.6; stroke-dasharray: 1; stroke-dashoffset: 1; stroke-linecap: round; transition: stroke-dashoffset 0.7s ease, opacity 0.4s; }
+.nc-edge.main { stroke-width: 2.6; }
+.nc-edge.on { stroke-dashoffset: 0; }
+.nc-edge.dim { opacity: 0.18; }
+
+.nc-root,
+.nc-pill,
+.nc-node { position: absolute; margin: 0; font: inherit; color: var(--text); cursor: pointer; }
+.nc-root {
+  height: 44px;
+  border-radius: 22px;
+  border: 0;
+  padding: 0 16px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 40%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.nc-root.sel { outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent); outline-offset: 3px; }
+.nc-pill {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 17px;
+  border: 1.6px solid var(--hue);
+  background: color-mix(in srgb, var(--hue) 13%, var(--nc-node));
+  font-weight: 650;
+  font-size: 13px;
+  opacity: 0;
+  transform: scale(0.6);
+  transform-origin: left center;
+  transition: opacity 0.45s ease, transform 0.55s var(--spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+}
+.nc-pill span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.nc-pill small { font-weight: 500; font-size: 11px; color: var(--muted); }
+.nc-pill.on { opacity: 1; transform: scale(1); }
+.nc-pill.sel { box-shadow: 0 0 0 3px color-mix(in srgb, var(--hue) 30%, transparent); }
+.nc-pill.on.dim { opacity: 0.25; }
+
+.nc-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px 0 8px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--hue) 30%, var(--border));
+  background: var(--nc-node);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  font-size: 12.5px;
+  text-align: left;
+  opacity: 0;
+  transform: scale(0.4);
+  transform-origin: left center;
+  transition: opacity 0.45s ease, transform 0.55s var(--spring, cubic-bezier(0.34, 1.56, 0.64, 1)), box-shadow 0.2s, border-color 0.2s;
+  pointer-events: none;
+}
+.nc-node.on { opacity: 1; transform: scale(1); pointer-events: auto; }
+.nc-node:hover { border-color: var(--hue); }
+.nc-node span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nc-node time { flex: none; font: 500 10.5px ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); font-variant-numeric: tabular-nums; }
+.nc-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 22%, transparent); }
+.nc-kind { flex: none; font-size: 11px; color: var(--muted); font-weight: 600; }
+.nc-node.k-done span { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+.nc-node.k-done .nc-kind { color: #16a34a; }
+.nc-node.fresh { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent), 0 6px 16px color-mix(in srgb, var(--accent) 22%, transparent); }
+.nc-node.sel { border-color: var(--accent); border-width: 2px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); z-index: 2; }
+.nc-node.hit { background: color-mix(in srgb, var(--mark) 75%, var(--nc-node)); }
+.nc-node.on.dim { opacity: 0.18; }
+.nc-world[data-far="1"] .nc-node time,
+.nc-world[data-far="1"] .nc-kind { display: none; }
+
+/* Zoom buttons (and ⓘ when the details are hidden). */
+.nc-zoom { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; z-index: 3; }
+.nc-zoom button { width: 38px; height: 38px; padding: 0; border-radius: 50%; font-size: 17px; background: var(--glass-strong, var(--bg)); -webkit-backdrop-filter: var(--glass-blur, none); backdrop-filter: var(--glass-blur, none); box-shadow: var(--glass-shadow, none); }
+
+/* ── Details: a glass card on the right (a sheet from the bottom on phones) ── */
+.nc-panel {
+  position: absolute;
+  z-index: 4;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: min(380px, 44%);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 20px;
+  border: 1px solid var(--glass-edge, var(--border));
+  background: color-mix(in srgb, var(--glass-strong, var(--panel)) 92%, transparent);
+  -webkit-backdrop-filter: var(--glass-blur, none);
+  backdrop-filter: var(--glass-blur, none);
+  box-shadow: var(--glass-shadow, 0 16px 40px rgba(0, 0, 0, 0.18)), inset 0 1px 0 var(--glass-rim, transparent);
+  cursor: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: pan-y;
+  animation: nc-panel-in 0.3s cubic-bezier(0.2, 1.1, 0.4, 1) both;
+}
+@keyframes nc-panel-in { from { transform: translateX(18px); } }
+.nc-panel header { display: flex; gap: 8px; align-items: flex-start; padding: 14px 14px 8px 16px; }
+.nc-panel-title { flex: 1; min-width: 0; }
+.nc-panel h3 { margin: 0 0 4px; font-size: 16px; line-height: 1.3; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.nc-branch-h::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--hue); margin-right: 8px; vertical-align: 1px; }
+.nc-meta { margin: 0; font: 500 11.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
+.nc-x { flex: none; width: 32px; height: 32px; padding: 0; border-radius: 50%; }
+.nc-ai { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 10px 16px; border-bottom: 1px solid var(--nc-line); }
+.nc-ai button { min-height: 32px; padding: 4px 12px; border-radius: 999px; font-size: 13px; }
+.nc-ai button.active { color: var(--accent); }
+.nc-summary { margin: 10px 14px 0 16px; padding: 10px 12px; border-radius: 14px; font-size: 14px; line-height: 1.55; background: color-mix(in srgb, var(--accent) 8%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); }
+.nc-summary small { display: block; margin-top: 6px; font-size: 11px; color: var(--muted); }
+.nc-panel-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px 16px 16px; display: flex; flex-direction: column; gap: 10px; overscroll-behavior: contain; }
+.nc-hint { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.nc-list-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.nc-resort { align-self: flex-start; font-size: 12.5px; border-radius: 999px; padding: 4px 12px; color: var(--muted); }
+.nc-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; counter-reset: line; }
+.nc-lines li.later { opacity: 0.45; }
+.nc-lines button { display: flex; gap: 10px; width: 100%; text-align: left; border: 0; box-shadow: none; background: transparent; padding: 7px 8px; border-radius: 10px; font-size: 13.5px; color: inherit; }
+.nc-lines button:hover { background: color-mix(in srgb, var(--muted) 12%, transparent); }
+.nc-lines time { flex: none; width: 92px; font: 500 11px/1.9 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
+.nc-lines span { flex: 1; min-width: 0; }
+.nc-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14.5px; line-height: 1.6; padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--bg) 65%, transparent); border: 1px solid var(--nc-line); }
+.nc-text mark { background: var(--mark); color: inherit; border-radius: 3px; }
+.nc-nav { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.nc-nav > button:not(.nc-chip) { min-height: 32px; border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+.nc-nav > button:disabled { opacity: 0.4; }
+.nc-nav .nc-chip { flex: 1; justify-content: center; min-width: 0; overflow: hidden; }
+
+/* Phones and narrow note columns: the details become a sheet from the bottom, the bar packs tighter. */
+@container nc (max-width: 640px) {
+  .nc-bar { padding: 8px 8px 6px; border-radius: 18px; }
+  .nc-l, .nc-stats { display: none; }
+  .nc-play { min-width: 40px; }
+  .nc-now { order: 5; flex: 1 1 100%; text-align: center; font-size: 11.5px; }
+  .nc-find { max-width: none; margin-left: 0; }
+  .nc-groups { flex: 1 1 100%; justify-content: space-between; order: 4; }
+  .nc-bar .nc-groups button { flex: 1; padding: 3px 6px; }
+  .nc-stage { border-radius: 18px; }
+  .nc-panel { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 56%; border-radius: 20px 20px 0 0; animation-name: nc-sheet-in; }
+  .nc-panel header::before { content: ""; position: absolute; left: 50%; top: 6px; width: 38px; height: 4px; border-radius: 2px; transform: translateX(-50%); background: color-mix(in srgb, var(--muted) 40%, transparent); }
+  .nc-zoom { left: auto; right: 10px; bottom: 10px; flex-direction: column; }
+}
+@container nc (max-width: 520px) {
+  .nc-ticks span:not(.first):not(.last) { display: none; }
+  .nc-speed { display: none; }
+}
+@media (max-width: 700px) {
+  .nc-stage { height: calc(100dvh - 230px); min-height: 360px; }
+}
+@keyframes nc-sheet-in { from { transform: translateY(30px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .nc-node, .nc-pill, .nc-edge, .nc-cell, .nc-panel, .nc-full-host { transition: none; animation: none; }
+}
+
+/* ───────────── Soft UI: shapes raised out of the surface, wells pressed into it ───────────── */
+:where(html[data-theme="neu"]) .nc-bar { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .nc-stage { background: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--muted) 16%, transparent) 1px, transparent 1.4px) 0 0 / 22px 22px, var(--bg); border-color: transparent; box-shadow: var(--neu-in); }
+:where(html[data-theme="neu"]) .nc-groups,
+:where(html[data-theme="neu"]) .nc-find,
+:where(html[data-theme="neu"]) .nc-text { background: var(--bg); border-color: transparent; box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .nc-bar .nc-groups button { box-shadow: none; }
+:where(html[data-theme="neu"]) .nc-bar .nc-groups button.active { background: var(--bg); box-shadow: var(--neu-out-xs); color: var(--accent); }
+:where(html[data-theme="neu"]) .nc-now { background: var(--bg); box-shadow: var(--neu-in-xs); }
+:where(html[data-theme="neu"]) .nc-node { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .nc-node::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 0 3px 3px 0; background: var(--hue); }
+:where(html[data-theme="neu"]) .nc-node.sel,
+:where(html[data-theme="neu"]) .nc-node.fresh { box-shadow: var(--neu-in-xs), 0 0 0 2px var(--accent); }
+:where(html[data-theme="neu"]) .nc-node.hit { background: color-mix(in srgb, var(--mark) 60%, var(--bg)); }
+:where(html[data-theme="neu"]) .nc-pill { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-sm), inset 0 0 0 1.6px color-mix(in srgb, var(--hue) 70%, transparent); }
+:where(html[data-theme="neu"]) .nc-pill.sel { box-shadow: var(--neu-in-sm), inset 0 0 0 2px var(--hue); }
+:where(html[data-theme="neu"]) .nc-cell { background: color-mix(in srgb, var(--c) 12%, var(--bg)); border-color: transparent; box-shadow: var(--neu-in-xs), inset 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent); }
+:where(html[data-theme="neu"]) .nc-panel { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out); }
+:where(html[data-theme="neu"]) .nc-zoom button { background: var(--bg); box-shadow: var(--neu-out-sm); }
+:where(html[data-theme="neu"]) .nc-chip { background: var(--bg); border-color: transparent; box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .nc-chip.active { box-shadow: var(--neu-in-xs), inset 0 0 0 1.5px var(--hue); }
+:where(html[data-theme="neu"]) .nc-summary { background: var(--bg); border-color: transparent; box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .nc-full-host::before { display: none; }

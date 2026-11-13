@@ -258,6 +258,7 @@ export function PageView({ store, page, onBack, handlers, pageNames, find, onFin
       <JournalEditor
         key={page.id}
         initialContent={page.content}
+        canvas={{ key: `page:${page.id}`, title: page.title, store, refreshKey: saves, onOpenDay: handlers.onOpenDay, updatedAt: page.updatedAt }}
         onChange={(content, plainText, actor) => {
           window.clearTimeout(timer.current);
           if (actor) {

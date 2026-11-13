@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { showToast } from "../lib/toast";
 import { plainText } from "../lib/plainText";
@@ -31,7 +31,12 @@ import { KeyboardBar, useTouchDevice } from "./KeyboardBar";
 import { HotCaret } from "./HotCaret";
 import { LinkSuggest } from "./linkSuggest";
 import { insertLogOrTime, insertPlace, SlashMenu } from "./slashMenu";
-import { openOutline, setViewMode, useViewMode, type ViewMode } from "./viewMode";
+import { canvasNote, leaveCanvasIfOther, modeBeforeCanvas, openOutline, setViewMode, useViewMode, type ViewMode } from "./viewMode";
+import type { CanvasSource } from "../canvas/NoteCanvas";
+import type { CanvasItem } from "../lib/canvas";
+
+/** Canvas (the note as a mind map) loads only when it is first opened. */
+const NoteCanvas = lazy(() => import("../canvas/NoteCanvas"));
 import { SourceEditor } from "./SourceEditor";
 import { openVoiceRecorder } from "./VoiceRecorder";
 import { dayKey } from "../lib/timestamp";
@@ -69,6 +74,8 @@ interface Props {
   onFindCount?: (count: number) => void;
   /** A day before today: lines written in it get an edit stamp. */
   pastDay?: boolean;
+  /** The note can be shown as Canvas (a mind map growing over time): what it maps. */
+  canvas?: CanvasSource;
 }
 
 interface Tool {
@@ -517,10 +524,11 @@ const MODES: { mode: ViewMode; icon: string; label: string }[] = [
   { mode: "live", icon: "✎", label: "Live" },
   { mode: "source", icon: "</>", label: "Source" },
   { mode: "reading", icon: "📖", label: "Reading" },
+  { mode: "canvas", icon: "🗺️", label: "Canvas" },
 ];
 
 /** Live / Source / Reading, and the outline: always in reach above the note. */
-function ModePill({ mode, editor }: { mode: ViewMode; editor: Editor | null }) {
+function ModePill({ mode, editor, canvas }: { mode: ViewMode; editor: Editor | null; canvas: boolean }) {
   const [copied, setCopied] = useState<"" | "plain" | "md">("");
   // The whole note in one tap, as plain text or as Markdown (each block's ⧉ still copies just that block).
   const copyAll = async (as: "plain" | "md") => {
@@ -539,7 +547,7 @@ function ModePill({ mode, editor }: { mode: ViewMode; editor: Editor | null }) {
   };
   return (
     <div className="editor-modes" role="toolbar" aria-label="How the note is shown" onPointerDown={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()}>
-      {MODES.map((m) => (
+      {MODES.filter((m) => canvas || m.mode !== "canvas").map((m) => (
         <button key={m.mode} type="button" className={mode === m.mode ? "active" : ""} aria-pressed={mode === m.mode} title={`${m.label} mode`} onClick={() => setViewMode(m.mode)}>
           <span aria-hidden>{m.icon}</span> <span className="mode-label">{m.label}</span>
         </button>
@@ -558,15 +566,21 @@ function ModePill({ mode, editor }: { mode: ViewMode; editor: Editor | null }) {
 }
 
 export function JournalEditor({
-  initialContent, onChange, onReady, onReminder, onOpenLink, onOpenTag, pageNames, autofocus = true, find, onFindCount, pastDay, liveKey,
+  initialContent, onChange, onReady, onReminder, onOpenLink, onOpenTag, pageNames, autofocus = true, find, onFindCount, pastDay, liveKey, canvas,
 }: Props) {
+  // Canvas was open on another note: this one opens the way notes were before it.
+  const noteKey = canvas?.key ?? liveKey ?? "";
+  useLayoutEffect(() => leaveCanvasIfOther(noteKey), [noteKey]);
   const liveKeyRef = useRef(liveKey);
   liveKeyRef.current = liveKey;
   const pastDayRef = useRef(pastDay);
   pastDayRef.current = pastDay;
   const touch = useTouchDevice();
   const [infoOpen, setInfoOpen] = useState(false);
-  const mode = useViewMode();
+  const viewed = useViewMode();
+  // A note that can't be a canvas shows Reading while Canvas is on.
+  // Canvas open on another note (this one is just opening): shown the way it was before Canvas.
+  const mode: ViewMode = viewed !== "canvas" ? viewed : !canvas ? "reading" : canvasNote() !== null && canvasNote() !== noteKey ? modeBeforeCanvas() : viewed;
   const [toolLayout, setToolLayout] = useState(loadToolLayout);
   useEffect(() => {
     const on = () => setToolLayout(loadToolLayout());
@@ -718,8 +732,8 @@ export function JournalEditor({
   // Reading mode: the note can't be changed (taps open links, play clips and show photos).
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    editor.setEditable(mode !== "reading");
-    if (mode === "reading") editor.commands.blur();
+    editor.setEditable(mode !== "reading" && mode !== "canvas");
+    if (mode === "reading" || mode === "canvas") editor.commands.blur();
   }, [editor, mode]);
 
   // Source mode: the text is read back into a note as it's typed (saved like any edit), and the
@@ -865,7 +879,28 @@ export function JournalEditor({
 
   return (
     <div className={`editor mode-${mode}`}>
-      <ModePill mode={mode} editor={editor} />
+      <ModePill mode={mode} editor={editor} canvas={!!canvas} />
+      {editor && canvas && mode === "canvas" && (
+        <Suspense fallback={<p className="loading">Drawing the canvas…</p>}>
+          <NoteCanvas
+            editor={editor}
+            source={canvas}
+            onJump={(item: CanvasItem) => {
+              // Back to the note, at that line.
+              setViewMode(modeBeforeCanvas());
+              let at = -1;
+              if (item.lid) {
+                editor.state.doc.descendants((node, pos) => {
+                  if (at >= 0) return false;
+                  if (node.attrs.lid === item.lid) at = pos;
+                  return at < 0;
+                });
+              }
+              if (at >= 0) window.setTimeout(() => jumpTo(editor, at, unfoldAround), 90);
+            }}
+          />
+        </Suspense>
+      )}
       {editor && mode === "source" && source.current && <SourceEditor value={source.current.text} onChange={onSource} touch={touch} autofocus={autofocus} />}
       {editor && outlineOpen && (
         <OutlinePanel
@@ -879,7 +914,7 @@ export function JournalEditor({
           }}
         />
       )}
-      {editor && timeRail && mode !== "source" && <TimeRail editor={editor} onJump={(pos, flash) => jumpTo(editor, pos, unfoldAround, flash)} />}
+      {editor && timeRail && mode !== "source" && mode !== "canvas" && <TimeRail editor={editor} onJump={(pos, flash) => jumpTo(editor, pos, unfoldAround, flash)} />}
       {editor && !touch && mode === "live" && (
         // Keep focus in the editor so Enter after a toolbar click types, not re-clicks (from #2).
         <div className="toolbar" onMouseDown={(e) => e.preventDefault()}>

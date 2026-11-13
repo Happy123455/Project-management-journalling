@@ -3658,3 +3658,6 @@ html.dl-dragging, html.dl-dragging * { user-select: none !important; -webkit-use
 .gantt-mile { fill: var(--panel); stroke: currentColor; stroke-width: 2.5; }
 .gantt-now { stroke: var(--accent); stroke-width: 2; }
 .gantt-due { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 4 4; }
+
+/* Canvas mode: the note is drawn as a mind map (src/canvas), the editor stays mounted but hidden. */
+.editor.mode-canvas > .editor-body, .editor.mode-canvas > .toolbar { display: none; }

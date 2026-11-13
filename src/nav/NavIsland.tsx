@@ -33,11 +33,12 @@ const HOME = (
   </>
 );
 
-const MODE_ICON: Record<ViewMode, string> = { live: "✎", reading: "📖", source: "</>" };
+const MODE_ICON: Record<ViewMode, string> = { live: "✎", reading: "📖", source: "</>", canvas: "🗺️" };
 const MODES: { mode: ViewMode; label: string; icon: string }[] = [
   { mode: "reading", label: "View", icon: "📖" },
   { mode: "live", label: "Edit", icon: "✎" },
   { mode: "source", label: "Source", icon: "</>" },
+  { mode: "canvas", label: "Canvas", icon: "🗺️" },
 ];
 
 export function locLabel(l: Loc, today: string): string {
