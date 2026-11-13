@@ -4,6 +4,7 @@ import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { formatGap, railPlaces, stampsIn, type Stamp } from "../lib/timeGaps";
 import { skyAt } from "../lib/sky";
+import { editorPrefs } from "../lib/editorPrefs";
 
 /**
  * Time rail: Outline → 🕒 Time puts a thin line on the right edge of the note, like a scroll bar,
@@ -79,7 +80,7 @@ export function useStamps(editor: Editor, on: boolean): Stamp[] {
   return stamps;
 }
 
-export function TimeRail({ editor, onJump }: { editor: Editor; onJump: (pos: number) => void }) {
+export function TimeRail({ editor, onJump }: { editor: Editor; onJump: (pos: number, flash?: string) => void }) {
   // The ✎ stamps of later edits stay off the rail (they'd stretch it over days); the Time outline lists them.
   const all = useStamps(editor, true);
   const stamps = useMemo(() => all.filter((s) => !s.edit), [all]);
@@ -87,6 +88,11 @@ export function TimeRail({ editor, onJump }: { editor: Editor; onJump: (pos: num
   const [touching, setTouching] = useState(false);
   const rail = useRef<HTMLDivElement>(null);
   const lastJump = useRef(-1);
+  // After a jump the tapped dot stays the lit one (its time shows beside it) until the note is
+  // scrolled by hand; reading the spot under the screen's 30% line lit the dot above it.
+  const pinned = useRef(false);
+  const lastTap = useRef({ t: 0, y: -999 });
+  const [zoom, setZoom] = useState<{ y: number; f: number } | null>(null);
 
   // In time order, with each one's place on the rail (0 = earliest, 1 = latest).
   const sorted = useMemo(() => {
@@ -115,13 +121,22 @@ export function TimeRail({ editor, onJump }: { editor: Editor; onJump: (pos: num
       setActive(a < 0 ? 0 : a);
     };
     const onScroll = () => {
-      if (!frame) frame = requestAnimationFrame(find);
+      if (!pinned.current && !frame) frame = requestAnimationFrame(find);
     };
-    find();
+    const byHand = () => {
+      pinned.current = false;
+    };
+    if (!pinned.current) find();
     window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("wheel", byHand, { passive: true });
+    window.addEventListener("touchmove", byHand, { passive: true });
+    window.addEventListener("keydown", byHand);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("wheel", byHand);
+      window.removeEventListener("touchmove", byHand);
+      window.removeEventListener("keydown", byHand);
     };
   }, [editor, stamps]);
 
@@ -129,17 +144,27 @@ export function TimeRail({ editor, onJump }: { editor: Editor; onJump: (pos: num
   const first = sorted[0].time;
   const last = sorted[sorted.length - 1].time;
 
+  const jump = (s: (typeof sorted)[number]) => {
+    pinned.current = true;
+    setActive(s.i);
+    onJump(s.pos, editorPrefs().timeFlash ? skyAt(s.time).bg : undefined);
+  };
+  const railFraction = (clientY: number) => {
+    const r = rail.current?.getBoundingClientRect();
+    return r ? Math.min(1, Math.max(0, (clientY - r.top) / r.height)) : 0;
+  };
   // Touching or dragging along the rail goes to the timestamp nearest that time.
   const go = (clientY: number) => {
-    const r = rail.current?.getBoundingClientRect();
-    if (!r) return;
-    const f = Math.min(1, Math.max(0, (clientY - r.top) / r.height));
+    if (!rail.current) return;
+    const f = railFraction(clientY);
     let best = sorted[0];
     for (const s of sorted) if (Math.abs(s.at - f) < Math.abs(best.at - f)) best = s;
     if (best.pos === lastJump.current) return;
     lastJump.current = best.pos;
-    onJump(best.pos);
+    jump(best);
   };
+  // The dots near a double tap, listed big enough to pick one (the nearest 8, at least).
+  const near = zoom ? [...sorted].sort((a, b) => Math.abs(a.at - zoom.f) - Math.abs(b.at - zoom.f)).slice(0, Math.max(8, sorted.filter((s) => Math.abs(s.at - zoom.f) < 0.06).length)).sort((a, b) => a.time - b.time || a.pos - b.pos) : [];
 
   return createPortal(
     <div
@@ -147,6 +172,13 @@ export function TimeRail({ editor, onJump }: { editor: Editor; onJump: (pos: num
       ref={rail}
       aria-label={`Timeline: ${formatGap(last - first)} from the first to the last timestamp`}
       onPointerDown={(e) => {
+        const now = performance.now();
+        const twice = now - lastTap.current.t < 350 && Math.abs(e.clientY - lastTap.current.y) < 40;
+        lastTap.current = { t: twice ? 0 : now, y: e.clientY };
+        if (twice) {
+          setZoom({ y: e.clientY, f: railFraction(e.clientY) });
+          return;
+        }
         e.currentTarget.setPointerCapture?.(e.pointerId);
         setTouching(true);
         lastJump.current = -1;
@@ -180,12 +212,42 @@ export function TimeRail({ editor, onJump }: { editor: Editor; onJump: (pos: num
           title={`${clock(s.time)} ${s.label}`}
           aria-label={`${clock(s.time)} ${s.label}`}
           // Touch and mouse already went there on press; this is for the keyboard.
-          onClick={(e) => e.detail === 0 && onJump(s.pos)}
+          onClick={(e) => e.detail === 0 && jump(s)}
         >
           {s.i === active && <i>{clock(s.time)}</i>}
         </button>
       ))}
       <span className="time-rail-end bottom">{clock(last)}</span>
+      {zoom && (
+        <>
+          <div className="time-rail-zoom-back" onPointerDown={(e) => (e.stopPropagation(), setZoom(null))} />
+          <div
+            className="time-rail-zoom"
+            role="listbox"
+            aria-label="Timestamps here"
+            style={{ top: `${Math.max(8, Math.min(window.innerHeight - 8 - Math.min(near.length * 42 + 12, window.innerHeight * 0.6), zoom.y - (near.length * 42 + 12) / 2))}px` }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {near.map((s) => (
+              <button
+                type="button"
+                role="option"
+                aria-selected={s.i === active}
+                key={`z-${s.pos}`}
+                className={s.i === active ? "active" : undefined}
+                onClick={() => {
+                  setZoom(null);
+                  jump(s);
+                }}
+              >
+                <i style={{ background: skyAt(s.time).bg }} />
+                <b>{clock(s.time)}</b>
+                <span>{s.label}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>,
     document.body,
   );

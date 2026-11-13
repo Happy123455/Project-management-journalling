@@ -4,6 +4,8 @@ import { PluginKey } from "@tiptap/pm/state";
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from "@tiptap/suggestion";
 import { filterSlashItems, type SlashId, type SlashItem } from "../lib/slashItems";
 import { formatTimestamp } from "../lib/timestamp";
+import { placeLine } from "../lib/place";
+import { showToast } from "../lib/toast";
 import { openCapture, pickFiles } from "./attachments";
 import { openVoiceRecorder } from "./VoiceRecorder";
 import { openMemeKit } from "./MemeKit";
@@ -19,6 +21,19 @@ export function insertLogOrTime(editor: Editor) {
   const chain = editor.chain().focus();
   if (blankLine && !inList) chain.toggleBulletList();
   return chain.insertContent(formatTimestamp(new Date()) + " ").run();
+}
+
+/** 📍 Your current location at the cursor (the line appears when the fix and its name are in). */
+export function insertPlace(editor: Editor) {
+  const at = editor.state.selection.from;
+  showToast("📍 Finding where you are…", "info");
+  void placeLine().then((line) => {
+    if (!line) return void showToast("Couldn't get your location: is location (GPS) on?", "error");
+    if (editor.isDestroyed) return;
+    const pos = Math.min(at, editor.state.doc.content.size);
+    editor.chain().insertContentAt(pos, line + " ").run();
+  });
+  return true;
 }
 
 export interface SlashMenuOptions {
@@ -43,6 +58,9 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       chain.run();
       return insertLogOrTime(editor);
     case "tag": return chain.insertContent("#").run();
+    case "place":
+      chain.run();
+      return insertPlace(editor);
     case "link":
     case "embed": {
       // ![[…]] shows the day or page (or one part of it, after #) right here.

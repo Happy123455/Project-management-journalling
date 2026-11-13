@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { busyOn, clock, DAY, dayLabel, freeGaps, hm, midnight, overlaps, PLAN_KINDS, pushLater, snapTime, type Busy, type Layer, type Plan, type Step } from "../lib/deadline";
+import { busyOn, clock, DAY, dayLabel, freeGaps, hm, midnight, overlaps, PLAN_KINDS, PLAN_ROWS, planLanes, pushLater, skyGradient, snapTime, type Busy, type Layer, type Plan, type Step } from "../lib/deadline";
 import { reminderTimes } from "../lib/reminders";
 import { dayKey } from "../lib/timestamp";
 import { fx } from "../lib/fx";
@@ -13,6 +13,8 @@ import type { RoutineView } from "../routine/routineData";
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 const LONG_PRESS = 420;
+/** Height of one plan lane on the line (a block dragged this far up or down changes lane). */
+const LANE = 34;
 const MAGNET_PX = 10;
 
 export interface StripComment {
@@ -29,7 +31,7 @@ function rowsOf(editor: Editor, tid: string) {
 
 type Drag =
   | { kind: "select"; anchor: number; at: number }
-  | { kind: "move"; ids: string[]; grab: number; delta: number; moved: boolean; origin: number }
+  | { kind: "move"; ids: string[]; grab: number; delta: number; moved: boolean; origin: number; y: number; rows: number }
   | { kind: "edge"; id: string; side: "start" | "end"; start: number; end: number };
 
 const kindColor = (p: Plan) => PLAN_KINDS.find((k) => k.id === (p.kind ?? "focus"))?.color;
@@ -63,6 +65,7 @@ export function DeadlineStrip({ editor, tid, endAt, layer, view, now, focus, oth
   const t0 = days.length ? midnight(days[0]) : midnight(dayKey(new Date(focus)));
   const t1 = days.length ? midnight(days[days.length - 1]) + DAY : t0 + DAY;
   const plans = rows.flatMap((r) => r.plans);
+  const lanes = planLanes(plans);
   const comments = rows.flatMap((r) => r.comments);
   const head = headOf(editor, tid);
   const snapMins = Number(head?.snap) || 5;
@@ -79,9 +82,11 @@ export function DeadlineStrip({ editor, tid, endAt, layer, view, now, focus, oth
   const pointers = useRef(new Map<number, number>());
   const pinch = useRef<{ dist: number; pxh: number; at: number } | null>(null);
   const keepAt = useRef<{ t: number; x: number } | null>({ t: focus, x: 0.35 });
-  const press = useRef<{ timer: number; id: string; x: number } | null>(null);
+  const press = useRef<{ timer: number; id: string; x: number; y: number } | null>(null);
   const lastSnap = useRef<number>(0);
 
+  // The same colours as the bars: night blue to dawn to day to dusk as the line goes along.
+  const sky = useMemo(() => skyGradient(t0, t1, Math.min(400, Math.round((t1 - t0) / HOUR))), [t0, t1]);
   const busy: Busy[] = useMemo(() => (view ? days.flatMap((d) => busyOn(d, layer, view.config, view.stats, view.days)) : []), [view, days.join(), layer]);
   const taken = [...busy, ...plans.map((p) => ({ ...p, icon: "", label: p.text })), ...others.map((p) => ({ ...p, icon: "", label: p.text }))];
   const free = freeGaps(Math.max(t0, now), Math.min(t1, endAt), taken);
@@ -172,13 +177,13 @@ export function DeadlineStrip({ editor, tid, endAt, layer, view, now, focus, oth
         press.current = null;
         setDrag(null);
         togglePick(pid);
-      }, LONG_PRESS), id: pid, x: e.clientX };
+      }, LONG_PRESS), id: pid, x: e.clientX, y: e.clientY };
       const side = target.dataset.edge as "start" | "end" | undefined;
       lastSnap.current = 0;
       if (side) setDrag({ kind: "edge", id: pid, side, start: p.start, end: p.end });
       else {
         const ids = picked.has(pid) ? [...picked] : [pid];
-        setDrag({ kind: "move", ids, grab: t - p.start, delta: 0, moved: false, origin: p.start });
+        setDrag({ kind: "move", ids, grab: t - p.start, delta: 0, moved: false, origin: p.start, y: e.clientY, rows: 0 });
       }
     } else if (!target.closest(".ds-dot, .ds-form")) {
       if (!edit && e.pointerType === "touch") return;
@@ -196,7 +201,7 @@ export function DeadlineStrip({ editor, tid, endAt, layer, view, now, focus, oth
       zoomTo((pinch.current.pxh * d) / Math.max(10, pinch.current.dist), pinch.current.at);
       return;
     }
-    if (press.current && Math.abs(e.clientX - press.current.x) > 6) {
+    if (press.current && (Math.abs(e.clientX - press.current.x) > 6 || Math.abs(e.clientY - press.current.y) > 8)) {
       window.clearTimeout(press.current.timer);
       press.current = null;
       if (drag?.kind === "move" || drag?.kind === "edge") fx("pick");
@@ -204,8 +209,11 @@ export function DeadlineStrip({ editor, tid, endAt, layer, view, now, focus, oth
     if (!drag || press.current) return;
     if (drag.kind === "select") setDrag({ ...drag, at: snapAt(tAt(e.clientX), []) });
     else if (drag.kind === "move") {
-      const start = snapAt(tAt(e.clientX) - drag.grab, drag.ids);
-      setDrag({ ...drag, delta: start - drag.origin, moved: true });
+      // Up or down moves it off the main line into a lane (so blocks don't sit on top of each other).
+      const rows = Math.round((e.clientY - drag.y) / LANE);
+      const start = Math.abs(e.clientY - drag.y) > LANE / 2 && Math.abs(tAt(e.clientX) - drag.grab - drag.origin) < (MAGNET_PX / pxh) * HOUR ? drag.origin : snapAt(tAt(e.clientX) - drag.grab, drag.ids);
+      if (rows !== drag.rows) fx("tick");
+      setDrag({ ...drag, delta: start - drag.origin, moved: true, rows });
     } else {
       const t = snapAt(tAt(e.clientX), [drag.id]);
       if (drag.side === "start") setDrag({ ...drag, start: Math.min(t, drag.end - snapMins * MIN) });
@@ -233,9 +241,15 @@ export function DeadlineStrip({ editor, tid, endAt, layer, view, now, focus, oth
         else if (wasPress) (fx("open"), onOpenPlan(wasPress.id));
         return;
       }
-      if (!drag.delta) return;
-      const list = plans.map((p) => (drag.ids.includes(p.id) ? { ...p, start: p.start + drag.delta, end: p.end + drag.delta } : p));
+      if (!drag.delta && !drag.rows) return;
+      const rowOf = (p: Plan) => Math.min(PLAN_ROWS - 1, Math.max(0, (lanes.get(p.id) ?? 0) + drag.rows));
+      const list = plans.map((p) => (drag.ids.includes(p.id) ? { ...p, start: p.start + drag.delta, end: p.end + drag.delta, ...(drag.rows ? { row: rowOf(p) } : {}) } : p));
       const first = list.find((p) => p.id === drag.ids[0])!;
+      if (!drag.delta) {
+        fx("drop");
+        savePlans(editor, tid, list, `Moved ${first.text} to ${first.row ? `lane ${first.row + 1}` : "the main line"}`);
+        return;
+      }
       commit(list, drag.ids, drag.ids.length > 1 ? `Moved ${drag.ids.length} plans ${drag.delta > 0 ? "+" : "−"}${hm(Math.abs(drag.delta))}` : `Moved ${first.text} to ${clock(first.start)}`);
       return;
     }
@@ -245,10 +259,13 @@ export function DeadlineStrip({ editor, tid, endAt, layer, view, now, focus, oth
   };
 
   const shown = (p: Plan): Plan => {
-    if (drag?.kind === "move" && drag.ids.includes(p.id)) return { ...p, start: p.start + drag.delta, end: p.end + drag.delta };
+    if (drag?.kind === "move" && drag.ids.includes(p.id)) return { ...p, start: p.start + drag.delta, end: p.end + drag.delta, row: Math.min(PLAN_ROWS - 1, Math.max(0, (lanes.get(p.id) ?? 0) + drag.rows)) };
     if (drag?.kind === "edge" && drag.id === p.id) return { ...p, start: drag.start, end: drag.end };
     return p;
   };
+  const shownPlans = plans.map(shown);
+  const shownLanes = planLanes(shownPlans);
+  const deepest = Math.max(0, ...shownLanes.values());
   const selection = drag?.kind === "select" ? { start: Math.min(drag.anchor, drag.at), end: Math.max(drag.anchor, drag.at) } : sel;
   const step = pxh >= 900 ? 2 : pxh >= 360 ? 10 : pxh >= 120 ? 30 : 60; // grid minutes
   const lines: number[] = [];
@@ -261,7 +278,7 @@ export function DeadlineStrip({ editor, tid, endAt, layer, view, now, focus, oth
     const p = plans.find((q) => q.id === id);
     if (!p || (drag.kind === "move" && !drag.moved)) return null;
     const s = shown(p);
-    return { left: x(s.start), text: `${clock(s.start)} → ${clock(s.end)} · ${hm(s.end - s.start)}` };
+    return { left: x(s.start), top: 116 + (shownLanes.get(p.id) ?? 0) * LANE, text: `${clock(s.start)} → ${clock(s.end)} · ${hm(s.end - s.start)}` };
   })();
 
   const addPlan = () => {
@@ -311,7 +328,7 @@ export function DeadlineStrip({ editor, tid, endAt, layer, view, now, focus, oth
         className={`ds-scroll${edit ? " editing" : ""}${drag && drag.kind !== "select" ? " dragging" : ""}`}
         onWheel={(e) => (e.ctrlKey || e.metaKey) && (e.preventDefault(), zoomTo(pxh * (e.deltaY < 0 ? 1.15 : 0.87), e.clientX))}
       >
-        <div className="ds-track" style={{ width: x(t1) }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+        <div className="ds-track" style={{ width: x(t1), height: 140 + deepest * LANE, ["--sky" as string]: sky }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
           {days.map((d) => {
             const l = dayLabel(d);
             return <div key={d} className={`ds-day${l.weekend ? " weekend" : ""}`} style={{ left: x(midnight(d)), width: x(midnight(d) + DAY) - x(midnight(d)) }}><b>{l.text}</b></div>;
@@ -345,7 +362,7 @@ export function DeadlineStrip({ editor, tid, endAt, layer, view, now, focus, oth
           {steps.filter((s) => s.at && s.at >= t0 && s.at <= t1).map((s) => (
             <span key={s.id} className={`ds-mile${s.done ? " done" : ""}`} style={{ left: x(s.at!) }} title={`${s.text} · ${clock(s.at!)}`}>🚩</span>
           ))}
-          {plans.map(shown).map((p) => {
+          {shownPlans.map((p) => {
             const missed = !p.done && p.end <= now && !p.actual?.length;
             const moving = drag && drag.kind !== "select" && (drag.kind === "move" ? drag.ids.includes(p.id) && drag.moved : drag.id === p.id);
             return (
@@ -353,7 +370,7 @@ export function DeadlineStrip({ editor, tid, endAt, layer, view, now, focus, oth
                 key={p.id}
                 data-plan={p.id}
                 className={`ds-plan${p.ai ? " ai" : ""}${picked.has(p.id) ? " picked" : ""}${p.done ? " done" : ""}${missed ? " missed" : ""}${moving ? " moving" : ""}`}
-                style={{ left: x(p.start), width: Math.max(4, x(p.end) - x(p.start)), ["--c" as string]: kindColor(p) }}
+                style={{ left: x(p.start), top: 84 + (shownLanes.get(p.id) ?? 0) * LANE, width: Math.max(4, x(p.end) - x(p.start)), ["--c" as string]: kindColor(p) }}
               >
                 <i data-edge="start" className="ds-edge" />
                 <span>{p.done ? "✓ " : ""}{p.text} <small>{clock(p.start)}–{clock(p.end)}</small></span>
@@ -366,7 +383,7 @@ export function DeadlineStrip({ editor, tid, endAt, layer, view, now, focus, oth
           {selection && <div className="ds-sel" style={{ left: x(selection.start), width: Math.max(2, x(selection.end) - x(selection.start)) }}><small>{clock(selection.start)}–{clock(selection.end)} · {hm(selection.end - selection.start)}</small></div>}
           {now >= t0 && now <= t1 && <i className="ds-now" style={{ left: x(now) }}><small>{clock(now)}</small></i>}
           {endAt >= t0 && endAt <= t1 && <span className="ds-flag" style={{ left: x(endAt) }}>🏁</span>}
-          {floating && <span className="ds-float" style={{ left: floating.left }}>{floating.text}</span>}
+          {floating && <span className="ds-float" style={{ left: floating.left, top: floating.top }}>{floating.text}</span>}
         </div>
       </div>
       {clash && (

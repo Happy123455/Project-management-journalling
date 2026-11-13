@@ -45,6 +45,29 @@ class MainActivity : TauriActivity() {
     if (granted) fixLocation(id) else answerLocation(id, null)
   }
 
+  /** 📍 in a note: a fresh precise fix (GPS when it's on), asked for fine location once. */
+  private var preciseWaiting: String? = null
+  private val askPrecise = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { got ->
+    val id = preciseWaiting ?: return@registerForActivityResult
+    preciseWaiting = null
+    if (got.values.any { it }) preciseFix(id) else answerLocation(id, null)
+  }
+
+  private fun preciseFix(id: String) {
+    val lm = getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+    try {
+      val fine = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+      val providers = (if (fine) listOf(android.location.LocationManager.GPS_PROVIDER) else emptyList()) + android.location.LocationManager.NETWORK_PROVIDER
+      val provider = providers.firstOrNull { lm.isProviderEnabled(it) } ?: return answerLocation(id, null)
+      val last = runCatching { lm.getLastKnownLocation(provider) }.getOrNull()
+      if (android.os.Build.VERSION.SDK_INT < 30) return answerLocation(id, last)
+      if (last != null && System.currentTimeMillis() - last.time < 60_000L) return answerLocation(id, last)
+      lm.getCurrentLocation(provider, null, mainExecutor) { loc -> answerLocation(id, loc ?: last) }
+    } catch (e: SecurityException) {
+      answerLocation(id, null)
+    }
+  }
+
   private fun answerLocation(id: String, loc: android.location.Location?) {
     val json = if (loc == null) "null" else JSONObject().put("lat", loc.latitude).put("lon", loc.longitude).toString()
     val js = "window.__journalLocation && window.__journalLocation(${JSONObject.quote(id)}, $json)"
@@ -76,6 +99,15 @@ class MainActivity : TauriActivity() {
       else {
         locationWaiting = id
         askLocation.launch(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+      }
+    }
+
+    @JavascriptInterface
+    fun precise(id: String) = runOnUiThread {
+      if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) preciseFix(id)
+      else {
+        preciseWaiting = id
+        askPrecise.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
       }
     }
   }

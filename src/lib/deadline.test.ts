@@ -96,3 +96,17 @@ const dayKeyOf = (t: number) => {
   const d = new Date(t);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
+
+describe("plan lanes", () => {
+  it("overlapping plans go to the next free lane; a dragged lane is kept", async () => {
+    const { planLanes } = await import("./deadline");
+    const h = 3_600_000;
+    const lanes = planLanes([
+      { id: "a", start: 0, end: 2 * h, text: "a" },
+      { id: "b", start: h, end: 3 * h, text: "b" },
+      { id: "c", start: 2 * h, end: 4 * h, text: "c" },
+      { id: "d", start: 5 * h, end: 6 * h, text: "d", row: 2 },
+    ]);
+    expect([...lanes.entries()].sort()).toEqual([["a", 0], ["b", 1], ["c", 0], ["d", 2]]);
+  });
+});

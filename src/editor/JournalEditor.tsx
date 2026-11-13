@@ -30,7 +30,7 @@ import { LogBlock } from "./logBlock";
 import { KeyboardBar, useTouchDevice } from "./KeyboardBar";
 import { HotCaret } from "./HotCaret";
 import { LinkSuggest } from "./linkSuggest";
-import { insertLogOrTime, SlashMenu } from "./slashMenu";
+import { insertLogOrTime, insertPlace, SlashMenu } from "./slashMenu";
 import { openOutline, setViewMode, useViewMode, type ViewMode } from "./viewMode";
 import { SourceEditor } from "./SourceEditor";
 import { openVoiceRecorder } from "./VoiceRecorder";
@@ -225,6 +225,7 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
     { key: "highlight", label: "H", title: "Highlight (Cmd/Ctrl+Shift+H)", active: active.highlight, run: () => editor.chain().focus().toggleHighlight().run() },
     { key: "code", label: "</>", title: "Code block (or type ``` and Enter)", active: active.code, run: () => codeBlockFromSelection(editor) },
     { key: "timestamp", label: "🕒", title: "Log / time: on an empty line starts a timed log, in text adds the time (Cmd/Ctrl+Shift+T)", run: () => insertLogOrTime(editor) },
+    { key: "place", label: "📍", title: "Add where you are now (needs location on)", run: () => insertPlace(editor) },
     { key: "info", label: "ⓘ", title: "Block info", run: onInfo },
     {
       key: "heading",
@@ -878,7 +879,7 @@ export function JournalEditor({
           }}
         />
       )}
-      {editor && timeRail && mode !== "source" && <TimeRail editor={editor} onJump={(pos) => jumpTo(editor, pos, unfoldAround)} />}
+      {editor && timeRail && mode !== "source" && <TimeRail editor={editor} onJump={(pos, flash) => jumpTo(editor, pos, unfoldAround, flash)} />}
       {editor && !touch && mode === "live" && (
         // Keep focus in the editor so Enter after a toolbar click types, not re-clicks (from #2).
         <div className="toolbar" onMouseDown={(e) => e.preventDefault()}>

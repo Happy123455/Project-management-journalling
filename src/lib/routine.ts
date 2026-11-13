@@ -1,6 +1,6 @@
 import type { JSONContent } from "@tiptap/react";
 import { addDays, dayKey, formatTimestamp } from "./timestamp";
-import { stampsIn } from "./timeGaps";
+import { stampsIn, timestampTime } from "./timeGaps";
 
 /**
  * Daily routine and habits. Every tap writes one timestamped line into the day's note (in a
@@ -203,9 +203,26 @@ export function logLine(at: Date, item: { icon: string; label: string }, edge: E
 }
 
 export const BOX_TITLE = "[[Routine]]";
+const textOf = (b: JSONContent): string => (b.text ?? "") + (b.content ?? []).map(textOf).join("");
 const isBoxTitle = (b: JSONContent, box: string) => b.type === "paragraph" && (b.content ?? []).map((c) => c.text ?? "").join("").trim().toLowerCase() === box.toLowerCase();
 
-/** The note with `line` added at the end of its [[Routine]] box (the box is made at the end if there's none). */
+/**
+ * Where a new log line goes in a box whose lines are `rows[start..end)`: before the first line of the
+ * box (at `indent`) whose time is later, so the box reads from the start of the day to the end
+ * (a Samsung Health sleep at 03:03 that arrives after an 11:01 bath goes above it).
+ */
+export function timeOrderedSlot(rows: { text: string; indent: number }[], start: number, end: number, indent: number, line: string): number {
+  const t = timestampTime(line);
+  if (t === null) return end;
+  for (let i = start; i < end; i++) {
+    if (rows[i].indent !== indent) continue;
+    const u = timestampTime(rows[i].text);
+    if (u !== null && u > t) return i;
+  }
+  return end;
+}
+
+/** The note with `line` added at its time's place in its [[Routine]] box (the box is made at the end if there's none). */
 export function withLogLine(doc: JSONContent | null | undefined, line: string, box = BOX_TITLE): JSONContent {
   const content = [...(doc?.content ?? [])];
   const at = content.findIndex((b) => isBoxTitle(b, box));
@@ -213,7 +230,8 @@ export function withLogLine(doc: JSONContent | null | undefined, line: string, b
     const base = Number(content[at].attrs?.indent ?? 0);
     let end = at + 1;
     while (end < content.length && Number(content[end].attrs?.indent ?? 0) > base) end++;
-    content.splice(end, 0, { type: "paragraph", attrs: { indent: base + 1 }, content: [{ type: "text", text: line }] });
+    const rows = content.map((b) => ({ text: textOf(b), indent: Number(b.attrs?.indent ?? 0) }));
+    content.splice(timeOrderedSlot(rows, at + 1, end, base + 1, line), 0, { type: "paragraph", attrs: { indent: base + 1 }, content: [{ type: "text", text: line }] });
     return { type: "doc", content };
   }
   const last = content[content.length - 1];

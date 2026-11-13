@@ -125,6 +125,33 @@ export interface Plan {
   step?: string;
   /** Focus timer sessions actually spent on it. */
   actual?: { start: number; end: number }[];
+  /** Its lane on the opened-up line (0 = the main line, 1–3 below it); dragged up or down by hand. */
+  row?: number;
+}
+
+export const PLAN_ROWS = 4;
+
+/**
+ * The lane each plan is drawn in on the opened-up line. A plan dragged to a lane keeps it; the
+ * others take the main line, or the first lane down where they don't overlap anything already
+ * placed, so blocks only overlap when every lane is taken at that time.
+ */
+export function planLanes(plans: Plan[]): Map<string, number> {
+  const lanes = new Map<string, number>();
+  const placed: { start: number; end: number; row: number }[] = [];
+  const fixed = plans.filter((p) => p.row !== undefined);
+  for (const p of fixed) {
+    const row = Math.min(PLAN_ROWS - 1, Math.max(0, Math.round(p.row!)));
+    lanes.set(p.id, row);
+    placed.push({ start: p.start, end: p.end, row });
+  }
+  for (const p of [...plans].filter((q) => q.row === undefined).sort((a, b) => a.start - b.start || b.end - a.end)) {
+    let row = 0;
+    while (row < PLAN_ROWS - 1 && placed.some((q) => q.row === row && q.start < p.end && p.start < q.end)) row++;
+    lanes.set(p.id, row);
+    placed.push({ start: p.start, end: p.end, row });
+  }
+  return lanes;
 }
 
 /** One step of a deadline (with its estimate); `at` makes it a milestone flag on the bars. */

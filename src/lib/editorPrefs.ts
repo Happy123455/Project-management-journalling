@@ -18,6 +18,8 @@ export interface EditorPrefs {
   maxCps: number;
   /** Month view: "⏳ Deadlines today" under Coming up, to its left, or not at all. */
   monthDeadlines: "below" | "left" | "off";
+  /** Going to a timestamp from the time rail lights its line in that time of day's colour for 4 s. */
+  timeFlash: boolean;
 }
 
 /** Follows the prefs (Settings changes them while the app runs). */
@@ -32,7 +34,7 @@ export function useEditorPrefs(): EditorPrefs {
 }
 
 const KEY = "journal.editor";
-const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true, prettyMath: true, typingGuide: false, maxCps: 6, monthDeadlines: "below" };
+const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true, prettyMath: true, typingGuide: false, maxCps: 6, monthDeadlines: "below", timeFlash: true };
 
 /** Read on every letter typed (formulas, edit stamps…): parsed again only when the stored text changes. */
 let cached: { raw: string | null; prefs: EditorPrefs } | null = null;

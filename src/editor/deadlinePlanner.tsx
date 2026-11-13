@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { askAi, AiUnavailableError } from "../ai/client";
-import { clock, hm, type Busy, type Plan } from "../lib/deadline";
+import { clock, hm, skyGradient, type Busy, type Plan } from "../lib/deadline";
 import { showError, showToast } from "../lib/toast";
 import { randomLid } from "../sync/lineIds";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
@@ -119,7 +119,7 @@ export function Planner({ start, end, busy, plans, prefs, onPlans, onPrefs, onCl
           <span className="hint">{hm(span)} free{inside.length ? `, ${hm(span - inside.reduce((s, p) => s + p.end - p.start, 0))} left` : ""}</span>
           <button type="button" onClick={onClose} aria-label="Close">✕</button>
         </header>
-        <div className="dl-plan-rail">
+        <div className="dl-plan-rail" style={{ ["--sky" as string]: skyGradient(start, start + span, 12).replace("90deg", "180deg") }}>
           {inside.map((p) => (
             <div key={p.id} className={`dl-plan-block${p.ai ? " ai" : ""}`} style={{ top: `${((p.start - start) / span) * 100}%`, height: `${((p.end - p.start) / span) * 100}%` }}>
               <span>{p.text}</span>

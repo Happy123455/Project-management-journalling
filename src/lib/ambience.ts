@@ -65,7 +65,7 @@ let weatherAt = 0;
 
 declare global {
   interface Window {
-    JournalLocation?: { request(id: string): void };
+    JournalLocation?: { request(id: string): void; precise?(id: string): void };
     __journalLocation?: (id: string, loc: { lat: number; lon: number } | null) => void;
   }
 }

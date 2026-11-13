@@ -185,8 +185,9 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
   const [reminders, setReminders] = useState<{ at: number; text: string }[]>([]);
   const [menu, setMenu] = useState<{ at: number; x: number } | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  // The first bar keeps every plan of the deadline (for progress); others only need theirs, until a sheet opens.
-  const allPlans = useDeadlinePlans(editor, a.tid, !!a.day && (top || sheet || planOpen !== null));
+  // Every bar keeps the deadline's plans: a block that runs past midnight is saved on the day it
+  // starts, and the next day's bar shows the rest of it.
+  const allPlans = useDeadlinePlans(editor, a.tid, !!a.day);
 
   useEffect(() => (a.tid && a.day ? registerDeadlineEditor(a.tid, editor) : undefined), [a.tid, a.day, editor]);
 
@@ -243,7 +244,8 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
   const width = (s: number, e: number) => `${(((Math.min(e, to) - Math.max(s, from)) / span) * 100).toFixed(2)}%`;
   const label = dayLabel(a.day);
   const t0 = midnight(a.day);
-  const plans = ((a.plans ?? []) as Plan[]).filter((p) => p.end > t0 && p.start < t0 + DAY);
+  const own = (a.plans ?? []) as Plan[];
+  const plans = [...own, ...allPlans.filter((p) => !own.some((o) => o.id === p.id))].filter((p) => p.end > t0 && p.start < t0 + DAY);
   const otherHere = others.filter((p) => p.end > t0 && p.start < t0 + DAY);
   const taken = [...busy, ...plans.map((p) => ({ ...p, icon: "", label: p.text })), ...otherHere.map((p) => ({ ...p, icon: "", label: p.text }))];
   const free = freeGaps(Math.max(from, now), Math.min(to, a.endAt), taken);

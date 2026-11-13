@@ -1,6 +1,6 @@
 export type SlashId =
   | "heading" | "task" | "bullet" | "numbered" | "quote" | "code" | "math"
-  | "divider" | "timestamp" | "link" | "embed" | "tag" | "reminder"
+  | "divider" | "timestamp" | "place" | "link" | "embed" | "tag" | "reminder"
   | "attach" | "deadline" | "capture" | "project" | "voice" | "meme" | "sound" | "prompt" | "logproject";
 
 export interface SlashItem {
@@ -21,6 +21,7 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: "code", label: "Code", icon: "</>", keywords: ["codeblock", "snippet"] },
   { id: "math", label: "Math", icon: "∑", keywords: ["equation", "latex", "formula", "handwriting", "calculate", "variable"] },
   { id: "divider", label: "Divider", icon: "—", keywords: ["line", "hr", "separator"] },
+  { id: "place", label: "Location", icon: "📍", keywords: ["location", "place", "where", "gps", "map", "here", "address"] },
   { id: "timestamp", label: "Log / Time", icon: "🕒", keywords: ["timestamp", "stamp", "time", "now", "clock", "log", "entries", "diary"] },
   { id: "link", label: "Link page", icon: "[[ ]]", keywords: ["wikilink", "page", "person", "day", "date", "section"] },
   { id: "embed", label: "Embed note", icon: "⧉", keywords: ["transclude", "preview", "inline", "day", "section", "show"] },
