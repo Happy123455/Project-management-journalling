@@ -3635,3 +3635,26 @@ html.dl-dragging, html.dl-dragging * { user-select: none !important; -webkit-use
 .ds-plan { transition: box-shadow 0.2s, transform 0.25s var(--spring), top 0.2s var(--spring); }
 .ds-plan.moving { transition: box-shadow 0.2s, transform 0.25s var(--spring); }
 .dl-plan-rail::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--sky); opacity: 0.4; pointer-events: none; }
+/* ⏳ Timelines → ▤ Gantt */
+.gantt-scroll { overflow-x: auto; padding: 0 8px 24px; -webkit-overflow-scrolling: touch; }
+.gantt { display: block; color: var(--text); font-family: system-ui, sans-serif; }
+.gantt-col { fill: color-mix(in srgb, var(--muted) 9%, transparent); }
+.gantt-col.weekend { fill: color-mix(in srgb, var(--reminder, #d9534f) 8%, transparent); }
+.gantt-col.past { opacity: 0.5; }
+.gantt-wd { font-size: 10px; fill: var(--muted); }
+.gantt-wd.today { fill: var(--accent); font-weight: 700; }
+.gantt-dn { font-size: 13px; font-weight: 600; fill: var(--text); }
+.gantt-dn.today { fill: #fff; }
+.gantt-dn.weekend { fill: var(--reminder, #d9534f); }
+.gantt-today-dot { fill: var(--accent); }
+.gantt-group { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; fill: currentColor; }
+.gantt-task { font-size: 12px; fill: var(--text); }
+.gantt-task.done { opacity: 0.5; text-decoration: line-through; }
+.gantt-sep { stroke: var(--border); }
+.gantt-bar { stroke: currentColor; stroke-opacity: 0.6; }
+.gantt-bar.done { opacity: 0.45; }
+.gantt-bar.est { stroke-dasharray: 4 3; }
+.gantt-link { fill: none; stroke: currentColor; stroke-width: 1.5; opacity: 0.7; }
+.gantt-mile { fill: var(--panel); stroke: currentColor; stroke-width: 2.5; }
+.gantt-now { stroke: var(--accent); stroke-width: 2; }
+.gantt-due { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 4 4; }

@@ -7,6 +7,7 @@ import { addDays, dayKey } from "../lib/timestamp";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
 import { useNow, useRoutineShared } from "./deadlineBar";
 import { allTimelines, type Timeline } from "./deadlineStore";
+import { Gantt } from "./GanttView";
 
 /** Opens ⏳ Timelines: every deadline bar made, or (with a tid) one of them side by side. */
 export const TIMELINES_EVENT = "journal:timelines";
@@ -102,7 +103,7 @@ function AllTogether({ list, now }: { list: Timeline[]; now: number }) {
 export function TimelinesHost({ store, onOpenDay }: { store: JournalStore; onOpenDay: (day: string) => void }) {
   const [open, setOpen] = useState<{ tid?: string; note?: string } | null>(null);
   const [list, setList] = useState<Timeline[] | null>(null);
-  const [together, setTogether] = useState(false);
+  const [together, setTogether] = useState<false | "days" | "gantt">(false);
   const now = useNow();
   useEffect(() => {
     const on = (e: Event) => setOpen((e as CustomEvent).detail ?? {});
@@ -132,6 +133,11 @@ export function TimelinesHost({ store, onOpenDay }: { store: JournalStore; onOpe
           <p className="hint">{picked.endAt > now ? `${timeLeft(picked.endAt - now)} left` : "Due"} · due {new Date(picked.endAt).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</p>
           <SideBySide t={picked} />
         </>
+      ) : together === "gantt" ? (
+        <>
+          <button type="button" className="tl-free-btn on tl-together-btn" onClick={() => setTogether(false)}>▤ Gantt</button>
+          <Gantt list={list} now={now} />
+        </>
       ) : together ? (
         <>
           <button type="button" className="tl-free-btn on tl-together-btn" onClick={() => setTogether(false)}>▦ All together</button>
@@ -141,7 +147,8 @@ export function TimelinesHost({ store, onOpenDay }: { store: JournalStore; onOpe
         <p className="hint">No deadlines yet. Type /deadline in a note to make one.</p>
       ) : (
         <ul className="tl-list">
-          <li><button type="button" className="tl-together" onClick={() => setTogether(true)}><strong>▦ All together</strong><span>Every open deadline on the same days, each in its own colour</span></button></li>
+          <li><button type="button" className="tl-together" onClick={() => setTogether("gantt")}><strong>▤ Gantt</strong><span>Every open deadline's steps as bars across the days, with Today, milestones and due days</span></button></li>
+          <li><button type="button" className="tl-together" onClick={() => setTogether("days")}><strong>▦ All together</strong><span>Every open deadline on the same days, each in its own colour</span></button></li>
           {list.map((t) => {
             const total = t.endAt - midnight(t.rows[0]?.day ?? dayKey(new Date()));
             const done = Math.min(1, Math.max(0, 1 - (t.endAt - now) / Math.max(1, total)));
