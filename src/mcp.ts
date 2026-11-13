@@ -1,4 +1,5 @@
 import { appendBlocks, textBlocks } from "./lib/append";
+import { GRAPH_PREFIX, loadoutPageContent, parseLoadout } from "./lib/canvasLoadout";
 import { dayKey } from "./lib/timestamp";
 import { docText } from "./lib/words";
 import type { JournalStore } from "./store";
@@ -136,6 +137,18 @@ export async function runMcpTool(store: JournalStore, call: Pick<McpCall, "tool"
       await store.savePage({ id: page.id, content, plainText: docText(content), actor });
       window.dispatchEvent(new Event("journal:reload-page"));
       return text(`Added to ${page.title}.`);
+    }
+    case "save_graph": {
+      const name = str("title").replace(/^Graph · /, "").trim().slice(0, 60);
+      const d = parseLoadout(str("data"));
+      if (!name) return text("title is empty", true);
+      if (!d) return text("data has no graph in it (needs features, prompts and segs)", true);
+      const actor = call.actor || "MCP client";
+      const page = await store.ensurePage(`${GRAPH_PREFIX}${name}`, actor);
+      // The summary line, not the JSON, is what links and tags are read from: prompts that mention
+      // [[pages]] or #tags don't become backlinks.
+      await store.savePage({ id: page.id, content: loadoutPageContent(d), plainText: `Graph: ${name} (${d.segs.length} nodes)`, actor });
+      return text(`Saved "${GRAPH_PREFIX}${name}": ${d.segs.length} nodes on ${d.features.length} branches. Open any note's Canvas and pick it in the graph menu.`);
     }
     default:
       return text(`Unknown tool ${call.tool}`, true);

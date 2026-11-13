@@ -36,3 +36,17 @@ describe("graph loadouts", () => {
     expect(info.thread).toBe("Plan");
   });
 });
+
+describe("save_graph (MCP)", () => {
+  it("saves a graph page whose links and tags aren't read from the prompts", async () => {
+    const { MemoryStore } = await import("../store/memoryStore");
+    const { runMcpTool } = await import("../mcp");
+    const store = new MemoryStore();
+    const withLink = { ...data, prompts: [{ t: "2026-10-28T13:23:39", text: "see [[Journal]] #idea" }], segs: [{ p: 0, f: "sync", text: "see [[Journal]] #idea" }] };
+    const r = await runMcpTool(store, { tool: "save_graph", args: { title: "Prompts", data: JSON.stringify(withLink) }, actor: "Claude" });
+    expect(r.isError).toBeFalsy();
+    const page = await store.getPage("Graph · Prompts");
+    expect(parseLoadout(page!.content.content![0].content![0].text!)?.segs).toHaveLength(1);
+    expect(await store.references("wikilink", "Journal")).toHaveLength(0);
+  });
+});
