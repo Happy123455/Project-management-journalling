@@ -1,4 +1,5 @@
-import { showToast } from "../lib/toast";
+import { showError, showToast } from "../lib/toast";
+import { exportProjectForAi } from "./exportProject";
 import { MediaPeek, mediaItemsIn } from "../editor/MediaPeek";
 import { countsTowardsLimit, MAX_ACTIVE_PROJECTS } from "../lib/projects";
 import { useEffect, useState } from "react";
@@ -24,6 +25,18 @@ export function ProjectPanel({ store, page, refreshKey, onChanged, onOpenDay }: 
 }) {
   const [tasks, setTasks] = useState<RolledTask[] | null>(null);
   const [tick, setTick] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const exportAi = async () => {
+    setExporting(true);
+    try {
+      const where = await exportProjectForAi(store, page);
+      if (where) showToast(`📦 Saved ${where.split(/[\\/]/).pop()}`, "info");
+    } catch (e) {
+      showError("Couldn't export the project", e);
+    } finally {
+      setExporting(false);
+    }
+  };
   useEffect(() => {
     let live = true;
     loadProjectTasks(store, page).then((t) => live && setTasks(t));
@@ -89,6 +102,9 @@ export function ProjectPanel({ store, page, refreshKey, onChanged, onOpenDay }: 
           </button>
         ))}
       </div>
+      <button type="button" className="project-export" disabled={exporting} onClick={() => void exportAi()} title="Notes, page, edit history, AI chats, media and the project graph in one zip, for any AI">
+        {exporting ? "Packing…" : "📦 Export for AI"}
+      </button>
       <p className="hint">
         Tasks here, and any ☑ task anywhere with [[{page.title}]] or #{projectTag(page.title)}, show up below.
       </p>

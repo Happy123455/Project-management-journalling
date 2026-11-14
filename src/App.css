@@ -3898,3 +3898,4 @@ html.dl-dragging, html.dl-dragging * { user-select: none !important; -webkit-use
 .vg-badge { position: fixed; z-index: 61; top: calc(max(8px, env(safe-area-inset-top)) + 34px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 4px 12px; font-size: 12px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(12px); font-variant-numeric: tabular-nums; }
 .vg-dot { width: 7px; height: 7px; border-radius: 50%; background: #d9534f; animation: pulse 1.4s ease-in-out infinite; }
 html.at-rest .vg-dot { animation: none; }
+.project-export { border-radius: 999px; font-size: 13px; padding: 4px 14px; margin: 2px 0 6px; }

@@ -74,9 +74,9 @@ export function addFeatures(d: PromptMapData, labels: string[]): { graph: Prompt
  * `branchIds[i]`. The parts join back into the prompt's text exactly (Canvas shows where each
  * part sits in it).
  */
-export function addPrompt(d: PromptMapData, p: { at: Date; thread: string; ideas: string[]; branchIds: string[] }): PromptMapData {
+export function addPrompt(d: PromptMapData, p: { at: Date; thread: string; ideas: string[]; branchIds: string[]; sep?: string }): PromptMapData {
   const index = d.prompts.length;
-  const parts = p.ideas.map((t, i) => (i < p.ideas.length - 1 ? `${t} ` : t));
+  const parts = p.ideas.map((t, i) => (i < p.ideas.length - 1 ? `${t}${p.sep ?? " "}` : t));
   return {
     ...d,
     prompts: [...d.prompts, { t: localIso(p.at), text: parts.join(""), thread: p.thread }],
