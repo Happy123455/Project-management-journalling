@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { JournalStore } from "./store";
 import { loadAiSettings, saveAiSettings } from "./ai/settings";
 import type { CoolLevel } from "./ai/local";
-import { blockRows, type BlockRow, type Section } from "./ai/blocks";
+import { LinePicker } from "./ai/LinePicker";
 import { currentJob, isMac, listChats, loadChat, newChat, saveChat, sendMessage, stopJob, stopWatching, subscribeJob, watchRemote, type Chat, type Msg } from "./ai/chatRunner";
 import { parseOutline, outlineDoc, type OutlineNode } from "./lib/outline";
 import { appendBlocks, textBlocks } from "./lib/append";
@@ -64,59 +64,6 @@ function Steps({ steps, open }: { steps: { kind: "thought" | "tool"; text: strin
         )}
       </ol>
     </details>
-  );
-}
-
-/** A note as a mini map of its blocks: tap the first and the last block of the part the AI may edit. */
-function SectionPicker({ store, current, onPick, onClose }: { store: JournalStore; current?: Section | null; onPick: (s: Section | null) => void; onClose: () => void }) {
-  const [day, setDay] = useState(current?.day ?? (current?.title ? "" : dayKey(new Date())));
-  const [title, setTitle] = useState(current?.title ?? "");
-  const [rows, setRows] = useState<BlockRow[]>([]);
-  const [ends, setEnds] = useState<number[]>([]);
-  useEffect(() => {
-    let live = true;
-    void (async () => {
-      const doc = title ? (await store.getPage(title))?.content : (await store.getDay(day))?.content;
-      if (!live) return;
-      const r = blockRows(doc ?? null);
-      setRows(r);
-      const picked = current ? r.map((x, i) => (current.ids.includes(x.id) ? i : -1)).filter((i) => i >= 0) : [];
-      setEnds(picked.length ? [picked[0], picked[picked.length - 1]] : []);
-    })();
-    return () => {
-      live = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, day, title]);
-  const [a, b] = ends.length === 2 ? [Math.min(...ends), Math.max(...ends)] : ends.length === 1 ? [ends[0], ends[0]] : [-1, -1];
-  const tap = (i: number) => setEnds(ends.length === 1 ? [ends[0], i] : [i]);
-  const use = () => {
-    const ids = rows.slice(a, b + 1).map((r) => r.id);
-    const name = title || (day === dayKey(new Date()) ? "Today" : day);
-    const short = (r: BlockRow) => (r.text || r.type).slice(0, 24);
-    onPick({ ...(title ? { title } : { day }), ids, label: `${name} · ${short(rows[a])}${b > a ? ` → ${short(rows[b])}` : ""}` });
-  };
-  return (
-    <div className="ai-section">
-      <div className="ai-chat-bar">
-        <input type="date" value={day} onChange={(e) => (setDay(e.target.value), setTitle(""))} aria-label="Day" />
-        <input value={title} placeholder="or a page title" onChange={(e) => setTitle(e.target.value)} aria-label="Page" />
-        <button type="button" onClick={onClose}>✕</button>
-      </div>
-      <p className="hint">Tap the first and the last block the AI may change.</p>
-      <div className="ai-mini-map">
-        {!rows.length && <p className="hint">Nothing written here yet.</p>}
-        {rows.map((r, i) => (
-          <button key={r.id} type="button" className={`ai-mini-row ${r.type} ${i >= a && i <= b ? "picked" : ""}`} onClick={() => tap(i)}>
-            {(r.text || `(${r.type})`).slice(0, 90)}
-          </button>
-        ))}
-      </div>
-      <div className="ai-summaries">
-        <button type="button" disabled={a < 0} onClick={use}>📍 Only this part</button>
-        <button type="button" onClick={() => onPick(null)}>Whole journal</button>
-      </div>
-    </div>
   );
 }
 
@@ -211,7 +158,7 @@ export function AiChat({ store, onChanged, openId }: { store: JournalStore; onCh
   const enough = chat.messages.filter((m) => !m.kind).length >= 4;
   const waiting = !!chat.pending || !!mine;
 
-  if (picking) return <SectionPicker store={store} current={chat.section} onClose={() => setPicking(false)} onPick={(s) => (setPicking(false), void update({ section: s, edit: s ? true : chat.edit }))} />;
+  if (picking) return <LinePicker store={store} current={chat.section} onClose={() => setPicking(false)} onPick={(s) => (setPicking(false), void update({ section: s, edit: s ? true : chat.edit }))} />;
 
   return (
     <>

@@ -3838,3 +3838,23 @@ html.dl-dragging, html.dl-dragging * { user-select: none !important; -webkit-use
 .day-preview a { color: inherit; }
 .day-preview small, .day-preview .dp-rising, .day-preview .dp-note { color: var(--muted); font-size: 12px; }
 .day-preview .dp-by { display: block; margin-top: 4px; }
+
+/* 📍 Picking lines for the AI: the note as you'd read it; dragged lines light up. */
+.lp-read { flex: 1; overflow-y: auto; padding: 6px 12px 12px; overscroll-behavior: contain; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.lp-read.selecting { cursor: ns-resize; }
+.lp-block { position: relative; padding: 2px 10px; margin: 0 -4px; border-radius: 8px; border-left: 3px solid transparent; transition: background-color 0.12s ease, border-color 0.12s ease; cursor: pointer; }
+.lp-block.picked { background: rgba(var(--heat-rgb), 0.14); border-left-color: rgb(var(--heat-rgb)); }
+.lp-block.picked.first { border-top-left-radius: 10px; }
+.lp-block.picked:not(.last) { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.lp-block.picked:not(.first) { border-top-left-radius: 0; border-top-right-radius: 0; }
+.lp-p { margin: 4px 0; line-height: 1.5; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+.lp-h { font-weight: 700; margin: 8px 0 4px; line-height: 1.3; }
+.lp-h1 { font-size: 20px; }
+.lp-h2 { font-size: 17px; }
+.lp-h3 { font-size: 15px; }
+.lp-list { margin: 4px 0; padding-left: 18px; font-size: 14px; line-height: 1.5; }
+.lp-list.taskList, .lp-list.orderedList { list-style: none; padding-left: 4px; }
+.lp-check, .lp-num { margin-right: 6px; color: var(--muted); }
+.lp-code { margin: 4px 0; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--muted) 12%, transparent); font-size: 12px; white-space: pre-wrap; max-height: 9em; overflow: hidden; }
+.lp-quote { margin: 4px 0; padding-left: 10px; border-left: 3px solid var(--border); color: var(--muted); font-size: 14px; }
+.lp-media, .lp-math { color: var(--muted); font-size: 13px; }
