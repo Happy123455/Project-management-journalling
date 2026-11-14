@@ -74,6 +74,10 @@ mod kokoro;
 #[cfg(desktop)]
 mod mcp;
 
+/// Whisper speech recognition for the voice graph (sherpa-onnx, like Kokoro).
+#[cfg(desktop)]
+mod whisper;
+
 /// Instant sync between the phone and the Mac over Wi-Fi (both listen: see direct.rs).
 mod direct;
 
@@ -193,6 +197,11 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         kokoro::download_voice,
         kokoro::speak,
         kokoro::stop_speech,
+        whisper::whisper_info,
+        whisper::download_whisper,
+        whisper::remove_whisper,
+        whisper::whisper_transcribe,
+        whisper::whisper_release,
         mcp::mcp_start,
         mcp::mcp_stop,
         mcp::mcp_reply,

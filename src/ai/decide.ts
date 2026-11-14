@@ -138,24 +138,23 @@ export interface DecideInput {
   media?: { mime: string; data: string }[];
 }
 
-async function gemini(c: DecisionConfig, contents: unknown[], schema: unknown, fetchImpl?: typeof fetch): Promise<unknown> {
+/**
+ * One Gemini request through a chain of models (the next one when a model is busy or missing):
+ * the answer's text, thoughts left out. Shared by the decision models and voice transcription.
+ */
+export async function geminiText(models: string[], body: Record<string, unknown>, fetchImpl?: typeof fetch, timeoutMs = 30_000): Promise<{ text: string; model: string }> {
   const key = await getKey("gemini");
-  if (!key) throw new Error("Decision models use Gemini: add a key in Settings → AI.");
+  if (!key) throw new Error("This uses Gemini: add a key in Settings → AI.");
   const http = fetchImpl ?? ("__TAURI_INTERNALS__" in window ? (await import("@tauri-apps/plugin-http")).fetch : fetch);
-  const models = [c.input.model, ...DECIDE_MODELS.filter((m) => m !== c.input.model)];
   let last: Error | null = null;
-  for (const m of models) {
+  for (const m of [...new Set(models)]) {
     let res: Response;
     try {
       res = await http(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
         method: "POST",
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(timeoutMs),
         headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: "You are a careful classifier. Answer only in the JSON asked for; give each answer an honest confidence from 0 to 1." }] },
-          contents,
-          generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0, mediaResolution: resolution[c.input.mediaResolution], maxOutputTokens: 4096 },
-        }),
+        body: JSON.stringify(body),
       });
     } catch (e) {
       last = new Error(`Couldn't reach Gemini: ${e instanceof Error ? e.message : String(e)}`);
@@ -165,19 +164,41 @@ async function gemini(c: DecisionConfig, contents: unknown[], schema: unknown, f
       last = new Error(`Gemini ${res.status} on ${m}`);
       continue;
     }
-    if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text().catch(() => "")).slice(0, 160)}`);
-    const body = await res.json();
-    const u = body.usageMetadata ?? {};
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(/API key not valid/i.test(t) ? "The Gemini API key isn't valid." : `Gemini ${res.status}: ${t.slice(0, 160)}`);
+    }
+    const json = await res.json();
+    const u = json.usageMetadata ?? {};
     recordUsage(m, u.promptTokenCount ?? 0, (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0));
-    const text = (body.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string; thought?: boolean }) => (p.thought ? "" : p.text ?? "")).join("");
+    const text = (json.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string; thought?: boolean }) => (p.thought ? "" : p.text ?? "")).join("");
+    return { text, model: m };
+  }
+  throw last ?? new Error("Gemini didn't answer.");
+}
+
+/** A JSON answer in `schema` (the next model when one gives unreadable JSON). */
+export async function geminiJson(models: string[], contents: unknown[], schema: unknown, opts: { system?: string; mediaResolution?: DecisionConfig["input"]["mediaResolution"]; fetchImpl?: typeof fetch } = {}): Promise<unknown> {
+  const chain = [...new Set(models)];
+  let last: Error | null = null;
+  for (let i = 0; i < chain.length; i++) {
+    const { text, model } = await geminiText(chain.slice(i), {
+      systemInstruction: { parts: [{ text: opts.system ?? "You are a careful classifier. Answer only in the JSON asked for; give each answer an honest confidence from 0 to 1." }] },
+      contents,
+      generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0, mediaResolution: resolution[opts.mediaResolution ?? "low"], maxOutputTokens: 4096 },
+    }, opts.fetchImpl);
     try {
       return JSON.parse(text);
     } catch {
-      last = new Error(`Unreadable answer from ${m}`);
+      last = new Error(`Unreadable answer from ${model}`);
+      i = chain.indexOf(model);
     }
   }
   throw last ?? new Error("Gemini didn't answer.");
 }
+
+const gemini = (c: DecisionConfig, contents: unknown[], schema: unknown, fetchImpl?: typeof fetch) =>
+  geminiJson([c.input.model, ...DECIDE_MODELS], contents, schema, { mediaResolution: c.input.mediaResolution, fetchImpl });
 
 const toAnswers = (raw: unknown, qs: Question[]): Record<string, Answer> => {
   const out: Record<string, Answer> = {};

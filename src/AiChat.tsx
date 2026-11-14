@@ -4,6 +4,8 @@ import { loadAiSettings, saveAiSettings } from "./ai/settings";
 import type { CoolLevel } from "./ai/local";
 import { LinePicker } from "./ai/LinePicker";
 import { DecidePanel } from "./ai/DecidePanel";
+import { VoicePanel } from "./ai/VoicePanel";
+import { recordingVoice, voiceSession } from "./ai/voiceSession";
 import { currentJob, isMac, listChats, loadChat, newChat, saveChat, sendMessage, stopJob, stopWatching, subscribeJob, watchRemote, type Chat, type Msg } from "./ai/chatRunner";
 import { parseOutline, outlineDoc, type OutlineNode } from "./lib/outline";
 import { appendBlocks, textBlocks } from "./lib/append";
@@ -74,6 +76,17 @@ export function AiChat({ store, onChanged, openId }: { store: JournalStore; onCh
   const [draft, setDraft] = useState("");
   const [picking, setPicking] = useState(false);
   const [deciding, setDeciding] = useState(false);
+  // 🎙️ Voice graph: open while one records or builds, or when asked for ("voice").
+  const [voicing, setVoicing] = useState(() => openId === "voice" || recordingVoice() || voiceSession().phase === "building");
+  useEffect(() => {
+    if (openId === "voice") setVoicing(true);
+  }, [openId]);
+  useEffect(() => {
+    // The 🎙️ badge while chat is open on another screen.
+    const on = (e: Event) => (e as CustomEvent<string>).detail === "voice" && (setDeciding(false), setPicking(false), setVoicing(true));
+    window.addEventListener("journal:open-ai-chat", on);
+    return () => window.removeEventListener("journal:open-ai-chat", on);
+  }, []);
   const [cool, setCool] = useState<CoolLevel>(() => loadAiSettings().cool ?? "cool");
   const [remote, setRemote] = useState(() => !isMac() && local(REMOTE_KEY) !== "0");
   const job = useSyncExternalStore(subscribeJob, currentJob);
@@ -91,7 +104,7 @@ export function AiChat({ store, onChanged, openId }: { store: JournalStore; onCh
     if (c?.pending && !isMac() && !currentJob()) watchRemote(store, c);
   };
   useEffect(() => {
-    void refresh(openId || local(LAST_KEY) || "");
+    void refresh((openId !== "voice" && openId) || local(LAST_KEY) || "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store, openId]);
   useEffect(() => {
@@ -163,6 +176,7 @@ export function AiChat({ store, onChanged, openId }: { store: JournalStore; onCh
   if (picking) return <LinePicker store={store} current={chat.section} onClose={() => setPicking(false)} onPick={(s) => (setPicking(false), void update({ section: s, edit: s ? true : chat.edit }))} />;
 
   if (deciding) return <DecidePanel store={store} onClose={() => setDeciding(false)} />;
+  if (voicing) return <VoicePanel store={store} onChanged={onChanged} onClose={() => setVoicing(false)} />;
 
   return (
     <>
@@ -198,6 +212,9 @@ export function AiChat({ store, onChanged, openId }: { store: JournalStore; onCh
         </button>
         <button type="button" className={chat.section ? "chat-ai ai-scope-pick active" : "chat-ai ai-scope-pick"} onClick={() => setPicking(true)} title="Limit the AI to one part of a note">
           📍 {chat.section ? chat.section.label : "Section"}
+        </button>
+        <button type="button" className="chat-ai" onClick={() => setVoicing(true)} title="Voice graph: talk, see the words live, get a structured graph">
+          🎙️
         </button>
         <button type="button" className="chat-ai" onClick={() => setDeciding(true)} title="Decision models: cheap yes/no, choice and score judgements (they also place voice graph nodes)">
           ⚖️

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { loadMap, MAP_PAGE, placeNew, projectMapPage, ROOT_ID, saveMap, type MindMap, type MindNode } from "../lib/mindmap";
+import { emptyMap, loadMap, MAP_PAGE, placeNew, projectMapPage, ROOT_ID, saveMap, type MindMap, type MindNode } from "../lib/mindmap";
 import { dayColor } from "../lib/projectDays";
 import { arrange, edgeStyle, loadMindLayout, MIND_LAYOUTS, saveMindLayout, type MindLayout } from "../lib/mindLayout";
 import { showError, showToast } from "../lib/toast";
 import type { JournalStore, NamedPage } from "../store";
+import { graphNames, loadGraph } from "../ai/voiceGraph";
+import { mindMapFromGraph } from "../lib/graphFormat";
 import { growMap, growPending, growProjectMap, MAP_SKILL, pendingDays, PROJECT_SKILL, tidyMap } from "./grow";
 
 interface Placed {
@@ -41,12 +43,15 @@ function fitView(placed: Map<string, Placed>, c: HTMLCanvasElement | null) {
 const short = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
 /** 🧠 The evolving mind map: grows a day at a time from the journal; replay it with the slider. */
-export function MindMapView({ store, today, onClose, onOpenDay, onOpenPage }: { store: JournalStore; today: string; onClose: () => void; onOpenDay: (day: string) => void; onOpenPage: (title: string) => void }) {
+export function MindMapView({ store, today, graph, onClose, onOpenDay, onOpenPage }: { store: JournalStore; today: string; graph?: string | null; onClose: () => void; onOpenDay: (day: string) => void; onOpenPage: (title: string) => void }) {
   const [map, setMap] = useState<MindMap | null>(null);
   // Whose map: yours ("Me", from every note) or one project's (from its own text only).
   const [projects, setProjects] = useState<NamedPage[]>([]);
-  const [which, setWhich] = useState<string>("");
-  const project = projects.find((p) => p.title === which) ?? null;
+  // "": yours; a project's title; or "graph:<name>" for a saved graph (voice graphs, imports, exports), read-only.
+  const [which, setWhich] = useState<string>(graph ? `graph:${graph}` : "");
+  const [graphs, setGraphs] = useState<string[]>([]);
+  const graphName = which.startsWith("graph:") ? which.slice("graph:".length) : null;
+  const project = graphName ? null : projects.find((p) => p.title === which) ?? null;
   const [pending, setPending] = useState(0);
   const [progress, setProgress] = useState("");
   const [upTo, setUpTo] = useState<number>(Infinity);
@@ -62,9 +67,9 @@ export function MindMapView({ store, today, onClose, onOpenDay, onOpenPage }: { 
 
   const pageTitle = project ? projectMapPage(project.title) : MAP_PAGE;
   const reload = () =>
-    void loadMap(store, pageTitle, project?.title ?? "Me").then(async (m) => {
+    void (graphName ? loadGraph(store, graphName).then((d) => (d ? mindMapFromGraph(d, graphName) : emptyMap())) : loadMap(store, pageTitle, project?.title ?? "Me")).then(async (m) => {
       // Maps from before places were kept: placed once now, then never moved.
-      if (m.nodes.some((n) => n.x == null)) {
+      if (!graphName && m.nodes.some((n) => n.x == null)) {
         m = placeNew(m);
         if (m.nodes.length > 1) await saveMap(store, m, "me", pageTitle).catch(() => {});
       }
@@ -75,7 +80,10 @@ export function MindMapView({ store, today, onClose, onOpenDay, onOpenPage }: { 
     });
   const modeRef = useRef(mode);
   modeRef.current = mode;
-  useEffect(reload, [store, pageTitle]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(reload, [store, pageTitle, graphName]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void graphNames(store).then(setGraphs, () => {});
+  }, [store]);
   useEffect(() => {
     void store.projects().then((p) => setProjects(p.filter((x) => x.props.project?.status !== "done")), () => {});
     void pendingDays(store, today).then((d) => setPending(d.length), () => {});
@@ -276,7 +284,7 @@ export function MindMapView({ store, today, onClose, onOpenDay, onOpenPage }: { 
       <header className="graph-bar">
         <button type="button" onClick={onClose} aria-label="Close">✕</button>
         <h1 className="settings-title">🧠 Mind map</h1>
-        <button type="button" onClick={() => void grow()} disabled={growing}>{growing ? progress || "Growing…" : "🌱 Grow"}</button>
+        <button type="button" onClick={() => void grow()} disabled={growing || !!graphName} hidden={!!graphName}>{growing ? progress || "Growing…" : "🌱 Grow"}</button>
       </header>
       <div className="mindmap-tools">
         <select value={which} onChange={(e) => (setPicked(null), setWhich(e.target.value))} aria-label="Whose map">
@@ -284,8 +292,11 @@ export function MindMapView({ store, today, onClose, onOpenDay, onOpenPage }: { 
           {projects.map((p) => (
             <option key={p.id} value={p.title}>📌 {p.title}</option>
           ))}
+          {graphs.map((g) => (
+            <option key={`g:${g}`} value={`graph:${g}`}>🧩 {g}</option>
+          ))}
         </select>
-        {!project && pending > 0 && (
+        {!project && !graphName && pending > 0 && (
           <button type="button" onClick={() => void readAll()} disabled={growing} title="Read every note not in the map yet, oldest first">
             📚 Read {pending} note{pending === 1 ? "" : "s"}
           </button>
@@ -295,8 +306,8 @@ export function MindMapView({ store, today, onClose, onOpenDay, onOpenPage }: { 
             <option key={l.value} value={l.value}>{l.icon} {l.label}</option>
           ))}
         </select>
-        <button type="button" onClick={() => void tidy()} disabled={growing} title="Fold duplicates together; the skill learns from the map">🧹 Tidy</button>
-        <button type="button" onClick={() => onOpenPage(project ? PROJECT_SKILL : MAP_SKILL)} title="The method the AI follows (you can change it)">📜 Skill</button>
+        {!graphName && <><button type="button" onClick={() => void tidy()} disabled={growing} title="Fold duplicates together; the skill learns from the map">🧹 Tidy</button>
+        <button type="button" onClick={() => onOpenPage(project ? PROJECT_SKILL : MAP_SKILL)} title="The method the AI follows (you can change it)">📜 Skill</button></>}
       </div>
       <canvas
         ref={canvas}
@@ -312,7 +323,9 @@ export function MindMapView({ store, today, onClose, onOpenDay, onOpenPage }: { 
       />
       {map && map.nodes.length <= 1 && (
         <p className="hint mindmap-empty">
-          {project
+          {graphName
+            ? `"${graphName}" has no nodes yet.`
+            : project
             ? `Tap 🌱 Grow to build ${project.title}'s map from its own text only (its page and its boxes in your notes).`
             : "Your map starts with “Me”. Tap 🌱 Grow for today's ideas, or 📚 Read to go through every note. It grows by itself as you write."}
         </p>

@@ -41,6 +41,7 @@ import { parseSpecialPage, setPersonalDates, SPECIAL_DATES_PAGE } from "./lib/sp
 import { useAiNavigation } from "./ai/useAiRules";
 import { ChatView } from "./ChatView";
 import { AiBadge } from "./AiBadge";
+import { VoiceBadge } from "./ai/VoicePanel";
 import { startMacWorker } from "./ai/chatRunner";
 import { RelativeTime } from "./calendar/RelativeTime";
 import { NexusView, type NexusTab, type NexusTarget } from "./NexusView";
@@ -129,6 +130,8 @@ function App() {
   const [nexusTab, setNexusTab] = useState<NexusTab>("history");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  // A graph to show in the mind map (a voice graph's 🧠 Open), else the usual map.
+  const [mindGraph, setMindGraph] = useState<string | null>(null);
   // An AI chat to open (from the 🤖 badge or an "Answer ready" toast).
   const [openAi, setOpenAi] = useState<string | null>(null);
   // Bumped when another device's changes arrive, so lists and calendars reload.
@@ -198,7 +201,16 @@ function App() {
       void window.__journalFlush?.().then(() => setChatOpen(true));
     };
     window.addEventListener("journal:open-ai-chat", open);
-    return () => window.removeEventListener("journal:open-ai-chat", open);
+    const openMind = (e: Event) => {
+      setMindGraph((e as CustomEvent<{ graph?: string }>).detail?.graph ?? null);
+      setChatOpen(false);
+      setMindOpen(true);
+    };
+    window.addEventListener("journal:open-mind-map", openMind);
+    return () => {
+      window.removeEventListener("journal:open-ai-chat", open);
+      window.removeEventListener("journal:open-mind-map", openMind);
+    };
   }, []);
   // Mac: answers AI chats sent from the phone (they arrive by sync).
   useEffect(() => {
@@ -1381,7 +1393,7 @@ function App() {
       {store && <TimelinesHost store={store} onOpenDay={(d) => void goTo(d)} />}
       {store && <FocusHost store={store} />}
       {mindOpen && store && (
-        <MindMapView store={store} today={today} onClose={() => setMindOpen(false)} onOpenDay={(d) => (setMindOpen(false), void goTo(d))} onOpenPage={(t) => (setMindOpen(false), void handlers.onOpenLink(t))} />
+        <MindMapView store={store} today={today} graph={mindGraph} onClose={() => (setMindOpen(false), setMindGraph(null))} onOpenDay={(d) => (setMindOpen(false), void goTo(d))} onOpenPage={(t) => (setMindOpen(false), void handlers.onOpenLink(t))} />
       )}
       {graphOpen && store && (
         <GraphView
@@ -1412,6 +1424,7 @@ function App() {
         />
       )}
       <AiBadge />
+      <VoiceBadge onOpen={() => window.dispatchEvent(new CustomEvent("journal:open-ai-chat", { detail: "voice" }))} />
       <VoiceRecorder />
       <ReadAloudPlayer />
       <MemeKit />
