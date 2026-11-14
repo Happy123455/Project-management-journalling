@@ -3,6 +3,7 @@ import type { JournalStore } from "./store";
 import { loadAiSettings, saveAiSettings } from "./ai/settings";
 import type { CoolLevel } from "./ai/local";
 import { LinePicker } from "./ai/LinePicker";
+import { DecidePanel } from "./ai/DecidePanel";
 import { currentJob, isMac, listChats, loadChat, newChat, saveChat, sendMessage, stopJob, stopWatching, subscribeJob, watchRemote, type Chat, type Msg } from "./ai/chatRunner";
 import { parseOutline, outlineDoc, type OutlineNode } from "./lib/outline";
 import { appendBlocks, textBlocks } from "./lib/append";
@@ -72,6 +73,7 @@ export function AiChat({ store, onChanged, openId }: { store: JournalStore; onCh
   const [chat, setChat] = useState<Chat>(newChat);
   const [draft, setDraft] = useState("");
   const [picking, setPicking] = useState(false);
+  const [deciding, setDeciding] = useState(false);
   const [cool, setCool] = useState<CoolLevel>(() => loadAiSettings().cool ?? "cool");
   const [remote, setRemote] = useState(() => !isMac() && local(REMOTE_KEY) !== "0");
   const job = useSyncExternalStore(subscribeJob, currentJob);
@@ -160,6 +162,8 @@ export function AiChat({ store, onChanged, openId }: { store: JournalStore; onCh
 
   if (picking) return <LinePicker store={store} current={chat.section} onClose={() => setPicking(false)} onPick={(s) => (setPicking(false), void update({ section: s, edit: s ? true : chat.edit }))} />;
 
+  if (deciding) return <DecidePanel store={store} onClose={() => setDeciding(false)} />;
+
   return (
     <>
       <div className="ai-chat-bar">
@@ -192,8 +196,11 @@ export function AiChat({ store, onChanged, openId }: { store: JournalStore; onCh
         <button type="button" className={chat.edit ? "chat-ai active" : "chat-ai"} aria-pressed={!!chat.edit} onClick={() => void update({ edit: !chat.edit, section: chat.edit ? null : chat.section })} title="Let the AI read and change the journal (every change can be undone in Settings → AI changes)">
           ✎ {chat.edit ? "Can edit" : "Chat only"}
         </button>
-        <button type="button" className={chat.section ? "chat-ai active" : "chat-ai"} onClick={() => setPicking(true)} title="Limit the AI to one part of a note">
+        <button type="button" className={chat.section ? "chat-ai ai-scope-pick active" : "chat-ai ai-scope-pick"} onClick={() => setPicking(true)} title="Limit the AI to one part of a note">
           📍 {chat.section ? chat.section.label : "Section"}
+        </button>
+        <button type="button" className="chat-ai" onClick={() => setDeciding(true)} title="Decision models: cheap yes/no, choice and score judgements (they also place voice graph nodes)">
+          ⚖️
         </button>
       </div>
       <div ref={list} className="chat-list">
