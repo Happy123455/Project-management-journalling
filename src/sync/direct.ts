@@ -662,7 +662,7 @@ export function startClient(store: JournalStore, address: DirectAddress, opts: C
     sendClip(c) {
       if (up)
         void post("/clip", { clip: c }, 120_000).catch((e) => {
-          if (c.drop) void import("../lib/toast").then(({ showToast }) => showToast(`${c.name ?? "That"} didn't reach your Mac: ${e instanceof Error ? e.message : String(e)}`, "error"));
+          if (c.drop) void import("../lib/toast").then(({ showToast }) => showToast(`${c.name ?? "That"} didn't reach your Mac: ${e instanceof Error ? e.message : String(e)}`, "error", undefined, { background: true }));
         });
     },
     kick() {

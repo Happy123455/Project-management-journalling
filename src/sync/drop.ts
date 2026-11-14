@@ -144,5 +144,8 @@ export async function receiveDrop(c: Clip, other: string) {
     c.data
       ? `📥 ${c.name ?? "A file"} from ${other}${item.savedTo ? ` · saved to ${item.savedTo}` : " · in Nexus › Send"}`
       : `📥 Text from ${other} · in Nexus › Send`,
+    "info",
+    undefined,
+    { background: true },
   );
 }

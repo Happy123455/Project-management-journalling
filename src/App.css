@@ -3636,28 +3636,167 @@ html.dl-dragging, html.dl-dragging * { user-select: none !important; -webkit-use
 .ds-plan.moving { transition: box-shadow 0.2s, transform 0.25s var(--spring); }
 .dl-plan-rail::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--sky); opacity: 0.4; pointer-events: none; }
 /* ⏳ Timelines → ▤ Gantt */
-.gantt-scroll { overflow-x: auto; padding: 0 8px 24px; -webkit-overflow-scrolling: touch; }
+.gantt-wrap { padding: 0 12px 24px; display: grid; gap: 10px; }
+.gantt-tools { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.gantt-tools button { border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+.gantt-tools button.on { background: var(--accent); color: #fff; border-color: transparent; }
+.gantt-tools .gantt-today-btn { margin-left: auto; }
+/* One scroll box both ways: dates stick to the top, names to the left. Pinch is handled in code. */
+.gantt-pane {
+  overflow: auto; max-height: calc(100dvh - 210px); min-height: 180px; border-radius: 16px;
+  border: 1px solid var(--border); background: var(--bg); overscroll-behavior: contain;
+  touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch; outline: none;
+}
+.gantt-pane:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.gantt-grid { display: grid; width: max-content; }
+.gantt-corner { position: sticky; top: 0; left: 0; z-index: 3; background: var(--bg); border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); }
+.gantt-head { position: sticky; top: 0; z-index: 2; display: block; background: var(--bg); border-bottom: 1px solid var(--border); font-family: system-ui, sans-serif; }
+.gantt-labels { position: sticky; left: 0; z-index: 2; width: 168px; background: var(--bg); border-right: 1px solid var(--border); padding-top: 0; }
+.gantt-l { display: flex; align-items: center; padding: 0 10px 0 14px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
+.gantt-l.group { width: 100%; border: 0; border-radius: 0; background: none; box-shadow: none; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding-left: 10px; text-align: left; display: block; line-height: 34px; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.gantt-l.done { opacity: 0.5; text-decoration: line-through; }
 .gantt { display: block; color: var(--text); font-family: system-ui, sans-serif; }
 .gantt-col { fill: color-mix(in srgb, var(--muted) 9%, transparent); }
 .gantt-col.weekend { fill: color-mix(in srgb, var(--reminder, #d9534f) 8%, transparent); }
-.gantt-col.past { opacity: 0.5; }
-.gantt-wd { font-size: 10px; fill: var(--muted); }
+.gantt-col.past, .gantt-band.past { opacity: 0.5; }
+.gantt-band.alt { fill: color-mix(in srgb, var(--muted) 8%, transparent); }
+.gantt-band.weekend { fill: color-mix(in srgb, var(--reminder, #d9534f) 7%, transparent); }
+.gantt-grid-line { stroke: var(--border); stroke-width: 1; opacity: 0.7; }
+.gantt-tick { stroke: var(--border); }
+.gantt-major { font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; fill: var(--muted); }
+.gantt-major.today, .gantt-minor.today { fill: var(--accent); }
+.gantt-minor { font-size: 11px; fill: var(--text); font-variant-numeric: tabular-nums; }
+.gantt-wd { font-size: 9.5px; fill: var(--muted); }
 .gantt-wd.today { fill: var(--accent); font-weight: 700; }
-.gantt-dn { font-size: 13px; font-weight: 600; fill: var(--text); }
+.gantt-dn { font-size: 12.5px; font-weight: 600; fill: var(--text); font-variant-numeric: tabular-nums; }
 .gantt-dn.today { fill: #fff; }
 .gantt-dn.weekend { fill: var(--reminder, #d9534f); }
+.gantt-dn.weekend.today { fill: #fff; }
 .gantt-today-dot { fill: var(--accent); }
-.gantt-group { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; fill: currentColor; }
-.gantt-task { font-size: 12px; fill: var(--text); }
-.gantt-task.done { opacity: 0.5; text-decoration: line-through; }
 .gantt-sep { stroke: var(--border); }
 .gantt-bar { stroke: currentColor; stroke-opacity: 0.6; }
 .gantt-bar.done { opacity: 0.45; }
 .gantt-bar.est { stroke-dasharray: 4 3; }
+.gantt-in { font-size: 11px; font-weight: 600; fill: #fff; pointer-events: none; }
+.gantt-in.est { fill: var(--text); }
 .gantt-link { fill: none; stroke: currentColor; stroke-width: 1.5; opacity: 0.7; }
 .gantt-mile { fill: var(--panel); stroke: currentColor; stroke-width: 2.5; }
 .gantt-now { stroke: var(--accent); stroke-width: 2; }
 .gantt-due { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 4 4; }
+.gantt-hint { margin: 0; font-size: 12px; }
+/* Done, archived and past deadlines: folded away at the bottom. */
+.tl-history { border-radius: 14px; border: 1px dashed var(--border); padding: 4px 8px; }
+.tl-history > summary { cursor: pointer; padding: 6px 4px; font-size: 13px; font-weight: 600; color: var(--muted); list-style: none; }
+.tl-history > summary::-webkit-details-marker { display: none; }
+.tl-history > summary::before { content: "▸"; display: inline-block; margin-right: 6px; transition: transform 0.2s ease; }
+.tl-history[open] > summary::before { transform: rotate(90deg); }
+.tl-history .tl-list { padding: 0 0 6px; }
+.tl-history li { opacity: 0.75; }
+.tl-history-li { list-style: none; }
+@media (max-width: 640px) {
+  .gantt-labels { width: 112px; }
+  .gantt-l { font-size: 12px; padding: 0 6px 0 10px; }
+  .gantt-wrap { padding: 0 8px 20px; }
+}
 
 /* Canvas mode: the note is drawn as a mind map (src/canvas), the editor stays mounted but hidden. */
 .editor.mode-canvas > .editor-body, .editor.mode-canvas > .toolbar { display: none; }
+
+/* ───── Festive and special-date tiles (month calendar) ─────
+   Only transform and opacity move (on the GPU); everything pauses with the app at rest
+   (html.at-rest) and for reduced motion. Settings → Editor → Special Date Tile Animations. */
+.cal-day.fest { position: relative; overflow: hidden; isolation: isolate; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.cal-day.fest::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1; }
+.fest-badge { position: absolute; right: 1px; bottom: 0; font-size: 10px; line-height: 1; pointer-events: none; }
+.fest-fx { position: absolute; inset: 0; pointer-events: none; }
+.fest-fx i { position: absolute; display: block; opacity: 0; }
+.month-calendar.compact .fest-badge, .month-calendar.compact .fest-fx { display: none; }
+.month-calendar.compact .cal-day.fest::before { opacity: 0.6; }
+
+.cal-day.fest-diwali { border-color: rgba(255, 186, 60, 0.85); }
+.cal-day.fest-diwali::before { background: radial-gradient(circle at 50% 62%, rgba(255, 200, 70, 0.75), rgba(255, 140, 0, 0.12) 62%, transparent 75%); opacity: 0.45; }
+.fest-diwali .fest-fx i { width: 3px; height: 3px; border-radius: 50%; background: #ffd65a; box-shadow: 0 0 4px #ffb300; }
+.cal-day.fest-holi::before { background: linear-gradient(135deg, rgba(255, 64, 160, 0.38), rgba(255, 214, 0, 0.32) 40%, rgba(0, 200, 120, 0.3) 70%, rgba(40, 120, 255, 0.36)); }
+.cal-day.fest-uttarayan::before { background: linear-gradient(180deg, rgba(110, 190, 255, 0.4), rgba(255, 255, 255, 0) 80%); }
+.cal-day.fest-newyear::before { background: radial-gradient(circle at 50% 30%, rgba(170, 140, 255, 0.45), transparent 70%); }
+.fest-newyear .fest-fx i { width: 3px; height: 3px; border-radius: 50%; background: #fff; box-shadow: 0 0 4px #c8b6ff; }
+.cal-day.fest-birthday { border-color: rgba(255, 105, 180, 0.7); }
+.cal-day.fest-birthday::before { background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.55) 50%, transparent 70%); opacity: 0; }
+.fest-birthday .fest-fx i { width: 3px; height: 5px; border-radius: 1px; top: -6px; }
+.fest-birthday .fest-fx i:nth-child(1) { left: 18%; background: #ff5c8a; }
+.fest-birthday .fest-fx i:nth-child(2) { left: 42%; background: #ffd23f; }
+.fest-birthday .fest-fx i:nth-child(3) { left: 64%; background: #3ddc97; }
+.fest-birthday .fest-fx i:nth-child(4) { left: 84%; background: #5aa9ff; }
+.cal-day.fest-anniversary { border-color: rgba(255, 90, 120, 0.6); }
+.cal-day.fest-anniversary::before { background: radial-gradient(circle at 50% 60%, rgba(255, 110, 140, 0.32), transparent 70%); }
+.cal-day.fest-special::before { background: radial-gradient(circle at 50% 50%, rgba(255, 220, 120, 0.25), transparent 70%); }
+.fest-fx i:nth-child(1) { left: 22%; top: 24%; }
+.fest-fx i:nth-child(2) { left: 70%; top: 30%; }
+.fest-fx i:nth-child(3) { left: 46%; top: 70%; }
+/* Year view: a still tint only. */
+.month-grid.mini .cal-day.fest::before { opacity: 0.55; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .fest-anim.fest-diwali::before { animation: fest-glow 3.2s ease-in-out infinite alternate; }
+  .fest-anim .fest-fx i { animation: fest-twinkle 2.6s ease-in-out infinite; }
+  .fest-anim .fest-fx i:nth-child(2) { animation-delay: 0.9s; }
+  .fest-anim .fest-fx i:nth-child(3) { animation-delay: 1.7s; }
+  .fest-anim.fest-birthday .fest-fx i { animation: fest-fall 3.6s linear infinite; }
+  .fest-anim.fest-birthday .fest-fx i:nth-child(2) { animation-delay: 0.9s; }
+  .fest-anim.fest-birthday .fest-fx i:nth-child(3) { animation-delay: 1.8s; }
+  .fest-anim.fest-birthday .fest-fx i:nth-child(4) { animation-delay: 2.7s; }
+  .fest-anim.fest-birthday::before { animation: fest-shimmer 4.5s ease-in-out infinite; }
+  .fest-anim.fest-holi .fest-badge, .fest-anim.fest-newyear .fest-badge, .fest-anim.fest-anniversary .fest-badge, .fest-anim.fest-special .fest-badge { animation: fest-pulse 2.4s ease-in-out infinite; }
+  .fest-anim.fest-uttarayan .fest-badge { animation: fest-sway 3s ease-in-out infinite alternate; transform-origin: 50% 90%; }
+  .fest-anim.fest-diwali .fest-badge { animation: fest-pulse 3.2s ease-in-out infinite; }
+}
+@keyframes fest-glow { from { opacity: 0.3; transform: scale(0.9); } to { opacity: 0.85; transform: scale(1.06); } }
+@keyframes fest-twinkle { 0%, 100% { opacity: 0; transform: scale(0.4); } 45% { opacity: 1; transform: scale(1.25); } 70% { opacity: 0.2; transform: scale(0.8); } }
+@keyframes fest-fall { 0% { opacity: 0; transform: translateY(0) rotate(0deg); } 10% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; transform: translateY(46px) rotate(300deg); } }
+@keyframes fest-shimmer { 0%, 55% { opacity: 0; transform: translateX(-110%); } 60% { opacity: 1; } 90% { opacity: 1; transform: translateX(110%); } 100% { opacity: 0; transform: translateX(110%); } }
+@keyframes fest-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.25); } }
+@keyframes fest-sway { from { transform: rotate(-14deg); } to { transform: rotate(14deg); } }
+
+/* Hold a special day: its card lifts out of the tile over a blurred page. */
+.fest-hold { position: fixed; inset: 0; z-index: 3000; display: grid; place-items: center; pointer-events: none; }
+.fest-hold-backdrop { position: absolute; inset: 0; background: rgba(10, 10, 20, 0.28); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); opacity: 0; transition: opacity 0.24s ease; }
+.fest-hold.shown .fest-hold-backdrop { opacity: 1; }
+.fest-card { position: relative; width: min(320px, 84vw); border-radius: 28px; overflow: hidden; background: var(--panel, #fff); color: var(--text); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); transition: transform 0.44s cubic-bezier(0.2, 1.3, 0.35, 1), opacity 0.2s ease; transform-origin: center; }
+.fest-card.closing { transition: transform 0.24s cubic-bezier(0.4, 0, 0.7, 0.2), opacity 0.24s ease-in; }
+.fest-card-scene { position: relative; height: 150px; display: grid; place-items: center; overflow: hidden; }
+.fest-card-emoji { font-size: 64px; line-height: 1; filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.25)); }
+.fest-card-scene i { position: absolute; display: block; opacity: 0; left: calc(4% + var(--i) * 8%); }
+.fest-card-body { padding: 14px 18px 20px; }
+.fest-card-body h2 { margin: 0 0 4px; font-size: 22px; }
+.fest-card-date { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+.fest-card-greeting { margin: 0; font-size: 16px; line-height: 1.4; }
+.fest-card-more { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+
+.fest-card.fest-diwali .fest-card-scene { background: radial-gradient(circle at 50% 70%, #ffcf5a 0%, #ff8a00 28%, #3b1a3f 75%); }
+.fest-card.fest-diwali .fest-card-scene i { width: 5px; height: 5px; border-radius: 50%; background: #ffe08a; box-shadow: 0 0 8px #ffb300; top: var(--y); }
+.fest-card.fest-holi .fest-card-scene { background: linear-gradient(135deg, #ff4fa3, #ffd400 35%, #22c98f 65%, #3a7bff); }
+.fest-card.fest-holi .fest-card-scene i { width: 46px; height: 46px; border-radius: 50%; background: rgba(255, 255, 255, 0.45); top: var(--y); }
+.fest-card.fest-uttarayan .fest-card-scene { background: linear-gradient(180deg, #5fb4ff, #cfe9ff); }
+.fest-card.fest-uttarayan .fest-card-scene i { width: 14px; height: 14px; background: hsl(calc(var(--i) * 30deg) 90% 60%); transform: rotate(45deg); top: var(--y); }
+.fest-card.fest-newyear .fest-card-scene { background: radial-gradient(circle at 50% 40%, #3a2d78, #0d0b24 75%); }
+.fest-card.fest-newyear .fest-card-scene i { width: 4px; height: 4px; border-radius: 50%; background: hsl(calc(var(--i) * 30deg) 100% 75%); box-shadow: 0 0 8px currentColor; top: var(--y); }
+.fest-card.fest-birthday .fest-card-scene { background: linear-gradient(135deg, #ffd6e8, #fff1c1 50%, #d6f0ff); }
+.fest-card.fest-birthday .fest-card-scene i { width: 7px; height: 11px; border-radius: 2px; top: -14px; background: hsl(calc(var(--i) * 47deg) 85% 60%); }
+.fest-card.fest-anniversary .fest-card-scene { background: linear-gradient(135deg, #ffd1dc, #ff8fab); }
+.fest-card.fest-anniversary .fest-card-scene i { width: 12px; height: 12px; top: 100%; background: radial-gradient(circle, #ff4d6d 60%, transparent 62%); border-radius: 50%; }
+.fest-card.fest-special .fest-card-scene { background: linear-gradient(135deg, #fff3c4, #ffd27a); }
+.fest-card.fest-special .fest-card-scene i { width: 5px; height: 5px; border-radius: 50%; background: #fff; top: var(--y); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .fest-hold .fest-card-scene i { animation: fest-twinkle 1.8s ease-in-out infinite; animation-delay: calc(var(--i) * -0.15s); }
+  .fest-hold .fest-birthday .fest-card-scene i { animation: fest-card-fall 2.4s linear infinite; animation-delay: calc(var(--i) * -0.21s); }
+  .fest-hold .fest-anniversary .fest-card-scene i { animation: fest-card-rise 3s ease-in infinite; animation-delay: calc(var(--i) * -0.27s); }
+  .fest-hold .fest-holi .fest-card-scene i { animation: fest-splash 2.6s ease-out infinite; animation-delay: calc(var(--i) * -0.22s); }
+  .fest-hold .fest-uttarayan .fest-card-scene i { animation: fest-kite 4s ease-in-out infinite alternate; animation-delay: calc(var(--i) * -0.33s); opacity: 0.9; }
+  .fest-hold .fest-card-emoji { animation: fest-pulse 2.2s ease-in-out infinite; }
+  .fest-hold .fest-uttarayan .fest-card-emoji { animation: fest-sway 2.6s ease-in-out infinite alternate; }
+}
+@keyframes fest-card-fall { 0% { opacity: 1; transform: translateY(0) rotate(0); } 100% { opacity: 1; transform: translateY(180px) rotate(540deg); } }
+@keyframes fest-card-rise { 0% { opacity: 0; transform: translateY(0) scale(0.6); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(-170px) scale(1.2); } }
+@keyframes fest-splash { 0% { opacity: 0.7; transform: scale(0.2); } 100% { opacity: 0; transform: scale(2.4); } }
+@keyframes fest-kite { from { transform: translate(-10px, 6px) rotate(35deg); } to { transform: translate(12px, -8px) rotate(55deg); } }

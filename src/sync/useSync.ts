@@ -112,7 +112,7 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
             await window.__journalFlush?.();
             const back = await repairMergeLosses(store).catch(() => 0);
             if (back) {
-              showToast(`Brought back ${back} ${back === 1 ? "link or photo" : "links and photos"} an earlier sync had dropped`);
+              showToast(`Brought back ${back} ${back === 1 ? "link or photo" : "links and photos"} an earlier sync had dropped`, "info", undefined, { background: true });
               imported.current();
             }
           }

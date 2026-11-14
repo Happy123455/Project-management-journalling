@@ -215,9 +215,9 @@ export async function takeWatchInbox(store: JournalStore): Promise<number> {
       try {
         const said = await apply(store, item);
         n++;
-        if (said) showToast(said);
+        if (said) showToast(said, "info", undefined, { background: true });
       } catch (e) {
-        showToast(`⌚ Couldn't add something from the watch: ${e instanceof Error ? e.message : String(e)}`, "error");
+        showToast(`⌚ Couldn't add something from the watch: ${e instanceof Error ? e.message : String(e)}`, "error", undefined, { background: true });
       }
     }
     if (n) window.dispatchEvent(new Event(ROUTINE_EVENT));

@@ -246,7 +246,7 @@ export async function copyClip(c: Clip, where = "") {
       lastKey = textKey(c.text);
       const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
       await writeText(c.text);
-      showToast(`📋 Copied${where ? ` ${where}` : ""}: “${clipPreview(c.text)}”`);
+      showToast(`📋 Copied${where ? ` ${where}` : ""}: “${clipPreview(c.text)}”`, "info", undefined, { background: !!where });
     } else if (c.data && c.mime?.startsWith("image/")) {
       if (isAndroid()) {
         lastKey = `i:${hashText(c.data)}`;
@@ -265,12 +265,12 @@ export async function copyClip(c: Clip, where = "") {
         lastKey = "given-image";
         await writeImage(await Image.new(new Uint8Array(rgba.buffer), bitmap.width, bitmap.height));
       }
-      showToast(`📋 Image copied${where ? ` ${where}` : ""}`);
+      showToast(`📋 Image copied${where ? ` ${where}` : ""}`, "info", undefined, { background: !!where });
     }
     // What we just put there isn't sent back.
     if (isAndroid()) window.setTimeout(() => (lastStamp = phoneStamp()?.t ?? lastStamp), 400);
   } catch {
-    showToast("📋 That couldn't be put on this clipboard", "error");
+    showToast("📋 That couldn't be put on this clipboard", "error", undefined, { background: !!where });
   }
 }
 

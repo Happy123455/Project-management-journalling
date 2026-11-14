@@ -20,6 +20,8 @@ export interface EditorPrefs {
   monthDeadlines: "below" | "left" | "off";
   /** Going to a timestamp from the time rail lights its line in that time of day's colour for 4 s. */
   timeFlash: boolean;
+  /** Month calendar: festivals, birthdays and anniversaries get a small ambient animation on their tile. */
+  festiveTiles: boolean;
 }
 
 /** Follows the prefs (Settings changes them while the app runs). */
@@ -34,7 +36,7 @@ export function useEditorPrefs(): EditorPrefs {
 }
 
 const KEY = "journal.editor";
-const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true, prettyMath: true, typingGuide: false, maxCps: 6, monthDeadlines: "below", timeFlash: true };
+const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true, prettyMath: true, typingGuide: false, maxCps: 6, monthDeadlines: "below", timeFlash: true, festiveTiles: true };
 
 /** Read on every letter typed (formulas, edit stamps…): parsed again only when the stored text changes. */
 let cached: { raw: string | null; prefs: EditorPrefs } | null = null;

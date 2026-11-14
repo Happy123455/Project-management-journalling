@@ -381,6 +381,7 @@ function EditorSettings() {
       {row("codeScroll", "Scroll code blocks sideways", "Off: long code lines wrap onto the next line instead")}
       {row("editStamps", "Stamp edits on older days", "Writing in a past day adds a small “edited” chip with when")}
       {row("relativeTime", "Show how long ago a day is", "Under the date: years, months and days from today")}
+      {row("festiveTiles", "Special Date Tile Animations", "Diwali, Holi, Uttarayan, New Year and the birthdays and anniversaries on your “Special dates” page get a small moving decoration in the month. Off: plain, still tiles. Hold a special day for its card either way")}
       {row("timeFlash", "Flash the line you jump to", "Tapping a dot on the time rail lights that line for 4 s in its time of day's colour")}
       {row("autoMath", "Solve math as you type", "Type = after a sum and the answer appears: 12+12= becomes 12+12=24 (undo takes it back)")}
       {row("prettyMath", "Draw formulas", "Plain maths like (a+b+c+d)/2 or x^2 shows as a proper formula; the line you're writing in stays plain text")}

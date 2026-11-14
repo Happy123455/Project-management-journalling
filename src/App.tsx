@@ -36,7 +36,8 @@ import { isDesktopApp, macBubbleEnabled, setMacBubble } from "./bubble/macBubble
 import { growMap, growPending } from "./mindmap/grow";
 import { loadAiSettings } from "./ai/settings";
 import { entryFor, numberEntries, type ProjectEntry } from "./lib/projectDays";
-import { loadGestures, NO_SWIPE, type CanvasAction } from "./lib/gestures";
+import { loadGestures, NO_SWIPE, onPanSurface, type CanvasAction } from "./lib/gestures";
+import { parseSpecialPage, setPersonalDates, SPECIAL_DATES_PAGE } from "./lib/specialDates";
 import { ChatView } from "./ChatView";
 import { AiBadge } from "./AiBadge";
 import { startMacWorker } from "./ai/chatRunner";
@@ -100,6 +101,24 @@ function App() {
   const [yearShown, setYearShown] = useState(() => new Date().getFullYear());
   // What the main area shows: today's/any day's page, a named page, or a tag.
   const [route, setRoute] = useState<{ kind: "day" } | { kind: "page"; page: NamedPage } | { kind: "tag"; tag: string }>({ kind: "day" });
+  // Birthdays and anniversaries for the calendar tiles, from the "Special dates" page: read when the
+  // app opens, after syncs, on coming back to the app, and on leaving a page (it may have been edited).
+  useEffect(() => {
+    if (!store) return;
+    const load = () =>
+      void store
+        .getPage(SPECIAL_DATES_PAGE)
+        .then((p) => setPersonalDates(parseSpecialPage(p?.content)))
+        .catch(() => {});
+    load();
+    const vis = () => document.visibilityState === "visible" && load();
+    window.addEventListener("journal:synced", load);
+    document.addEventListener("visibilitychange", vis);
+    return () => {
+      window.removeEventListener("journal:synced", load);
+      document.removeEventListener("visibilitychange", vis);
+    };
+  }, [store, route.kind]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
   const [mindOpen, setMindOpen] = useState(false);
@@ -359,6 +378,11 @@ function App() {
     let upBy = 0;
     const onTouchStart = (e: globalThis.TouchEvent) => {
       userAt = Date.now();
+      // Panning Canvas (or a mind map, a photo…) down is moving that, not pulling the week open.
+      if (onPanSurface(e.target)) {
+        touchY = touchX = null;
+        return;
+      }
       touchY = e.touches[0]?.clientY ?? null;
       touchX = e.touches[0]?.clientX ?? null;
       pulled = 0;

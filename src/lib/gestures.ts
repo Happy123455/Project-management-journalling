@@ -40,5 +40,14 @@ export function saveGestures(g: Gestures) {
   }
 }
 
+/**
+ * Surfaces that pan or draw under the finger (Canvas mode, mind maps, graphs, photos, handwriting):
+ * a drag there moves the surface, never the day, the week strip or "pull for today".
+ */
+export const PAN_SURFACES = ".note-canvas, .nc-stage, .mindmap-canvas, .graph-canvas, .photo-stage, .handwriting-canvas, .sheet-grid, .gantt-pane, .tl-view";
+
+/** True when a touch starts on a surface that pans (see PAN_SURFACES). */
+export const onPanSurface = (target: EventTarget | null) => !!(target as HTMLElement | null)?.closest?.(PAN_SURFACES);
+
 /** Swipes that start here are someone using that control, not a gesture. */
-export const NO_SWIPE = ".nav-island, .nav-quick, .nav-previews, .nav-joystick, .slash-popup, .link-suggest, .block-menu, .block-handle, .search-panel, .paste-chip, .arrange-tools, .keyboard-bar, .attach-toolbar, .attach-resize, .year-panel, .drawer, .routine-panel, .outline-backdrop, input, textarea, video, audio, canvas, iframe, img, .yt-embed, .attach-image, .attach-file, .pdf-preview, .link-card, .yt-card, pre, .math-block, .pm-formula, .katex, .katex-display, .code-block, .dl, .ds, .tdl, .tl-cols, .tl-all, .tl-list";
+export const NO_SWIPE = PAN_SURFACES + ", .nav-island, .nav-quick, .nav-previews, .nav-joystick, .slash-popup, .link-suggest, .block-menu, .block-handle, .search-panel, .paste-chip, .arrange-tools, .keyboard-bar, .attach-toolbar, .attach-resize, .year-panel, .drawer, .routine-panel, .outline-backdrop, input, textarea, video, audio, canvas, iframe, img, .yt-embed, .attach-image, .attach-file, .pdf-preview, .link-card, .yt-card, pre, .math-block, .pm-formula, .katex, .katex-display, .code-block, .dl, .ds, .tdl, .tl-cols, .tl-all, .tl-list";

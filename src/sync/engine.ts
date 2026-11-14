@@ -366,7 +366,7 @@ function noteImport(state: Awaited<ReturnType<JournalStore["syncState"]>>, plan:
         const ids = siblingIds(before);
         const gone = before.filter((n, i) => !kept.has(ids[i]) && plain(n).trim()).map((n) => short(plain(n)));
         if (gone.length && typeof window !== "undefined")
-          showToast(`${sideNames().other} removed ${gone.length === 1 ? `"${short(gone[0], 40)}"` : `${gone.length} lines`} from ${name?.replace(/^(day|page):/, "")}. To put it back: Nexus → This note`);
+          showToast(`${sideNames().other} removed ${gone.length === 1 ? `"${short(gone[0], 40)}"` : `${gone.length} lines`} from ${name?.replace(/^(day|page):/, "")}. To put it back: Nexus → This note`, "info", undefined, { background: true });
         if (gone.length) logAnomaly({ kind: "lines-removed", path: via, note: name, text: `${gone.length} line${gone.length === 1 ? "" : "s"} removed by ${r?.event.deviceId ?? "sync"}: ${gone.join(" · ")}`, detail: { ...timing, lines: gone } });
       } catch {
         // Unreadable: nothing to compare.

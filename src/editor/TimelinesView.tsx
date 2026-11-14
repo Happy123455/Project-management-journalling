@@ -8,6 +8,7 @@ import { useEscapeToClose } from "../ui/useEscapeToClose";
 import { useNow, useRoutineShared } from "./deadlineBar";
 import { allTimelines, type Timeline } from "./deadlineStore";
 import { Gantt } from "./GanttView";
+import { inHistory } from "../lib/ganttScale";
 
 /** Opens ⏳ Timelines: every deadline bar made, or (with a tid) one of them side by side. */
 export const TIMELINES_EVENT = "journal:timelines";
@@ -68,7 +69,7 @@ function SideBySide({ t }: { t: Timeline }) {
 
 /** Every open deadline on one set of day rows, each in its own colour: who claims which evening. */
 function AllTogether({ list, now }: { list: Timeline[]; now: number }) {
-  const live = list.filter((t) => !t.info.status && t.endAt > now);
+  const live = list.filter((t) => !inHistory(t, now));
   const today = dayKey(new Date(now));
   const last = live.reduce((m, t) => Math.max(m, t.endAt), now);
   const days: string[] = [];
@@ -96,6 +97,22 @@ function AllTogether({ list, now }: { list: Timeline[]; now: number }) {
         );
       })}
     </div>
+  );
+}
+
+/** One deadline in the list: its time left (or how it ended) and a progress line. */
+function TimelineItem({ t, now, onOpen }: { t: Timeline; now: number; onOpen: () => void }) {
+  const total = t.endAt - midnight(t.rows[0]?.day ?? dayKey(new Date()));
+  const done = Math.min(1, Math.max(0, 1 - (t.endAt - now) / Math.max(1, total)));
+  const ended = t.info.status === "archived" ? "archived" : t.info.status === "done" ? "done" : t.endAt <= now ? "past" : inHistory(t, now) ? "all steps done" : `${timeLeft(t.endAt - now)} left`;
+  return (
+    <li className={t.info.status ? `is-${t.info.status}` : ""} style={{ ["--c" as string]: t.info.color }}>
+      <button type="button" onClick={onOpen}>
+        <strong>{t.info.emoji} {t.title}{t.info.status === "done" ? " ✓" : ""}</strong>
+        <span>{ended} · {t.rows.length} day{t.rows.length === 1 ? "" : "s"} · in {dayLabel(t.note).text}</span>
+        <i className="tl-progress"><b style={{ width: `${done * 100}%` }} /></i>
+      </button>
+    </li>
   );
 }
 
@@ -136,7 +153,7 @@ export function TimelinesHost({ store, onOpenDay }: { store: JournalStore; onOpe
       ) : together === "gantt" ? (
         <>
           <button type="button" className="tl-free-btn on tl-together-btn" onClick={() => setTogether(false)}>▤ Gantt</button>
-          <Gantt list={list} now={now} />
+          <Gantt list={list} now={now} onPick={(tid) => setOpen({ tid })} />
         </>
       ) : together ? (
         <>
@@ -149,19 +166,20 @@ export function TimelinesHost({ store, onOpenDay }: { store: JournalStore; onOpe
         <ul className="tl-list">
           <li><button type="button" className="tl-together" onClick={() => setTogether("gantt")}><strong>▤ Gantt</strong><span>Every open deadline's steps as bars across the days, with Today, milestones and due days</span></button></li>
           <li><button type="button" className="tl-together" onClick={() => setTogether("days")}><strong>▦ All together</strong><span>Every open deadline on the same days, each in its own colour</span></button></li>
-          {list.map((t) => {
-            const total = t.endAt - midnight(t.rows[0]?.day ?? dayKey(new Date()));
-            const done = Math.min(1, Math.max(0, 1 - (t.endAt - now) / Math.max(1, total)));
-            return (
-              <li key={t.tid} className={t.info.status ? `is-${t.info.status}` : ""} style={{ ["--c" as string]: t.info.color }}>
-                <button type="button" onClick={() => setOpen({ tid: t.tid, note: t.note })}>
-                  <strong>{t.info.emoji} {t.title}{t.info.status === "done" ? " ✓" : ""}</strong>
-                  <span>{t.endAt > now ? `${timeLeft(t.endAt - now)} left` : "past"} · {t.rows.length} day{t.rows.length === 1 ? "" : "s"} · in {dayLabel(t.note).text}</span>
-                  <i className="tl-progress"><b style={{ width: `${done * 100}%` }} /></i>
-                </button>
-              </li>
-            );
-          })}
+          {list.filter((t) => !inHistory(t, now)).map((t) => <TimelineItem key={t.tid} t={t} now={now} onOpen={() => setOpen({ tid: t.tid, note: t.note })} />)}
+          {list.some((t) => inHistory(t, now)) && (
+            <li className="tl-history-li">
+              <details className="tl-history">
+                <summary>History · {list.filter((t) => inHistory(t, now)).length}</summary>
+                <ul className="tl-list">
+                  {list
+                    .filter((t) => inHistory(t, now))
+                    .sort((a, b) => b.endAt - a.endAt)
+                    .map((t) => <TimelineItem key={t.tid} t={t} now={now} onOpen={() => setOpen({ tid: t.tid, note: t.note })} />)}
+                </ul>
+              </details>
+            </li>
+          )}
         </ul>
       )}
     </div>,

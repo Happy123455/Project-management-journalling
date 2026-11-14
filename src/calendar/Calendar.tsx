@@ -3,6 +3,7 @@ import { dayKey } from "../lib/timestamp";
 import { heat } from "../lib/words";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
 import { haptic } from "../lib/haptic";
+import { TileFx, useFestiveTiles, useHoldPreview, useSpecials } from "./SpecialTiles";
 
 export const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -67,6 +68,9 @@ export const MonthGrid = memo(MonthGridView, (a, b) =>
 function MonthGridView({ year, month, counts, max, search, selected, today, onPick, weekOnly, mini }: GridProps) {
   let weeks = monthWeeks(year, month);
   if (weekOnly) weeks = weeks.filter((w) => w.includes(selected)).slice(0, 1);
+  const specialsOf = useSpecials();
+  const animate = useFestiveTiles();
+  const hold = useHoldPreview();
   return (
     <div className={mini ? "month-grid mini" : "month-grid"}>
       {WEEKDAY_LETTERS.map((l, i) => <span key={i} className="weekday">{l}</span>)}
@@ -74,7 +78,11 @@ function MonthGridView({ year, month, counts, max, search, selected, today, onPi
         if (!d) return <span key={i} />;
         const words = counts[d] ?? 0;
         const reminder = !search && d > today && words > 0;
-        const classes = ["cal-day", d === selected && "selected", d === today && "today", reminder && "reminder"]
+        const specials = specialsOf(d);
+        const s = specials[0];
+        // Off: plain tiles. Mini (year view): a still tint only. The week strip and month: moving.
+        const fest = s && animate;
+        const classes = ["cal-day", d === selected && "selected", d === today && "today", reminder && "reminder", fest && `fest fest-${s.kind}`, fest && !mini && "fest-anim"]
           .filter(Boolean)
           .join(" ");
         return (
@@ -83,13 +91,16 @@ function MonthGridView({ year, month, counts, max, search, selected, today, onPi
             type="button"
             className={classes}
             style={{ "--heat": reminder ? 0 : heat(words, max) } as CSSProperties}
-            title={reminder ? `${d}: reminder` : search ? `${d}: ${words} matches` : `${d}: ${words} words`}
-            onClick={() => onPick(d)}
+            title={`${s ? `${specials.map((x) => x.title).join(", ")} · ` : ""}${reminder ? `${d}: reminder` : search ? `${d}: ${words} matches` : `${d}: ${words} words`}`}
+            onClick={() => !hold.wasHold() && onPick(d)}
+            {...hold.bind(d, specials)}
           >
             {Number(d.slice(8))}
+            {fest && !mini && <TileFx s={s} animate />}
           </button>
         );
       })}
+      {hold.preview}
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { agentSystem, parseToolCalls, runTools } from "./agent";
 import { loadAiSettings, modelFor, recordUsage } from "./settings";
 import { actorFor } from "./providers";
 import type { Section } from "./blocks";
-import { showError, showToast } from "../lib/toast";
+import { showToast } from "../lib/toast";
 import { holdAwake } from "../lib/power";
 
 /**
@@ -177,9 +177,9 @@ export function startAnswer(store: JournalStore, chatId: string, kind?: Msg["kin
       // Read again: the person may have changed the chat (or its section) meanwhile.
       const now = (await loadChat(store, chatId)) ?? chat;
       await saveChat(store, { ...now, messages: [...now.messages, { ...msg, kind }], section: section ?? now.section, pending: null, updated: Date.now() });
-      showToast(`🤖 Answer ready: ${chat.title}`, "info", { label: "Open", run: () => window.dispatchEvent(new CustomEvent("journal:open-ai-chat", { detail: chatId })) });
+      showToast(`🤖 Answer ready: ${chat.title}`, "info", { label: "Open", run: () => window.dispatchEvent(new CustomEvent("journal:open-ai-chat", { detail: chatId })) }, { background: true });
     } catch (e) {
-      if (!(e instanceof DOMException && e.name === "AbortError")) showError("No AI reply", e);
+      if (!(e instanceof DOMException && e.name === "AbortError")) showToast(`No AI reply: ${e instanceof Error ? e.message : String(e)}`, "error", undefined, { background: true });
       const now = await loadChat(store, chatId);
       if (now?.pending) await saveChat(store, { ...now, pending: null });
     } finally {
@@ -223,7 +223,7 @@ export function watchRemote(store: JournalStore, chat: Chat) {
       watching = null;
       job = null;
       emit();
-      showToast(`🤖 Answer ready: ${now.title}`, "info", { label: "Open", run: () => window.dispatchEvent(new CustomEvent("journal:open-ai-chat", { detail: chat.id })) });
+      showToast(`🤖 Answer ready: ${now.title}`, "info", { label: "Open", run: () => window.dispatchEvent(new CustomEvent("journal:open-ai-chat", { detail: chat.id })) }, { background: true });
     } else if (Date.now() - started > 3 * 3600_000) {
       clearInterval(watching!);
       watching = null;
