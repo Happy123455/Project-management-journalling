@@ -136,12 +136,12 @@ export function SearchPanel({ query, onQuery, results, onPick, onClose }: {
         {!draft.trim() && (
           <p className="hint search-tips">
             Tip: “quoted words” search a phrase, #tag finds a tag, [[Page finds mentions of a page. <b>line:(alphabet microsoft)</b> finds them on the same line,{" "}
-            <b>section:(…)</b> under the same heading, <b>block:(…)</b> in the same paragraph. Folded blocks open by themselves at the match.
+            <b>section:(…)</b> under the same heading, <b>block:(…)</b> in the same paragraph, <b>file:(…)</b> only in titles of notes, projects, links and files. Folded blocks open by themselves at the match.
           </p>
         )}
         {!draft.trim() && (
           <div className="search-recent search-ops">
-            {["line:()", "section:()", "block:()"].map((op) => (
+            {["line:()", "section:()", "block:()", "file:()"].map((op) => (
               <button key={op} type="button" onClick={() => (setDraft(`${draft}${draft && !draft.endsWith(" ") ? " " : ""}${op}`), window.setTimeout(() => {
                 const el = input.current;
                 if (el) (el.focus(), el.setSelectionRange(el.value.length - 1, el.value.length - 1));

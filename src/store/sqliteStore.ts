@@ -2,7 +2,7 @@ import Database from "@tauri-apps/plugin-sql";
 import { idFromRef } from "../lib/embeds";
 import { safeFileName } from "../lib/files";
 import { extractLinks, uniqueNames } from "../lib/links";
-import { docMatches, matchText, searchTerms } from "../lib/search";
+import { docMatches, docNames, hasFileScope, matchText, searchTerms } from "../lib/search";
 import { dayKey } from "../lib/timestamp";
 import { countWords, docText } from "../lib/words";
 import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
@@ -13,6 +13,7 @@ import { beforeKey, docKey, eventDocument, eventKey, type BlockMeta, type LocalS
 import { withPatch } from "./props";
 import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
 import { notifyLogged } from "./logged";
+import { THIN_SQL } from "./thin";
 
 interface BlockRow {
   id: string;
@@ -355,6 +356,7 @@ export class SqliteStore implements JournalStore {
   async search(query: string) {
     const terms = searchTerms(query);
     if (!terms.length) return [];
+    const fileScope = hasFileScope(query);
     // SQL narrows to blocks whose stored JSON mentions every word; the exact check runs on the text.
     const where = terms.map((_, i) => `lower(content) LIKE '%' || $${i + 1} || '%'`).join(" AND ");
     const rows = await this.db.select<{ id: string; type: string; day: string | null; props: string; content: string }[]>(
@@ -364,14 +366,14 @@ export class SqliteStore implements JournalStore {
     const hits: SearchHit[] = [];
     for (const r of rows.filter((r) => r.type === "day")) {
       const doc = JSON.parse(r.content);
-      const text = docText(doc);
+      const text = fileScope ? `${docText(doc)}\n${docNames(doc)}` : docText(doc);
       if (matchText(text, terms) && docMatches(doc, query)) hits.push({ kind: "day", blockId: r.id, day: r.day, title: null, text });
     }
     // Pages also match on their title, which isn't in the content, so check every page.
     for (const r of await this.db.select<{ id: string; props: string; content: string }[]>("SELECT id, props, content FROM blocks WHERE type = 'page'")) {
       const title = JSON.parse(r.props).title as string;
       const doc = JSON.parse(r.content);
-      const text = `${title}\n${docText(doc)}`;
+      const text = `${title}\n${docText(doc)}${fileScope ? `\n${docNames(doc)}` : ""}`;
       if (matchText(text, terms) && docMatches(doc, query, title)) hits.push({ kind: "page", blockId: r.id, day: null, title, text });
     }
     for (const f of await this.listFiles()) {
@@ -661,6 +663,30 @@ export class SqliteStore implements JournalStore {
       [newId(), this.device, actor, blockId, op, before, after, JSON.stringify(last.map((e) => e.id)), now],
     );
     notifyLogged();
+  }
+
+  thinHistory(cutoff: string) {
+    return this.writes.run(async () => {
+      const ids = (await this.db.select<{ id: string }[]>(THIN_SQL, [cutoff])).map((r) => r.id);
+      for (let i = 0; i < ids.length; i += 400) {
+        const part = ids.slice(i, i + 400);
+        await this.db.execute(`DELETE FROM events WHERE id IN (${part.map((_, k) => `$${k + 1}`).join(",")})`, part);
+      }
+      return ids.length;
+    });
+  }
+
+  reclaimSpace() {
+    return this.writes.run(async () => {
+      await this.db.execute("VACUUM");
+      // VACUUM writes the whole new file through the WAL, which SQLite keeps at that size: give it back too.
+      await this.db.execute("PRAGMA wal_checkpoint(TRUNCATE)").catch(() => {});
+    });
+  }
+
+  async eventAfter(id: string) {
+    const [row] = await this.db.select<{ after: string | null }[]>("SELECT after FROM events WHERE id = $1", [id]);
+    return row?.after ?? null;
   }
 
   async eventsFor(blockId: string) {

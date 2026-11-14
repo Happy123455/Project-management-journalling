@@ -3,7 +3,7 @@
  * (localStorage journal.transferLog, newest first, the last 80 entries). Small Wi-Fi requests in the
  * same minute and direction add up into one entry, so live typing doesn't flood the list.
  */
-export type Via = "wifi" | "drive";
+export type Via = "wifi" | "drive" | "mobile";
 export interface Transfer {
   at: number;
   via: Via;

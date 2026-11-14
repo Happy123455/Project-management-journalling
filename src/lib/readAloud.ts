@@ -8,6 +8,24 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { holdAwake } from "./power";
+import { paradeeInstalled, paradeeSpeak, paradeeStop } from "./paradee";
+
+const ENGINE_KEY = "dynamic-journal.voice-engine";
+/** "paradee": the tiny Paradee voice in the app (lib/paradee.ts); otherwise Kokoro / the system voice. */
+export function voiceEngine(): "paradee" | "kokoro" {
+  try {
+    return localStorage.getItem(ENGINE_KEY) === "paradee" ? "paradee" : "kokoro";
+  } catch {
+    return "kokoro";
+  }
+}
+export function setVoiceEngine(engine: "paradee" | "kokoro") {
+  try {
+    localStorage.setItem(ENGINE_KEY, engine);
+  } catch {
+    // Only a preference.
+  }
+}
 
 declare global {
   interface Window {
@@ -152,6 +170,7 @@ function bestWebVoice(): SpeechSynthesisVoice | null {
 }
 
 const engineStop = () => {
+  paradeeStop();
   if (window.JournalSpeech) return window.JournalSpeech.stop();
   if (desktop()) void invoke("stop_speech");
   window.speechSynthesis?.cancel();
@@ -167,6 +186,19 @@ function start() {
   const onDone = () => {
     if (id === String(run) && state.status === "playing") set({ status: "idle" });
   };
+  if (voiceEngine() === "paradee") {
+    // Paradee in the web view; if it can't (not downloaded, failed), the usual voice carries on.
+    void paradeeInstalled().then((ok) => {
+      if (id !== String(run)) return;
+      if (!ok) return nativeOrWeb(id, part, onRange, onDone);
+      paradeeSpeak(part, state.rate, onRange).then(onDone, () => id === String(run) && nativeOrWeb(id, part, onRange, onDone));
+    });
+    return;
+  }
+  nativeOrWeb(id, part, onRange, onDone);
+}
+
+function nativeOrWeb(id: string, part: string, onRange: (i: number) => void, onDone: () => void) {
   if (window.JournalSpeech || desktop()) {
     window.__journalSpeech = (event, eventId, index) => {
       if (eventId !== String(run)) return;

@@ -1,4 +1,4 @@
-import { unzipSync, zipSync } from "fflate";
+import { unzipSync, zip, zipSync } from "fflate";
 
 export interface BackupEntry {
   /** Path inside the zip, e.g. "journal.db" or "attachments/<id>/photo.jpg". */
@@ -22,6 +22,22 @@ export function zipBackup(entries: BackupEntry[]): Uint8Array {
   const files: Record<string, [Uint8Array, { level: 0 | 6 }]> = {};
   for (const e of entries) files[e.name] = [e.bytes, { level: e.name.startsWith("attachments/") ? 0 : 6 }];
   return zipSync(files);
+}
+
+/**
+ * zipBackup off the main thread (fflate's workers). The Mac's journal database had grown past
+ * 500 MB, and compressing it in one go froze the app for seconds when the daily backup ran at
+ * opening. Falls back to zipBackup where workers can't start.
+ */
+export async function zipBackupAsync(entries: BackupEntry[]): Promise<Uint8Array> {
+  if (typeof Worker === "undefined") return zipBackup(entries);
+  const files: Record<string, [Uint8Array, { level: 0 | 6 }]> = {};
+  for (const e of entries) files[e.name] = [e.bytes, { level: e.name.startsWith("attachments/") ? 0 : 6 }];
+  try {
+    return await new Promise<Uint8Array>((resolve, reject) => zip(files, {}, (err, data) => (err ? reject(err) : resolve(data))));
+  } catch {
+    return zipBackup(entries);
+  }
 }
 
 export function unzipBackup(zip: Uint8Array): BackupEntry[] {

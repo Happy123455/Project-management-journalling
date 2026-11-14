@@ -1,7 +1,7 @@
 import type { Editor, JSONContent } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import type { LineEdit } from "../lib/reminders";
-import { BOX_TITLE } from "../lib/routine";
+import { BOX_TITLE, timeOrderedSlot } from "../lib/routine";
 
 /**
  * Small changes to a day's note made from outside the editor (a routine tap, a reminder ticked off
@@ -17,6 +17,12 @@ export function registerOpenNote(key: string, editor: Editor): () => void {
   return () => {
     if (open.get(key) === editor) open.delete(key);
   };
+}
+
+/** The day ("2026-11-04") an open editor shows, or "" when it isn't a day note. */
+export function noteDayOf(editor: Editor): string {
+  for (const [k, e] of open) if (e === editor && k.startsWith("day:")) return k.slice(4);
+  return "";
 }
 
 /** The open editor of a day, or null (not open, or in Source mode, where the text box is the truth). */
@@ -137,8 +143,11 @@ export function insertLogLinePM(editor: Editor, line: string, box = BOX_TITLE) {
     const base = Number(doc.child(title).attrs.indent ?? 0);
     let end = title + 1;
     while (end < doc.childCount && Number(doc.child(end).attrs.indent ?? 0) > base) end++;
+    const rows: { text: string; indent: number }[] = [];
+    doc.forEach((n) => rows.push({ text: n.textContent, indent: Number(n.attrs.indent ?? 0) }));
+    const slot = timeOrderedSlot(rows, title + 1, end, base + 1, line);
     let pos = 0;
-    for (let i = 0; i < end; i++) pos += doc.child(i).nodeSize;
+    for (let i = 0; i < slot; i++) pos += doc.child(i).nodeSize;
     tr.insert(pos, para(line, base + 1));
     // A folded box opens, so the new line is seen.
     if (doc.child(title).attrs.collapsed) {

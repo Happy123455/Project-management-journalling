@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { JSONContent } from "@tiptap/react";
 import { buildNexus } from "./lib/nexus";
+import { putBack, removedLines, type RemovedLine } from "./lib/removedLines";
 import { showError, showToast } from "./lib/toast";
 import { docText } from "./lib/words";
 import type { JournalEvent, JournalStore } from "./store";
@@ -10,8 +11,44 @@ export type NexusTarget = { kind: "day"; day: string; blockId: string; title: st
 const LANE = 96;
 const ROW = 30;
 
-/** ⑂ Nexus: how a note changed across devices, where two edited it at once, and a version to keep. */
-export function NexusView({ store, target, onClose, onRestored }: { store: JournalStore; target: NexusTarget; onClose: () => void; onRestored: () => void }) {
+export type NexusTab = "sync" | "send" | "history";
+
+/**
+ * ⑂ Nexus: everything between this device and the other one. Sync (status, connect, network
+ * history), Send (text and files straight over Wi-Fi) and History (how this note changed across
+ * devices, where two edited it at once, and a version to keep). Tapping the sync line opens it.
+ */
+export function NexusView({ store, target, tab: firstTab = "history", sync, send, onClose, onRestored }: {
+  store: JournalStore;
+  target: NexusTarget;
+  tab?: NexusTab;
+  sync: ReactNode;
+  send: ReactNode;
+  onClose: () => void;
+  onRestored: () => void;
+}) {
+  const [tab, setTab] = useState<NexusTab>(firstTab);
+  const tabs: [NexusTab, string][] = [["sync", "☁︎ Sync"], ["send", "📤 Send"], ["history", "⑂ This note"]];
+  return (
+    <div className="settings-view nexus-view" role="dialog" aria-label="Nexus">
+      <header className="graph-bar">
+        <button type="button" onClick={onClose} aria-label="Close">✕</button>
+        <h1 className="settings-title">⑂ Nexus</h1>
+      </header>
+      <div className="nexus-tabs" role="tablist">
+        {tabs.map(([k, label]) => (
+          <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{label}</button>
+        ))}
+      </div>
+      {tab === "sync" && <div className="nexus-sync">{sync}</div>}
+      {tab === "send" && send}
+      {tab === "history" && <NoteHistory store={store} target={target} onRestored={onRestored} />}
+    </div>
+  );
+}
+
+/** How a note changed across devices, where two edited it at once, and a version to keep. */
+function NoteHistory({ store, target, onRestored }: { store: JournalStore; target: NexusTarget; onRestored: () => void }) {
   const [events, setEvents] = useState<JournalEvent[] | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   useEffect(() => {
@@ -42,14 +79,49 @@ export function NexusView({ store, target, onClose, onRestored }: { store: Journ
     }
   };
 
+  // Lines any edit or sync took out that aren't in the note now: each one can be put back.
+  const [current, setCurrent] = useState<JSONContent | null>(null);
+  const loadCurrent = () => {
+    const got = target.kind === "day" ? store.getDay(target.day) : store.getPage(target.title);
+    void got.then((pg) => setCurrent(pg?.content ?? null));
+  };
+  useEffect(loadCurrent, [store, target]);
+  const removed = useMemo(() => (events && current ? removedLines(events, current) : []), [events, current]);
+  const [showAll, setShowAll] = useState(false);
+  const restoreLine = async (line: RemovedLine) => {
+    const pg = target.kind === "day" ? await store.getDay(target.day) : await store.getPage(target.title);
+    if (!pg) return;
+    const content = putBack(pg.content, line);
+    try {
+      if (target.kind === "day") await store.saveDay({ day: target.day, content, plainText: docText(content) });
+      else await store.savePage({ id: target.pageId, content, plainText: docText(content) });
+      showToast("Put back");
+      setCurrent(content);
+      void store.eventsFor(target.blockId).then(setEvents);
+      onRestored();
+    } catch (e) {
+      showError("Couldn't put it back", e);
+    }
+  };
+
   const x = (lane: number) => 48 + lane * LANE;
   const y = (row: number) => 24 + row * ROW;
   return (
-    <div className="settings-view nexus-view" role="dialog" aria-label="Nexus">
-      <header className="graph-bar">
-        <button type="button" onClick={onClose} aria-label="Close">✕</button>
-        <h1 className="settings-title">⑂ {target.title}</h1>
-      </header>
+    <div className="nexus-history">
+      <h2 className="settings-label">{target.title}</h2>
+      {removed.length > 0 && (
+        <div className="nexus-removed">
+          <p className="hint">🗑 {removed.length} line{removed.length === 1 ? "" : "s"} taken out of this note (by you, the other device or sync). Tap ↩ to put one back where it was.</p>
+          {(showAll ? removed : removed.slice(0, 8)).map((r) => (
+            <div key={r.id} className="nexus-removed-row">
+              <span className="nexus-removed-meta">{new Date(r.at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · {r.deviceId.slice(0, 8)}{r.actor !== "me" ? ` · ${r.actor}` : ""}</span>
+              <span className="nexus-removed-text">{r.text.slice(0, 200)}</span>
+              <button type="button" onClick={() => void restoreLine(r)} aria-label="Put back">↩</button>
+            </div>
+          ))}
+          {removed.length > 8 && !showAll && <button type="button" className="link" onClick={() => setShowAll(true)}>Show all {removed.length}</button>}
+        </div>
+      )}
       {!nexus ? (
         <p className="hint">Loading…</p>
       ) : (

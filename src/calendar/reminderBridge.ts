@@ -81,7 +81,7 @@ export function startInAppNudges(open: (day: string) => void): () => void {
     for (const a of lastAlarms) {
       if (a.at > now || now - a.at > 5 * 60_000 || fired.has(a.id)) continue;
       fired.add(a.id);
-      showToast(`${a.title} ${a.body}`);
+      showToast(`${a.title} ${a.body}`, "info", undefined, { background: true });
       try {
         if ("Notification" in window && Notification.permission === "granted") new Notification(a.title, { body: a.body }).onclick = () => open(a.day);
       } catch {

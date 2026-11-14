@@ -4,9 +4,12 @@ import { PluginKey } from "@tiptap/pm/state";
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from "@tiptap/suggestion";
 import { filterSlashItems, type SlashId, type SlashItem } from "../lib/slashItems";
 import { formatTimestamp } from "../lib/timestamp";
+import { placeLine } from "../lib/place";
+import { showToast } from "../lib/toast";
 import { openCapture, pickFiles } from "./attachments";
 import { openVoiceRecorder } from "./VoiceRecorder";
 import { openMemeKit } from "./MemeKit";
+import { newSheetContent } from "./sheetBlock";
 
 /**
  * Log and timestamp in one: on an empty line it starts a log (a list whose entries each begin with
@@ -19,6 +22,19 @@ export function insertLogOrTime(editor: Editor) {
   const chain = editor.chain().focus();
   if (blankLine && !inList) chain.toggleBulletList();
   return chain.insertContent(formatTimestamp(new Date()) + " ").run();
+}
+
+/** 📍 Your current location at the cursor (the line appears when the fix and its name are in). */
+export function insertPlace(editor: Editor) {
+  const at = editor.state.selection.from;
+  showToast("📍 Finding where you are…", "info");
+  void placeLine().then((line) => {
+    if (!line) return void showToast("Couldn't get your location: is location (GPS) on?", "error");
+    if (editor.isDestroyed) return;
+    const pos = Math.min(at, editor.state.doc.content.size);
+    editor.chain().insertContentAt(pos, line + " ").run();
+  });
+  return true;
 }
 
 export interface SlashMenuOptions {
@@ -43,6 +59,9 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       chain.run();
       return insertLogOrTime(editor);
     case "tag": return chain.insertContent("#").run();
+    case "place":
+      chain.run();
+      return insertPlace(editor);
     case "link":
     case "embed": {
       // ![[…]] shows the day or page (or one part of it, after #) right here.
@@ -76,8 +95,12 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       return true;
     case "math":
       return chain.insertContent({ type: "mathBlock" }).run();
+    case "sheet":
+      return chain.insertContent(newSheetContent()).run();
     case "prompt":
       return chain.insertContent({ type: "promptBlock" }).run();
+    case "deadline":
+      return chain.insertContent({ type: "deadlineBar" }).run();
     case "logproject":
       chain.run();
       window.dispatchEvent(new CustomEvent("journal:new-project", { detail: { editor, logging: true } }));

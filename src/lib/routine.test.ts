@@ -207,3 +207,15 @@ describe("workouts with short rests", () => {
     expect(days.get("2026-11-04")!.steps.get("exercise")).toEqual([{ start: at(7, 0), end: at(7, 40), health: true }]);
   });
 });
+
+describe("log lines in time order", () => {
+  it("a late-arriving earlier line goes above later ones", () => {
+    const w = withLogLine;
+    let doc = w(null, "13,November,2026 Friday (11:01:30) 🛁 Bath start");
+    doc = w(doc, "13,November,2026 Friday (11:23:47) 🛁 Bath end");
+    doc = w(doc, "13,November,2026 Friday (03:03:00) 😴 Sleep (Samsung Health)");
+    doc = w(doc, "13,November,2026 Friday (14:57:40) 🍛 Lunch end");
+    const texts = doc.content!.slice(1).map((b) => b.content![0].text!);
+    expect(texts.map((t) => /\((\d\d:\d\d)/.exec(t)?.[1])).toEqual(["03:03", "11:01", "11:23", "14:57"]);
+  });
+});

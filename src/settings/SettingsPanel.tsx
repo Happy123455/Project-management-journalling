@@ -7,7 +7,8 @@ import { DEFAULT_MODELS, PROVIDERS, type Provider } from "../ai/providers";
 import { getKey, removeKey, setKey } from "../ai/secrets";
 import { loadAiSettings, modelFor, monthUsage, saveAiSettings, type AiSettings } from "../ai/settings";
 import { dayTitle } from "../lib/timestamp";
-import { KOKORO_EN_VOICES, MODEL_NAMES, onVoiceProgress, readAloud, voiceAction, voiceInfo, type VoiceInfo, type VoiceProgress } from "../lib/readAloud";
+import { KOKORO_EN_VOICES, MODEL_NAMES, onVoiceProgress, readAloud, setVoiceEngine, voiceAction, voiceEngine, voiceInfo, type VoiceInfo, type VoiceProgress } from "../lib/readAloud";
+import { downloadParadee, PARADEE_SIZE_MB, paradeeInstalled, removeParadee } from "../lib/paradee";
 import { showError, showToast } from "../lib/toast";
 import type { AiChange, JournalStore } from "../store";
 import { mcpAvailable, mcpEnabled, setMcpServer } from "../mcp";
@@ -173,6 +174,51 @@ function AiChanges({ store }: { store: JournalStore }) {
   );
 }
 
+/** Paradee: a 9 MB English voice that runs in the app itself (lib/paradee.ts), same on Mac and phone. */
+function ParadeeSettings() {
+  const [engine, setEngine] = useState(voiceEngine);
+  const [installed, setInstalled] = useState<boolean | null>(null);
+  const [got, setGot] = useState<number | null>(null);
+  useEffect(() => void paradeeInstalled().then(setInstalled), []);
+  const choose = (e: "paradee" | "kokoro") => (setVoiceEngine(e), setEngine(e));
+  const download = async () => {
+    setGot(0);
+    try {
+      await downloadParadee((r) => setGot(r));
+      setInstalled(true);
+      choose("paradee");
+    } catch (e) {
+      showError("Paradee download failed", e);
+    } finally {
+      setGot(null);
+    }
+  };
+  return (
+    <>
+      <div className="settings-label">Engine</div>
+      <div className="project-status" role="radiogroup" aria-label="Voice engine">
+        <button type="button" role="radio" aria-checked={engine === "paradee"} className={engine === "paradee" ? "active status-active" : ""} onClick={() => choose("paradee")}>Paradee (tiny, fast)</button>
+        <button type="button" role="radio" aria-checked={engine === "kokoro"} className={engine === "kokoro" ? "active status-active" : ""} onClick={() => choose("kokoro")}>Kokoro / device voice</button>
+      </div>
+      {engine === "paradee" && (
+        <div className="settings-row">
+          {installed ? (
+            <>
+              <button type="button" onClick={() => readAloud("Hi Hapi. This is how your journal sounds when Paradee reads it aloud.")}>▶ Try</button>
+              <button type="button" onClick={() => void removeParadee().then(() => setInstalled(false))}>Remove ({PARADEE_SIZE_MB} MB)</button>
+            </>
+          ) : (
+            <button type="button" disabled={got !== null} onClick={() => void download()}>
+              {got !== null ? `Downloading… ${(got / 1_000_000).toFixed(1)} MB` : `Download Paradee (~${PARADEE_SIZE_MB} MB)`}
+            </button>
+          )}
+        </div>
+      )}
+      {engine === "paradee" && <p className="hint">One English voice (Paradee 8M by Sahil Mahendrakar, Apache 2.0), runs on this device. Until it's downloaded, the voice below is used.</p>}
+    </>
+  );
+}
+
 /** Read aloud: download Kokoro once, pick the model and voice. Without it the system voice is used. */
 function ReadAloudSettings() {
   const [info, setInfo] = useState<VoiceInfo | null>(null);
@@ -186,13 +232,14 @@ function ReadAloudSettings() {
       if (p.state === "error") showError("Voice download failed", p.message);
     });
   }, []);
-  if (!info) return <p className="hint">Uses this device's voice (the best Premium/Enhanced one installed).</p>;
+  if (!info) return <><ParadeeSettings /><p className="hint">Otherwise this device's voice (the best Premium/Enhanced one installed).</p></>;
   const act = (action: Parameters<typeof voiceAction>[0], value: string | number) => void voiceAction(action, value).then(refresh);
   const current = info.models.find((m) => m.id === info.model);
   const voices = info.model.includes("-en-") ? KOKORO_EN_VOICES : Array.from({ length: Math.max(info.speakers, 1) }, (_, i) => `Voice ${i + 1}`);
   const mb = (n: number) => Math.round(n / 1048576);
   return (
     <>
+      <ParadeeSettings />
       <div className="settings-label">Voice model</div>
       <div className="project-status" role="radiogroup" aria-label="Voice model">
         {info.models.map((m) => (
@@ -334,6 +381,8 @@ function EditorSettings() {
       {row("codeScroll", "Scroll code blocks sideways", "Off: long code lines wrap onto the next line instead")}
       {row("editStamps", "Stamp edits on older days", "Writing in a past day adds a small “edited” chip with when")}
       {row("relativeTime", "Show how long ago a day is", "Under the date: years, months and days from today")}
+      {row("festiveTiles", "Special Date Tile Animations", "Diwali, Holi, Uttarayan, New Year and the birthdays and anniversaries on your “Special dates” page get a small moving decoration in the month. Off: plain, still tiles. Hold a special day for its card either way")}
+      {row("timeFlash", "Flash the line you jump to", "Tapping a dot on the time rail lights that line for 4 s in its time of day's colour")}
       {row("autoMath", "Solve math as you type", "Type = after a sum and the answer appears: 12+12= becomes 12+12=24 (undo takes it back)")}
       {row("prettyMath", "Draw formulas", "Plain maths like (a+b+c+d)/2 or x^2 shows as a proper formula; the line you're writing in stays plain text")}
       {row("typingGuide", "Typing speed guide", "Typing faster than the limit turns the cursor red and hot and buzzes the phone, as a reminder to slow down")}
@@ -355,6 +404,14 @@ function EditorSettings() {
           <small>About {Math.round(e.maxCps * 12)} words a minute. 5 is calm handwriting pace, 8 is quick typing.</small>
         </label>
       )}
+      <div className="settings-label">⏳ Deadlines today in the month view</div>
+      <div className="project-status" role="radiogroup" aria-label="Deadlines today in the month view">
+        {([["below", "Under Coming up"], ["left", "Left of Coming up"], ["off", "Don't show"]] as const).map(([v, t]) => (
+          <button key={v} type="button" role="radio" aria-checked={e.monthDeadlines === v} className={e.monthDeadlines === v ? "active status-active" : ""} onClick={() => setE(setEditorPrefs({ monthDeadlines: v }))}>
+            {t}
+          </button>
+        ))}
+      </div>
     </section>
   );
 }

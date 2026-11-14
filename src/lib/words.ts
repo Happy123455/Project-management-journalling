@@ -1,3 +1,4 @@
+import { parseSheet, sheetText } from "./sheet";
 import type { JSONContent } from "@tiptap/react";
 
 /** Words in a piece of text; anything separated by whitespace counts as one word. */
@@ -8,6 +9,8 @@ export function countWords(text: string): number {
 /** Plain text of a stored TipTap document, with blocks separated by newlines. */
 export function docText(node: JSONContent): string {
   if (node.text) return node.text;
+  // A spreadsheet table reads as its shown values, tab-separated (search, the AI, word counts).
+  if (node.type === "sheetBlock") return sheetText(parseSheet(node.attrs?.data));
   return (node.content ?? []).map(docText).join("\n");
 }
 

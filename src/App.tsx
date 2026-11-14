@@ -17,7 +17,10 @@ import { isDayTarget, splitTarget } from "./lib/noteLinks";
 import { Drawer, InfoTabs, MEDIA_DRAG, type InsertMedia } from "./panels/Panels";
 import { DaysList, MenuSections, MoneyGlance, ProjectList } from "./panels/Menu";
 import { RestoreButton } from "./panels/Restore";
-import { SyncStatus } from "./sync/SyncStatus";
+import { SyncChip, SyncStatus } from "./sync/SyncStatus";
+import { DropPanel } from "./sync/DropPanel";
+import type { DropItem } from "./sync/drop";
+import { appendBlocks, asBlocks, textBlocks } from "./lib/append";
 import { useSync } from "./sync/useSync";
 import { countsByDay, SearchPanel, toResults, type SearchResult } from "./search/SearchPanel";
 import { FindBar } from "./search/FindBar";
@@ -33,10 +36,15 @@ import { isDesktopApp, macBubbleEnabled, setMacBubble } from "./bubble/macBubble
 import { growMap, growPending } from "./mindmap/grow";
 import { loadAiSettings } from "./ai/settings";
 import { entryFor, numberEntries, type ProjectEntry } from "./lib/projectDays";
-import { loadGestures, NO_SWIPE, type CanvasAction } from "./lib/gestures";
+import { loadGestures, NO_SWIPE, onPanSurface, type CanvasAction } from "./lib/gestures";
+import { parseSpecialPage, setPersonalDates, SPECIAL_DATES_PAGE } from "./lib/specialDates";
+import { useAiNavigation } from "./ai/useAiRules";
 import { ChatView } from "./ChatView";
+import { AiBadge } from "./AiBadge";
+import { VoiceBadge } from "./ai/VoicePanel";
+import { startMacWorker } from "./ai/chatRunner";
 import { RelativeTime } from "./calendar/RelativeTime";
-import { NexusView, type NexusTarget } from "./NexusView";
+import { NexusView, type NexusTab, type NexusTarget } from "./NexusView";
 import { openVoiceRecorder, VoiceRecorder } from "./editor/VoiceRecorder";
 import { MemeKit } from "./editor/MemeKit";
 import { searchTerms } from "./lib/search";
@@ -45,12 +53,21 @@ import { mediaIdsIn } from "./lib/media";
 import { autoBackup, exportBackup } from "./backup";
 import { fileUrl, mediaNode, openFile, setAttachmentStore, showPdf, showPhoto } from "./editor/attachments";
 import { flushPendingEdits, hasPendingEdits, JournalEditor } from "./editor/JournalEditor";
+import { startHistoryThinning } from "./store/thinRunner";
 import { useTouchDevice } from "./editor/KeyboardBar";
 import { rememberScroll, recallScroll, restoreScroll, scrollKey } from "./nav/scrollMemory";
 import { MacTabBar, NavIsland, TabSwitcher, TitleSearch, type MenuAction } from "./nav/NavIsland";
 import { PanelResizer, SidebarEdge, usePanelWidths, useSidebarToggle } from "./nav/PanelResizer";
 import { activeTab, closeTab, currentLoc, go, loadTabs, locKey, openTab, saveTabs, switchTab, visit, type Loc, type TabsState } from "./nav/tabs";
 import { receiveTyping } from "./sync/liveTyping";
+import { editorSaw, guardSave } from "./sync/saveGuard";
+import { openTimelines, TimelinesHost } from "./editor/TimelinesView";
+import { deadlineAlarms, useAllDeadlines, watchDeadlines } from "./editor/deadlineStore";
+import { FocusHost } from "./editor/focus";
+import { TodayDeadlines } from "./editor/TodayDeadlines";
+import { DayPreview } from "./editor/DayPreview";
+import { startSnippetWorker } from "./ai/daySnippet";
+import { useEditorPrefs } from "./lib/editorPrefs";
 import { CaptureHost } from "./editor/CaptureHost";
 import { PdfHost } from "./editor/PdfHost";
 import { PhotoHost } from "./editor/PhotoHost";
@@ -88,12 +105,35 @@ function App() {
   const [yearShown, setYearShown] = useState(() => new Date().getFullYear());
   // What the main area shows: today's/any day's page, a named page, or a tag.
   const [route, setRoute] = useState<{ kind: "day" } | { kind: "page"; page: NamedPage } | { kind: "tag"; tag: string }>({ kind: "day" });
+  // Birthdays and anniversaries for the calendar tiles, from the "Special dates" page: read when the
+  // app opens, after syncs, on coming back to the app, and on leaving a page (it may have been edited).
+  useEffect(() => {
+    if (!store) return;
+    const load = () =>
+      void store
+        .getPage(SPECIAL_DATES_PAGE)
+        .then((p) => setPersonalDates(parseSpecialPage(p?.content)))
+        .catch(() => {});
+    load();
+    const vis = () => document.visibilityState === "visible" && load();
+    window.addEventListener("journal:synced", load);
+    document.addEventListener("visibilitychange", vis);
+    return () => {
+      window.removeEventListener("journal:synced", load);
+      document.removeEventListener("visibilitychange", vis);
+    };
+  }, [store, route.kind]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
   const [mindOpen, setMindOpen] = useState(false);
   const [nexus, setNexus] = useState<NexusTarget | null>(null);
+  const [nexusTab, setNexusTab] = useState<NexusTab>("history");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  // A graph to show in the mind map (a voice graph's 🧠 Open), else the usual map.
+  const [mindGraph, setMindGraph] = useState<string | null>(null);
+  // An AI chat to open (from the 🤖 badge or an "Answer ready" toast).
+  const [openAi, setOpenAi] = useState<string | null>(null);
   // Bumped when another device's changes arrive, so lists and calendars reload.
   const [syncTick, setSyncTick] = useState(0);
   // Bumped to reopen the current page in the editor with what arrived (only when not typing).
@@ -155,6 +195,28 @@ function App() {
     };
   }, [store, route.kind, day]);
 
+  useEffect(() => {
+    const open = (e: Event) => {
+      setOpenAi((e as CustomEvent<string>).detail);
+      void window.__journalFlush?.().then(() => setChatOpen(true));
+    };
+    window.addEventListener("journal:open-ai-chat", open);
+    const openMind = (e: Event) => {
+      setMindGraph((e as CustomEvent<{ graph?: string }>).detail?.graph ?? null);
+      setChatOpen(false);
+      setMindOpen(true);
+    };
+    window.addEventListener("journal:open-mind-map", openMind);
+    return () => {
+      window.removeEventListener("journal:open-ai-chat", open);
+      window.removeEventListener("journal:open-mind-map", openMind);
+    };
+  }, []);
+  // Mac: answers AI chats sent from the phone (they arrive by sync).
+  useEffect(() => {
+    if (!store || !isDesktopApp()) return;
+    return startMacWorker(store);
+  }, [store]);
   // Mac: notes from the floating bubble window land at the end of today.
   useEffect(() => {
     if (!store || !isDesktopApp()) return;
@@ -176,6 +238,7 @@ function App() {
     window.__journalFlush = flush;
   });
 
+  const prefs = useEditorPrefs();
   const sync = useSync(store, () => {
     setSyncTick((n) => n + 1);
     window.dispatchEvent(new Event("journal:synced"));
@@ -191,10 +254,22 @@ function App() {
       void store.getDay(open).then((p) => {
         if (!p || pending.current || hasPendingEdits()) return;
         setContent(p.content);
+        editorSaw(`day:${open}`, p.content);
         receiveTyping({ key: `day:${open}`, device: "sync", seq: ++importSeq, full: p.content });
       });
     }
   });
+
+  /** A save from the editor never removes lines the editor didn't show (sync/saveGuard.ts). */
+  const guarded = useCallback(async <T extends { day: string; content: JSONContent; plainText: string }>(next: T): Promise<T> => {
+    if (!store) return next;
+    const stored = (await store.getDay(next.day))?.content;
+    const content = guardSave(`day:${next.day}`, next.content, stored);
+    if (content === next.content) return next;
+    // Show the kept lines in the open note too (merged in, never over what's being typed).
+    receiveTyping({ key: `day:${next.day}`, device: "keep", seq: ++importSeq, full: content });
+    return { ...next, content, plainText: docText(content) };
+  }, [store]);
 
   const flush = useCallback(async () => {
     // The editor hands over its text once typing pauses; take what was typed just now too.
@@ -204,7 +279,7 @@ function App() {
     if (!store || !next) return;
     pending.current = null;
     try {
-      await store.saveDay(next);
+      await store.saveDay(await guarded(next));
       window.dispatchEvent(new Event("journal:saved"));
       setStatus("Saved");
       sync.afterSaved();
@@ -223,6 +298,7 @@ function App() {
       if (cancelled) return;
       setPage(p);
       setContent(p?.content ?? null);
+      editorSaw(`day:${day}`, p?.content);
       setLoadedDay(day);
     });
     return () => {
@@ -249,6 +325,9 @@ function App() {
     const timer = window.setInterval(run, 60 * 60 * 1000);
     return () => window.clearInterval(timer);
   }, [store]);
+
+  // Edit history older than a month thinned once a day, after the daily backup (store/thin.ts).
+  useEffect(() => (store ? startHistoryThinning(store) : undefined), [store]);
 
   const backUpNow = async () => {
     if (!store) return;
@@ -314,6 +393,11 @@ function App() {
     let upBy = 0;
     const onTouchStart = (e: globalThis.TouchEvent) => {
       userAt = Date.now();
+      // Panning Canvas (or a mind map, a photo…) down is moving that, not pulling the week open.
+      if (onPanSurface(e.target)) {
+        touchY = touchX = null;
+        return;
+      }
       touchY = e.touches[0]?.clientY ?? null;
       touchX = e.touches[0]?.clientX ?? null;
       pulled = 0;
@@ -442,6 +526,12 @@ function App() {
     return () => window.clearTimeout(t);
   }, [store, today]);
 
+  // The Mac writes each day's short preview with the local model (free); it syncs to the phone.
+  useEffect(() => {
+    if (!store || !isDesktopApp()) return;
+    return startSnippetWorker(store);
+  }, [store]);
+
   const [reminders, setReminders] = useState<DayPage[]>([]);
   const loadReminders = useCallback(() => {
     store?.openReminders().then(setReminders);
@@ -479,11 +569,15 @@ function App() {
         return s ? [{ id: `routine|${routine.day}|${p.id}`, at: p.start, title: `🧭 ${s.icon} ${s.label}`, body: "Usually about now. At your own pace.", day: today }] : [];
       });
   }, [routine, today]);
+  // Deadlines: plan reminders and due alerts ring like reminders.
+  useEffect(() => (store ? watchDeadlines(store) : undefined), [store]);
+  const deadlines = useAllDeadlines();
+  const deadlineRings = useMemo(() => deadlineAlarms(deadlines, Date.now()), [deadlines, today]);
   // The phone's notifications and home-screen widget follow the reminders.
   useEffect(() => {
     const own = todayDoc && !reminders.some((r) => r.day === today) ? [{ day: today, content: todayDoc, marked: true }] : [];
-    publishReminders(reminders, today, own, nudges);
-  }, [reminders, today, todayDoc, nudges]);
+    publishReminders(reminders, today, own, [...nudges, ...deadlineRings]);
+  }, [reminders, today, todayDoc, nudges, deadlineRings]);
   useEffect(() => startInAppNudges((d) => void goTo(d)), []);
   // A tapped notification or widget row opens its day.
   useEffect(() => {
@@ -518,8 +612,8 @@ function App() {
         pending.current = null;
         window.clearTimeout(timer.current);
         void (async () => {
-          if (before) await store.saveDay(before);
-          await store.saveDay({ day, content, plainText, actor });
+          if (before) await store.saveDay(await guarded(before));
+          await store.saveDay(await guarded({ day, content, plainText, actor }));
           setStatus("Saved");
         })().catch((e) => showError("Save failed", e));
       } else {
@@ -580,14 +674,37 @@ function App() {
     },
   };
   /** ⑂ Nexus for whatever is open: the day, or the named page. */
-  const openNexus = async () => {
+  const openNexus = async (tab: NexusTab = "history") => {
     setDrawerOpen(false);
+    setNexusTab(tab);
     await flush();
     setNexus(
       route.kind === "page"
         ? { kind: "page", pageId: route.page.id, blockId: route.page.id, title: route.page.title }
         : { kind: "day", day, blockId: dayBlockId(day), title: dayTitle(day) },
     );
+  };
+
+  /** Nexus › Send: something that went across, put at the end of today's note. */
+  const addDropToToday = async (it: DropItem, data: string | null) => {
+    if (!store) return;
+    try {
+      let blocks;
+      if (it.text != null) blocks = textBlocks(it.text);
+      else {
+        if (!data) return void showToast("That file is no longer kept here", "error");
+        const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+        blocks = asBlocks([mediaNode(await store.saveFile({ name: it.name ?? "file", mime: it.mime ?? "application/octet-stream", bytes }))]);
+      }
+      const today = dayKey(new Date());
+      const page = await store.getDay(today);
+      const content = appendBlocks(page?.content ?? null, blocks);
+      await store.saveDay({ day: today, content, plainText: docText(content) });
+      setPageVersion((n) => n + 1);
+      showToast("Added to today's note");
+    } catch (e) {
+      showError("Couldn't add it to today", e);
+    }
   };
 
   const pageNames = useCallback(() => store?.pageNames() ?? Promise.resolve([]), [store]);
@@ -717,6 +834,7 @@ function App() {
     { icon: "💰", label: "Money", run: () => setMoneyOpen(true) },
     { icon: "🕸", label: "Graph", run: () => setGraphOpen(true) },
     { icon: "🧠", label: "Mind map", run: () => setMindOpen(true) },
+    { icon: "⏳", label: "Timelines", run: () => openTimelines() },
     { icon: "⑂", label: "History", run: () => void openNexus() },
     { icon: "⚙︎", label: "Settings", run: () => setSettingsOpen(true) },
   ];
@@ -967,6 +1085,8 @@ function App() {
   // Links tapped inside an embedded note (or anywhere outside an editor).
   const openLinkRef = useRef(handlers.onOpenLink);
   openLinkRef.current = handlers.onOpenLink;
+  // The AI opening notes (open_note) and the "AI rules" page's rules.
+  useAiNavigation(store, (target) => void openLinkRef.current(target));
   useEffect(() => {
     const on = (e: Event) => void openLinkRef.current(String((e as CustomEvent).detail ?? ""));
     window.addEventListener("journal:open-link", on);
@@ -1018,13 +1138,14 @@ function App() {
       <button type="button" onClick={() => (setDrawerOpen(false), setSearchOpen(true))} title="Search" aria-label="Search">🔍</button>
       <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))} title="Graph view" aria-label="Graph view">🕸</button>
       <button type="button" onClick={() => (setDrawerOpen(false), setMindOpen(true))} title="Mind map" aria-label="Mind map">🧠</button>
+      <button type="button" onClick={() => (setDrawerOpen(false), openTimelines())} title="Timelines" aria-label="Timelines">⏳</button>
       <button type="button" onClick={() => void openNexus()} title="Nexus: this note's history" aria-label="Nexus">⑂</button>
       <button type="button" onClick={async () => (setDrawerOpen(false), await flush(), setChatOpen(true))} title="Chat view" aria-label="Chat view">💬</button>
     </div>
   );
   const menuFooter = (
     <div className="menu-footer">
-      <SyncStatus status={sync.status} live={sync.live} direct={sync.direct} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} onConnect={sync.connect} />
+      <SyncChip status={sync.status} live={sync.live} direct={sync.direct} onOpen={() => void openNexus("sync")} />
       <div className="menu-footer-row">
         <button type="button" onClick={() => (setDrawerOpen(false), void backUpNow())} title="Back up now">💾 Back up</button>
         <RestoreButton store={store} onBeforeRestore={flush} />
@@ -1114,7 +1235,17 @@ function App() {
               below={
                 <>
                   {store && <TodayAgenda store={store} view={routine} onOpenRoutine={() => setRoutineOpen(true)} />}
-                  <Upcoming inMonth pages={upcoming.filter((r) => r.day !== day)} onPick={goTo} onAction={onReminderAction} />
+                  {prefs.monthDeadlines === "left" ? (
+                    <div className="month-side">
+                      {store && <TodayDeadlines store={store} day={day} onOpenDay={(d) => void goTo(d)} />}
+                      <Upcoming inMonth pages={upcoming.filter((r) => r.day !== day)} onPick={goTo} onAction={onReminderAction} />
+                    </div>
+                  ) : (
+                    <>
+                      <Upcoming inMonth pages={upcoming.filter((r) => r.day !== day)} onPick={goTo} onAction={onReminderAction} />
+                      {store && prefs.monthDeadlines !== "off" && <TodayDeadlines store={store} day={day} onOpenDay={(d) => void goTo(d)} />}
+                    </>
+                  )}
                 </>
               }
               actions={
@@ -1136,6 +1267,7 @@ function App() {
               // finger lands moved the text up under the finger before the tap was placed, so the caret
               // went somewhere else (in a code block: always its first line).
               <div onClick={() => setCalendarCollapsed(true)}>
+                {store && <DayPreview store={store} day={day} refreshKey={syncTick} />}
                 <JournalEditor
                   key={`${day}:${pageVersion}`}
                   // The latest text, not the copy loaded when the day opened: coming back from a
@@ -1143,6 +1275,7 @@ function App() {
                   initialContent={content}
                   onChange={onChange}
                   liveKey={`day:${day}`}
+                  canvas={store ? { key: `day:${day}`, title: dayTitle(day), day, store, refreshKey: syncTick, onOpenDay: handlers.onOpenDay } : undefined}
                   onReminder={pickReminderDay}
                   autofocus={!previewNext.current && restoring.current == null}
                   pastDay={day < today}
@@ -1245,6 +1378,9 @@ function App() {
         <NexusView
           store={store}
           target={nexus}
+          tab={nexusTab}
+          sync={<SyncStatus status={sync.status} live={sync.live} direct={sync.direct} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} onConnect={sync.connect} />}
+          send={<DropPanel linked={!!sync.direct} onConnect={sync.connect ? () => void sync.connect() : undefined} onAddToToday={addDropToToday} />}
           onClose={() => setNexus(null)}
           onRestored={async () => {
             if (nexus.kind === "page") setRoute({ kind: "page", page: await store.ensurePage(nexus.title) });
@@ -1254,8 +1390,10 @@ function App() {
           }}
         />
       )}
+      {store && <TimelinesHost store={store} onOpenDay={(d) => void goTo(d)} />}
+      {store && <FocusHost store={store} />}
       {mindOpen && store && (
-        <MindMapView store={store} today={today} onClose={() => setMindOpen(false)} onOpenDay={(d) => (setMindOpen(false), void goTo(d))} onOpenPage={(t) => (setMindOpen(false), void handlers.onOpenLink(t))} />
+        <MindMapView store={store} today={today} graph={mindGraph} onClose={() => (setMindOpen(false), setMindGraph(null))} onOpenDay={(d) => (setMindOpen(false), void goTo(d))} onOpenPage={(t) => (setMindOpen(false), void handlers.onOpenLink(t))} />
       )}
       {graphOpen && store && (
         <GraphView
@@ -1277,13 +1415,16 @@ function App() {
         <ChatView
           store={store}
           day={day}
-          onClose={() => setChatOpen(false)}
+          onClose={() => (setChatOpen(false), setOpenAi(null))}
+          openAi={openAi}
           onChanged={() => {
             setPageVersion((n) => n + 1);
             setSyncTick((n) => n + 1);
           }}
         />
       )}
+      <AiBadge />
+      <VoiceBadge onOpen={() => window.dispatchEvent(new CustomEvent("journal:open-ai-chat", { detail: "voice" }))} />
       <VoiceRecorder />
       <ReadAloudPlayer />
       <MemeKit />
@@ -1323,6 +1464,10 @@ function App() {
             window.JournalShare?.hideKeyboard?.();
             setTitleHistory(true);
             setTitleSearchOpen(true);
+          }}
+          onPickPast={(p) => {
+            if (p.kind === "text") return void (setQuery(p.key), setSearchOpen(true));
+            openLoc(p.kind === "day" ? { kind: "day", day: p.key } : { kind: "page", title: p.key });
           }}
           onTabs={() => setTabsOpen(true)}
           onSwitchTab={switchToTab}

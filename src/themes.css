@@ -542,3 +542,16 @@ html[data-theme="neu"] .ambience-rain { opacity: 0.7; }
 :where(html[data-theme="neu"]) .upcoming.folded li,
 :where(html[data-theme="neu"]) .upcoming.folded li > .reminder-open { overflow: clip; overflow-clip-margin: 14px; }
 :where(html[data-theme="neu"]) .upcoming.folded li { padding-block: 3px; }
+
+/* Deadline round 3 in Soft UI: raised sheets, pressed-in fields and meters. */
+:where(html[data-theme="neu"]) .dls { background: var(--bg); backdrop-filter: none; border: 0; box-shadow: var(--neu-out); }
+:where(html[data-theme="neu"]) .dls-sec { background: var(--bg); box-shadow: var(--neu-in-xs, var(--neu-in)); }
+:where(html[data-theme="neu"]) .dls-nudge button, :where(html[data-theme="neu"]) .dls-actions button, :where(html[data-theme="neu"]) .dls-foot button, :where(html[data-theme="neu"]) .dls-kinds button:not(.on) { border: 0; background: var(--bg); box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .dls-nudge button:active, :where(html[data-theme="neu"]) .dls-actions button:active, :where(html[data-theme="neu"]) .dls-foot button:active { box-shadow: var(--neu-in); }
+:where(html[data-theme="neu"]) .dls-time input, :where(html[data-theme="neu"]) .dls-time select, :where(html[data-theme="neu"]) .dls-note, :where(html[data-theme="neu"]) .dls-line input, :where(html[data-theme="neu"]) .dls-steps input { border: 0; background: var(--bg); box-shadow: var(--neu-in); }
+:where(html[data-theme="neu"]) .dls-check:not(.on) { border: 0; box-shadow: var(--neu-in); }
+:where(html[data-theme="neu"]) .dl-meter, :where(html[data-theme="neu"]) .tdl-bar { box-shadow: var(--neu-in); background: var(--bg); }
+:where(html[data-theme="neu"]) .tdl-card, :where(html[data-theme="neu"]) .focus-pill { background: var(--bg); backdrop-filter: none; border: 0; box-shadow: var(--neu-out-sm), inset 4px 0 0 var(--dl, transparent); }
+:where(html[data-theme="neu"]) .focus-pill { box-shadow: var(--neu-out); }
+:where(html[data-theme="neu"]) .dl-plan, :where(html[data-theme="neu"]) .ds-plan { box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .dls-back { backdrop-filter: none; background: rgba(0, 0, 0, 0.18); }

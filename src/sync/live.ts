@@ -18,14 +18,20 @@ export interface Presence {
   lan?: DirectAddress;
 }
 
-/** How often an open app says it's still open. */
+/** How often an open app says it's still open (the Mac: on mains power). */
 export const BEAT_MS = 10_000;
+/** The phone says it less often: each beat is two Drive requests (battery, 8 Nov). */
+export const PHONE_BEAT_MS = 20_000;
 /** Another device counts as open while its presence is this fresh (Drive for desktop adds delay). */
-export const FRESH_MS = 45_000;
-/** How often to look for the other device's changes while both are open. */
+export const FRESH_MS = 60_000;
+/** How often to look for the other device's changes while both are open and edits are flowing. */
 export const LIVE_POLL_MS = 2_000;
-/** How soon after a save edits go out while both are open. */
-export const LIVE_SAVE_MS = 1_200;
+/** Both open but nothing changed for a while (e.g. the Mac is open in another room): look this often. */
+export const CALM_POLL_MS = 10_000;
+/** Edits flowing = a change seen or saved within this long; then polling is LIVE_POLL_MS. */
+export const HOT_MS = 60_000;
+/** How soon after a save edits go out while both are open (a pause in typing, not every word). */
+export const LIVE_SAVE_MS = 3_000;
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();

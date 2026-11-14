@@ -45,6 +45,29 @@ class MainActivity : TauriActivity() {
     if (granted) fixLocation(id) else answerLocation(id, null)
   }
 
+  /** 📍 in a note: a fresh precise fix (GPS when it's on), asked for fine location once. */
+  private var preciseWaiting: String? = null
+  private val askPrecise = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { got ->
+    val id = preciseWaiting ?: return@registerForActivityResult
+    preciseWaiting = null
+    if (got.values.any { it }) preciseFix(id) else answerLocation(id, null)
+  }
+
+  private fun preciseFix(id: String) {
+    val lm = getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+    try {
+      val fine = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+      val providers = (if (fine) listOf(android.location.LocationManager.GPS_PROVIDER) else emptyList()) + android.location.LocationManager.NETWORK_PROVIDER
+      val provider = providers.firstOrNull { lm.isProviderEnabled(it) } ?: return answerLocation(id, null)
+      val last = runCatching { lm.getLastKnownLocation(provider) }.getOrNull()
+      if (android.os.Build.VERSION.SDK_INT < 30) return answerLocation(id, last)
+      if (last != null && System.currentTimeMillis() - last.time < 60_000L) return answerLocation(id, last)
+      lm.getCurrentLocation(provider, null, mainExecutor) { loc -> answerLocation(id, loc ?: last) }
+    } catch (e: SecurityException) {
+      answerLocation(id, null)
+    }
+  }
+
   private fun answerLocation(id: String, loc: android.location.Location?) {
     val json = if (loc == null) "null" else JSONObject().put("lat", loc.latitude).put("lon", loc.longitude).toString()
     val js = "window.__journalLocation && window.__journalLocation(${JSONObject.quote(id)}, $json)"
@@ -76,6 +99,15 @@ class MainActivity : TauriActivity() {
       else {
         locationWaiting = id
         askLocation.launch(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+      }
+    }
+
+    @JavascriptInterface
+    fun precise(id: String) = runOnUiThread {
+      if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) preciseFix(id)
+      else {
+        preciseWaiting = id
+        askPrecise.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
       }
     }
   }
@@ -278,6 +310,7 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(HealthBridge(), "JournalHealth")
     webView.addJavascriptInterface(FinanceBridge(), "JournalFinance")
     webView.addJavascriptInterface(WatchBridge(), "JournalWatch")
+    webView.addJavascriptInterface(DropBridge(), "JournalDrop")
     Watch.onInbox = { webView.post { webView.evaluateJavascript("window.dispatchEvent(new Event('journal:watch'))", null) } }
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->
@@ -446,6 +479,27 @@ class MainActivity : TauriActivity() {
   }
 
   /** Lets the page take what was shared in, and open the keyboard for a quick note. */
+  /** Nexus › Send: a file from the Mac saved into Downloads (no permission needed on Android 10+). */
+  inner class DropBridge {
+    @JavascriptInterface
+    fun save(name: String, mime: String, data: String): Boolean = try {
+      val bytes = Base64.decode(data, Base64.DEFAULT)
+      if (android.os.Build.VERSION.SDK_INT >= 29) {
+        val values = android.content.ContentValues().apply {
+          put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name)
+          put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime.ifEmpty { "application/octet-stream" })
+          put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Download/Dynamic Journal")
+        }
+        val uri = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+        uri != null && contentResolver.openOutputStream(uri)?.use { it.write(bytes); true } == true
+      } else {
+        val dir = java.io.File(getExternalFilesDir(null), "Dynamic Journal").apply { mkdirs() }
+        java.io.File(dir, name).writeBytes(bytes)
+        true
+      }
+    } catch (e: Exception) { false }
+  }
+
   /** Settings → Floating bubble. */
   inner class WatchBridge {
     @JavascriptInterface fun publish(json: String) = Watch.publish(this@MainActivity, json)

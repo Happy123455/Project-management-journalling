@@ -27,8 +27,16 @@ export function SourceEditor({ value, onChange, touch, autofocus }: { value: str
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
+    // Setting the height to "auto" shrinks the box for a moment, which pulled the page (and the
+    // cursor) back to the top with every typed character: the scrolled boxes around it keep their place.
+    const kept: [Element, number][] = [];
+    for (let p = el.parentElement; p; p = p.parentElement) if (p.scrollTop) kept.push([p, p.scrollTop]);
+    const page = document.scrollingElement;
+    const pageTop = page?.scrollTop ?? 0;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight + 4}px`;
+    for (const [p, top] of kept) if (p.scrollTop !== top) p.scrollTop = top;
+    if (page && page.scrollTop !== pageTop) page.scrollTop = pageTop;
   }, [text, mono]);
   useEffect(() => {
     if (autofocus) box.current?.focus({ preventScroll: true });

@@ -3,6 +3,7 @@ import { dayKey } from "../lib/timestamp";
 import { heat } from "../lib/words";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
 import { haptic } from "../lib/haptic";
+import { TileFx, useFestiveTiles, useHoldPreview, useSpecials } from "./SpecialTiles";
 
 export const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -67,6 +68,9 @@ export const MonthGrid = memo(MonthGridView, (a, b) =>
 function MonthGridView({ year, month, counts, max, search, selected, today, onPick, weekOnly, mini }: GridProps) {
   let weeks = monthWeeks(year, month);
   if (weekOnly) weeks = weeks.filter((w) => w.includes(selected)).slice(0, 1);
+  const specialsOf = useSpecials();
+  const animate = useFestiveTiles();
+  const hold = useHoldPreview();
   return (
     <div className={mini ? "month-grid mini" : "month-grid"}>
       {WEEKDAY_LETTERS.map((l, i) => <span key={i} className="weekday">{l}</span>)}
@@ -74,7 +78,11 @@ function MonthGridView({ year, month, counts, max, search, selected, today, onPi
         if (!d) return <span key={i} />;
         const words = counts[d] ?? 0;
         const reminder = !search && d > today && words > 0;
-        const classes = ["cal-day", d === selected && "selected", d === today && "today", reminder && "reminder"]
+        const specials = specialsOf(d);
+        const s = specials[0];
+        // Off: plain tiles. Mini (year view): a still tint only. The week strip and month: moving.
+        const fest = s && animate;
+        const classes = ["cal-day", d === selected && "selected", d === today && "today", reminder && "reminder", fest && `fest fest-${s.kind}`, fest && !mini && "fest-anim"]
           .filter(Boolean)
           .join(" ");
         return (
@@ -83,13 +91,16 @@ function MonthGridView({ year, month, counts, max, search, selected, today, onPi
             type="button"
             className={classes}
             style={{ "--heat": reminder ? 0 : heat(words, max) } as CSSProperties}
-            title={reminder ? `${d}: reminder` : search ? `${d}: ${words} matches` : `${d}: ${words} words`}
-            onClick={() => onPick(d)}
+            title={`${s ? `${specials.map((x) => x.title).join(", ")} · ` : ""}${reminder ? `${d}: reminder` : search ? `${d}: ${words} matches` : `${d}: ${words} words`}`}
+            onClick={() => !hold.wasHold() && onPick(d)}
+            {...hold.bind(d, specials)}
           >
             {Number(d.slice(8))}
+            {fest && !mini && <TileFx s={s} animate />}
           </button>
         );
       })}
+      {hold.preview}
     </div>
   );
 }
@@ -306,7 +317,7 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
         // A day opens that day; anywhere else (not a button) opens the week into the month, or folds the month back.
         onClick={(e) => {
           const t = e.target as HTMLElement;
-          if (t.closest("button, a, input, .reminders")) return;
+          if (t.closest("button, a, input, .reminders, .tdl")) return;
           toggle(collapsed);
         }}
         onScroll={(e) => {
@@ -317,7 +328,7 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
         }}
         onWheel={(e) => {
           // The month itself doesn't scroll (only Coming up does, inside it): wheeling down on the month folds it.
-          if (collapsed || e.deltaY <= 0 || (e.target as HTMLElement).closest?.(".reminders")) return void (wheelPast.current = 0);
+          if (collapsed || e.deltaY <= 0 || (e.target as HTMLElement).closest?.(".reminders, .tdl")) return void (wheelPast.current = 0);
           wheelPast.current += e.deltaY;
           if (wheelPast.current > 160) {
             wheelPast.current = 0;
@@ -326,6 +337,8 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
         }}
         onTouchStart={(e) => {
           const t = e.touches[0];
+          // Touching a deadline's day bar (Deadlines today) is for the bar, not for folding the month.
+          if ((e.target as HTMLElement).closest?.(".tdl-bar, .tdl-next")) return void ((drag.current = null), (pull.current = null));
           drag.current = { y: t.clientY, x: t.clientX };
           pull.current = collapsed ? { x: t.clientX, y: t.clientY, t: e.timeStamp, base: section.current?.offsetHeight ?? 0, on: false, dy: 0 } : null;
         }}
@@ -345,7 +358,7 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
           if (dy > 0 && collapsed) toggle(true);
           // Not while the month's own list is being scrolled; but a swipe up at the end of it (Coming up
           // already folded) carries on into the week view.
-          else if (dy < 0 && !collapsed && (atEnd() || (!(e.target as HTMLElement).closest?.(".reminders") && !(section.current && section.current.scrollTop > 0)))) toggle(false);
+          else if (dy < 0 && !collapsed && (atEnd() || (!(e.target as HTMLElement).closest?.(".reminders, .tdl") && !(section.current && section.current.scrollTop > 0)))) toggle(false);
         }}
       >
         <div className="cal-bar">

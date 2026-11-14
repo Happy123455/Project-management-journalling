@@ -26,6 +26,12 @@ export interface AiRequest {
   maxTokens?: number;
   /** Needs a cloud model (reading a picture): the local text model is skipped for Gemini when there's a key. */
   cloud?: boolean;
+  /** This provider instead of the one in Settings (the local model still falls back to Gemini when it isn't running). */
+  provider?: Provider;
+  /** This model instead of the task's (used only when the request stays with `provider`). */
+  model?: string;
+  /** How long to wait for the answer, instead of the task's usual limit. */
+  timeoutMs?: number;
 }
 
 export interface AiAnswer<T = unknown> {
@@ -85,7 +91,7 @@ async function callGemini(key: string, model: string, req: AiRequest) {
   const http = "__TAURI_INTERNALS__" in window ? (await import("@tauri-apps/plugin-http")).fetch : fetch;
   const body = (thinking: boolean) =>
     JSON.stringify({
-      systemInstruction: { parts: [{ text: req.system }] },
+      ...(req.system ? { systemInstruction: { parts: [{ text: req.system }] } } : {}),
       contents: [{ role: "user", parts }],
       generationConfig: {
         // Thinking models spend part of the output budget thinking: leave room so the answer isn't cut off.
@@ -94,7 +100,7 @@ async function callGemini(key: string, model: string, req: AiRequest) {
       },
     });
   // Quick tasks give up on a slow model sooner and move on to the next one.
-  const limit = req.task === "organise" ? 90_000 : req.images?.length ? 30_000 : 20_000;
+  const limit = req.timeoutMs ?? (req.task === "organise" ? 90_000 : req.images?.length ? 30_000 : 20_000);
   let lastError: Error | null = null;
   for (const m of geminiChain(model)) {
     let res: Response;
@@ -145,7 +151,7 @@ async function callOllama(model: string, req: AiRequest) {
   const http = (await import("@tauri-apps/plugin-http")).fetch;
   const res = await http(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
-    signal: AbortSignal.timeout(req.task === "organise" || req.task === "chat" ? 300_000 : 120_000),
+    signal: AbortSignal.timeout(req.timeoutMs ?? (req.task === "organise" || req.task === "chat" ? 300_000 : 120_000)),
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
@@ -153,9 +159,11 @@ async function callOllama(model: string, req: AiRequest) {
       // The chat journal gets the reasoning model's thinking (it's local and free); edits stay quick.
       think: req.task === "chat",
       ...(req.schema ? { format: req.schema } : {}),
-      options: { num_ctx: 8192 },
+      // The same window as AI chat (src/ai/local.ts), so switching between them doesn't reload the model.
+      options: { num_ctx: 16384 },
+      keep_alive: "15m",
       messages: [
-        { role: "system", content: req.system },
+        ...(req.system ? [{ role: "system", content: req.system }] : []),
         { role: "user", content: req.text, ...(req.images?.length ? { images: req.images.map((i) => i.data) } : {}) },
       ],
     }),
@@ -163,6 +171,14 @@ async function callOllama(model: string, req: AiRequest) {
   if (!res.ok) throw new Error(`The local model answered ${res.status}: ${(await res.text()).slice(0, 160)}`);
   const body = await res.json();
   return { text: body.message?.content ?? "", input: body.prompt_eval_count ?? 0, output: body.eval_count ?? 0 };
+}
+
+/** One request to this Mac's local model only (free, nothing leaves the Mac); quick tasks use the small model. */
+export async function askLocal(req: AiRequest & { model?: string }): Promise<{ text: string; model: string }> {
+  const model = req.model || modelFor({ ...loadAiSettings(), provider: "local" }, req.task);
+  const r = await callOllama(model, req);
+  recordUsage(model, r.input, r.output);
+  return { text: r.text, model };
 }
 
 /** Is Ollama running on this Mac? */
@@ -186,6 +202,19 @@ export async function localModels(): Promise<string[]> {
   }
 }
 
+/** Claude's structured output wants every object closed (additionalProperties: false). */
+export function closedSchema(schema: unknown): Record<string, unknown> {
+  const walk = (s: unknown): unknown => {
+    if (Array.isArray(s)) return s.map(walk);
+    if (!s || typeof s !== "object") return s;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(s)) out[k] = k === "properties" && v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([pk, pv]) => [pk, walk(pv)])) : walk(v);
+    if (out.type === "object" && out.additionalProperties === undefined) out.additionalProperties = false;
+    return out;
+  };
+  return walk(schema) as Record<string, unknown>;
+}
+
 async function callClaude(key: string, model: string, req: AiRequest) {
   // The key belongs to the person using the app and stays on their device, so a direct call is fine here.
   const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
@@ -201,12 +230,12 @@ async function callClaude(key: string, model: string, req: AiRequest) {
   const response = await client.beta.messages.create({
     model,
     max_tokens: req.maxTokens ?? 16000,
-    system: req.system,
+    ...(req.system ? { system: req.system } : {}),
     messages: [{ role: "user", content }],
     // Quick edits don't need deep thinking.
     output_config: {
       effort: req.task === "organise" ? "medium" : "low",
-      ...(req.schema ? { format: { type: "json_schema", schema: req.schema } } : {}),
+      ...(req.schema ? { format: { type: "json_schema", schema: closedSchema(req.schema) } } : {}),
     },
     // If Sonnet declines a request, the API retries it on a suitable model (Claude API only).
     ...(model.startsWith("claude-sonnet") ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
@@ -220,13 +249,15 @@ async function callClaude(key: string, model: string, req: AiRequest) {
 export async function askAi<T = unknown>(req: AiRequest): Promise<AiAnswer<T>> {
   let settings = loadAiSettings();
   if (!settings.enabled) throw new AiUnavailableError("off");
+  if (req.provider) settings = { ...settings, provider: req.provider };
+  const wanted = settings.provider;
   // The local model when it's running; otherwise Gemini (if it has a key) takes over.
   if (settings.provider === "local" && req.cloud && (await getKey("gemini"))) settings = { ...settings, provider: "gemini" };
   if (settings.provider === "local" && !(await localAvailable())) {
     if (!(await getKey("gemini"))) throw new Error("The local model (Ollama) isn't running, and there's no Gemini key to fall back on.");
     settings = { ...settings, provider: "gemini" };
   }
-  let model = modelFor(settings, req.task);
+  let model = req.model && settings.provider === wanted ? req.model : modelFor(settings, req.task);
   let result;
   if (settings.provider === "local") result = await callOllama(model, req);
   else {

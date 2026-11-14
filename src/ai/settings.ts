@@ -1,3 +1,4 @@
+import type { CoolLevel } from "./local";
 import { DEFAULT_MODELS, estimateCost, type AiTask, type Provider } from "./providers";
 
 /** AI settings for this device only (browser storage): never in the journal, sync or backups. */
@@ -14,6 +15,8 @@ export interface AiSettings {
   macGrowsMap?: boolean;
   /** Mac: the local model has been made the default once (the person can switch back). */
   localDefaultSet?: boolean;
+  /** Mac: how the local model is kept cool (bursts with rests); "cool" unless changed. */
+  cool?: CoolLevel;
   /** Per-task model overrides, e.g. { organise: "gemini-4-argon" }. */
   models: Partial<Record<Provider, Partial<Record<AiTask, string>>>>;
 }

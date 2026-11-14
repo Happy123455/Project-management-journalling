@@ -31,6 +31,7 @@ fn tools() -> Value {
         { "name": "read_page", "description": "A named page (person, project or topic) by its title.", "inputSchema": { "type": "object", "properties": { "title": text("Page title") }, "required": ["title"] } },
         { "name": "search", "description": "Days and pages containing every word of the query, newest first.", "inputSchema": { "type": "object", "properties": { "query": text("Words to find") }, "required": ["query"] } },
         { "name": "list_days", "description": "Every day that has a journal page (YYYY-MM-DD).", "inputSchema": { "type": "object", "properties": {} } },
+        { "name": "save_graph", "description": "Save a graph to look at in Canvas (the picker beside the note's own map), as the page \"Graph · <title>\". `data` is JSON text: { features: [{id,label}], prompts: [{t: 'YYYY-MM-DDTHH:MM:SS', text, thread?}], segs: [{p: prompt index, f: feature id, text}] }, or the prompt map's .html page. Saving the same title again replaces it; the change can be undone in the app.", "inputSchema": { "type": "object", "properties": { "title": text("Graph name"), "data": text("The graph as JSON text (or the map's HTML)") }, "required": ["title", "data"] } },
         { "name": "append", "description": "Add text to the end of a day's page (today if no date). Each line becomes a paragraph; [[Name]] links and #tags work. The edit is recorded under your name and can be undone in the app.", "inputSchema": { "type": "object", "properties": { "text": text("What to add"), "date": text("YYYY-MM-DD; default today") }, "required": ["text"] } },
     ])
 }
@@ -72,11 +73,15 @@ fn handle(call: &Caller, msg: &Value) -> Option<Value> {
                 "protocolVersion": PROTOCOL,
                 "capabilities": { "tools": {} },
                 "serverInfo": { "name": "dynamic-journal", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Hapi's journal. Read with today/read_day/read_page/search; add with append. Write only what was asked."
+                "instructions": "Hapi's journal. Read with today/read_day/read_page/search/read_sheet; add with append/add_to_page; tables with set_cells/add_sheet; open_note shows a note on the Mac. Write only what was asked."
             })
         }
         "ping" => json!({}),
-        "tools/list" => json!({ "tools": tools() }),
+        // The page knows every tool (src/ai/journalTools.ts); this list is the fallback when it can't answer.
+        "tools/list" => {
+            let listed = call("__tools", json!({}));
+            if listed.get("tools").map(|t| t.is_array()).unwrap_or(false) { listed } else { json!({ "tools": tools() }) }
+        }
         "tools/call" => call(msg["params"]["name"].as_str().unwrap_or(""), msg["params"]["arguments"].clone()),
         // Notifications (no id) need no answer.
         _ if id.is_none() => return None,

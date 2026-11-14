@@ -2,7 +2,7 @@ import type { JSONContent } from "@tiptap/react";
 
 /** Words that must be found together: on one line, in one block (paragraph) or one section (under one heading). */
 export interface QueryGroup {
-  scope: "line" | "block" | "section";
+  scope: "line" | "block" | "section" | "file";
   terms: string[];
 }
 
@@ -19,7 +19,7 @@ const plainTerms = (q: string) => {
  */
 export function parseQuery(query: string): { terms: string[]; groups: QueryGroup[] } {
   const groups: QueryGroup[] = [];
-  const rest = query.replace(/\b(line|block|section):(?:\(([^)]*)\)?|"([^"]*)"|(\S+))/gi, (_m, scope: string, paren?: string, quoted?: string, word?: string) => {
+  const rest = query.replace(/\b(line|block|section|file):(?:\(([^)]*)\)?|"([^"]*)"|(\S+))/gi, (_m, scope: string, paren?: string, quoted?: string, word?: string) => {
     const terms = quoted != null ? [quoted.toLowerCase()].filter(Boolean) : plainTerms(paren ?? word ?? "");
     if (terms.length) groups.push({ scope: scope.toLowerCase() as QueryGroup["scope"], terms });
     return " ";
@@ -63,8 +63,9 @@ export function docLines(doc: JSONContent | null | undefined, title?: string): D
 }
 
 /** True when every group's words are found together (on one line, in one block or one section). */
-export function fitsGroups(lines: DocLine[], groups: QueryGroup[]): boolean {
+export function fitsGroups(lines: DocLine[], groups: QueryGroup[], names = ""): boolean {
   return groups.every((g) => {
+    if (g.scope === "file") return g.terms.every((t) => names.includes(t));
     if (g.scope === "line") return lines.some((l) => g.terms.every((t) => l.text.toLowerCase().includes(t)));
     const parts = new Map<number, string>();
     for (const l of lines) {
@@ -78,7 +79,29 @@ export function fitsGroups(lines: DocLine[], groups: QueryGroup[]): boolean {
 /** Does a note (its document, and a page's title) fit the search? */
 export function docMatches(doc: JSONContent | null | undefined, query: string, title?: string): boolean {
   const { groups } = parseQuery(query);
-  return !groups.length || fitsGroups(docLines(doc, title), groups);
+  return !groups.length || fitsGroups(docLines(doc, title), groups, groups.some((g) => g.scope === "file") ? docNames(doc, title) : "");
+}
+
+/** Does the search have a file:(…) part (titles of notes, projects, links and files only)? */
+export const hasFileScope = (query: string) => parseQuery(query).groups.some((g) => g.scope === "file");
+
+/**
+ * For file:(…): the note's or project's title and the titles of what's linked in it (link cards,
+ * [[page]] links, attached files), lower-cased, one per line.
+ */
+export function docNames(doc: JSONContent | null | undefined, title?: string): string {
+  const out: string[] = title ? [title] : [];
+  const walk = (n: JSONContent) => {
+    const t = n.type ?? "";
+    if (/link|card|attach|mention|embed|page/i.test(t) && n.attrs)
+      for (const k of ["title", "name", "url", "page", "label", "site", "siteName", "fileName"]) if (typeof n.attrs[k] === "string" && n.attrs[k]) out.push(n.attrs[k]);
+    for (const m of n.marks ?? []) if (/link/i.test(m.type) && m.attrs) for (const k of ["href", "title", "page"]) if (typeof m.attrs[k] === "string" && m.attrs[k]) out.push(m.attrs[k]);
+    const wiki = n.text?.match(/\[\[([^\]]+)\]\]/g);
+    if (wiki) out.push(...wiki.map((w) => w.slice(2, -2)));
+    for (const c of n.content ?? []) walk(c);
+  };
+  for (const b of doc?.content ?? []) walk(b);
+  return out.join("\n").toLowerCase();
 }
 
 export interface Range {

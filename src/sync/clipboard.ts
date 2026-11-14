@@ -1,3 +1,4 @@
+import { receiveDrop } from "./drop";
 import type { Clip } from "./direct";
 import { showToast } from "../lib/toast";
 
@@ -51,6 +52,20 @@ export function setClipSink(device: string, send: ((c: Clip) => void) | null, ot
   if (send) window.setTimeout(() => void checkNow(false, true), 600);
 }
 
+/**
+ * Wait (up to `ms`) for the Wi-Fi link. The phone drops the link while it's in the background, so
+ * coming back from the photo picker the link is down for a second or two: sending then has to wait.
+ */
+export function waitForSink(ms: number): Promise<boolean> {
+  if (sink) return Promise.resolve(true);
+  const until = Date.now() + ms;
+  return new Promise((resolve) => {
+    const t = window.setInterval(() => {
+      if (sink || Date.now() > until) (window.clearInterval(t), resolve(!!sink));
+    }, 250);
+  });
+}
+
 /** A short, stable fingerprint of a string (not for security: only "is it the same clip?"). */
 function hashText(s: string): string {
   let h1 = 0x811c9dc5;
@@ -73,6 +88,14 @@ const inApp = () => "__TAURI_INTERNALS__" in window;
 export function clipPreview(text: string, max = 48): string {
   const one = text.replace(/\s+/g, " ").trim();
   return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+}
+
+/** Nexus › Send: straight to the other device while linked (whatever the clipboard setting). */
+export function sendDrop(c: Omit<Clip, "id" | "from" | "at">): Clip | null {
+  if (!sink) return null;
+  const clip = { ...c, drop: true, id: newId(), from: me, at: Date.now() };
+  sink(clip);
+  return clip;
 }
 
 function send(c: Omit<Clip, "id" | "from" | "at">) {
@@ -129,7 +152,23 @@ async function checkPhone(force = false, seed = false) {
 
 let imageAt = 0;
 /** Mac: read the clipboard and send it if it's new. */
+/** macOS's count of copies when the clipboard was last read (null: not known, read every time). */
+let macCount: number | null = null;
+async function macChangeCount(): Promise<number | null> {
+  try {
+    const n = await (await import("@tauri-apps/api/core")).invoke<number>("clipboard_changes");
+    return n >= 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 async function checkMac(seed = false) {
+  // Nothing copied since the last look: nothing to read (the clipboard was read every second, and
+  // a picture on it decoded every 2.5 s, as long as the link was up).
+  const count = await macChangeCount();
+  if (count !== null && count === macCount && !seed) return;
+  macCount = count;
   const { readText, readImage } = await import("@tauri-apps/plugin-clipboard-manager");
   let text = "";
   try {
@@ -144,8 +183,9 @@ async function checkMac(seed = false) {
     if (!seed) send({ text });
     return;
   }
-  // No text: maybe an image (a screenshot, "Copy image"). Looked at less often, it's heavier.
-  if (Date.now() - imageAt < 2500 && !seed) return;
+  // No text: maybe an image (a screenshot, "Copy image"). Looked at less often, it's heavier
+  // (without the change count; with it, only once per copy).
+  if (count === null && Date.now() - imageAt < 2500 && !seed) return;
   imageAt = Date.now();
   try {
     const image = await readImage();
@@ -190,13 +230,23 @@ export async function checkNow(force = false, seed = false) {
 
 /** A clip from the other device: onto this device's clipboard. */
 export async function receiveClip(c: Clip) {
+  if (c.drop) return void (c.from !== me && receiveDrop(c, other));
   if (!clipShareOn() || (me && c.from === me) || !inApp()) return;
+  await copyClip(c, `from ${other}`);
+}
+
+/** Puts a clip (text or image) on this device's clipboard, with a notice. */
+export async function copyClip(c: Clip, where = "") {
+  if (!inApp()) {
+    if (c.text != null) await navigator.clipboard.writeText(c.text).catch(() => {});
+    return showToast("📋 Copied");
+  }
   try {
     if (c.text != null) {
       lastKey = textKey(c.text);
       const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
       await writeText(c.text);
-      showToast(`📋 Copied from ${other}: “${clipPreview(c.text)}”`);
+      showToast(`📋 Copied${where ? ` ${where}` : ""}: “${clipPreview(c.text)}”`, "info", undefined, { background: !!where });
     } else if (c.data && c.mime?.startsWith("image/")) {
       if (isAndroid()) {
         lastKey = `i:${hashText(c.data)}`;
@@ -215,12 +265,12 @@ export async function receiveClip(c: Clip) {
         lastKey = "given-image";
         await writeImage(await Image.new(new Uint8Array(rgba.buffer), bitmap.width, bitmap.height));
       }
-      showToast(`📋 Image copied from ${other}`);
+      showToast(`📋 Image copied${where ? ` ${where}` : ""}`, "info", undefined, { background: !!where });
     }
     // What we just put there isn't sent back.
     if (isAndroid()) window.setTimeout(() => (lastStamp = phoneStamp()?.t ?? lastStamp), 400);
   } catch {
-    showToast(`📋 Something was copied on ${other}, but it couldn't be put on this clipboard`, "error");
+    showToast("📋 That couldn't be put on this clipboard", "error", undefined, { background: !!where });
   }
 }
 

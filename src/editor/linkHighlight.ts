@@ -1,7 +1,8 @@
 import { Extension } from "@tiptap/react";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Decoration, type DecorationSet } from "@tiptap/pm/view";
+import { decorateAll, redecorate } from "./textblockDecos";
 import { TAG_RE, WIKILINK_RE } from "../lib/links";
 import { isDayTarget, isNoteEmbed, splitTarget } from "../lib/noteLinks";
 import { mountNoteEmbed } from "./noteEmbed";
@@ -29,34 +30,38 @@ function embedWidget(target: string, at: number, n: number) {
   );
 }
 
-interface Highlights {
-  set: DecorationSet;
-  /** Where each [[link]] is, to hide its brackets while the cursor is elsewhere. */
-  links: [number, number, boolean?][];
+/** Marks a [[link]]'s decoration, with whether it's a ![[embed]] (the ! hides with the brackets). */
+interface LinkSpec {
+  wl: true;
+  bang: boolean;
 }
+const BRACKET = { wlBracket: true };
 
-function decorate(doc: PMNode): Highlights {
-  const decorations: Decoration[] = [];
-  const links: [number, number, boolean?][] = [];
+/**
+ * Links and tags in one paragraph. The brackets of every [[link]] are hidden by default (like
+ * Obsidian); the link with the cursor in or beside it shows them again (see `decorations` below).
+ */
+export function linksIn(node: PMNode, start: number, decorations: Decoration[]) {
   let embeds = 0;
-  doc.descendants((node, pos) => {
-    if (!node.isText || !node.text) return;
-    for (const m of node.text.matchAll(WIKILINK_RE)) {
-      const from = pos + m.index;
+  node.descendants((child, pos) => {
+    if (!child.isText || !child.text) return;
+    const at = start + pos;
+    for (const m of child.text.matchAll(WIKILINK_RE)) {
+      const from = at + m.index;
+      const to = from + m[0].length;
       const target = m[1].trim();
       const day = isDayTarget(splitTarget(target).note);
-      decorations.push(Decoration.inline(from, from + m[0].length, { class: day ? "wikilink daylink" : "wikilink", "data-target": target }));
-      const bang = m.index > 0 && node.text[m.index - 1] === "!";
-      links.push([from, from + m[0].length, bang]);
+      const bang = m.index > 0 && child.text[m.index - 1] === "!";
+      decorations.push(Decoration.inline(from, to, { class: day ? "wikilink daylink" : "wikilink", "data-target": target }, { wl: true, bang } satisfies LinkSpec));
+      decorations.push(Decoration.inline(bang ? from - 1 : from, from + 2, { class: "wl-bracket" }, BRACKET), Decoration.inline(to - 2, to, { class: "wl-bracket" }, BRACKET));
       // ![[Note]] / ![[2026-11-03#Part]]: the note shown right under it.
-      if (m.index > 0 && node.text[m.index - 1] === "!" && isNoteEmbed(target)) decorations.push(embedWidget(target, from + m[0].length, embeds++));
+      if (bang && isNoteEmbed(target)) decorations.push(embedWidget(target, to, embeds++));
     }
-    for (const m of node.text.matchAll(TAG_RE)) {
-      const from = pos + m.index + m[1].length;
+    for (const m of child.text.matchAll(TAG_RE)) {
+      const from = at + m.index + m[1].length;
       decorations.push(Decoration.inline(from, from + m[2].length + 1, { class: "tag" }));
     }
   });
-  return { set: DecorationSet.create(doc, decorations), links };
 }
 
 export interface LinkHighlightOptions {
@@ -76,21 +81,26 @@ export const LinkHighlight = Extension.create<LinkHighlightOptions>({
     // which shrinks the calendar and moves the text, so by the click the link may have moved away.
     let pressed: { kind: "link" | "tag"; value: string } | null = null;
     return [
-      new Plugin<Highlights>({
+      new Plugin<DecorationSet>({
         key: new PluginKey("linkHighlight"),
         state: {
-          init: (_, { doc }) => decorate(doc),
-          apply: (tr, old) => (tr.docChanged ? decorate(tr.doc) : old),
+          init: (_, { doc }) => decorateAll(doc, linksIn),
+          // Only the paragraphs an edit touched are searched again.
+          apply: (tr, old) => redecorate(tr, old, linksIn),
         },
         props: {
           // Like Obsidian: a link shows without its [[ ]] unless the cursor is in it or right beside it.
           decorations(state) {
-            const { set, links } = this.getState(state)!;
+            const set = this.getState(state)!;
             const { from, to } = state.selection;
-            const hide = links
-              .filter(([a, b, bang]) => to < (bang ? a - 1 : a) || from > b)
-              .flatMap(([a, b, bang]) => [Decoration.inline(bang ? a - 1 : a, a + 2, { class: "wl-bracket" }), Decoration.inline(b - 2, b, { class: "wl-bracket" })]);
-            return hide.length ? set.add(state.doc, hide) : set;
+            const near = set.find(Math.max(0, from - 1), to + 1, (spec) => (spec as Partial<LinkSpec>).wl === true);
+            const show: Decoration[] = [];
+            for (const link of near) {
+              const start = (link.spec as LinkSpec).bang ? link.from - 1 : link.from;
+              if (to < start || from > link.to) continue;
+              show.push(...set.find(start, link.to, (spec) => spec === BRACKET).filter((b) => b.from >= start && b.to <= link.to));
+            }
+            return show.length ? set.remove(show) : set;
           },
           handleDOMEvents: {
             pointerdown(_view, event) {

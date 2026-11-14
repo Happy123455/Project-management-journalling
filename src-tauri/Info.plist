@@ -6,5 +6,9 @@
   <string>Your rough location is used once in a while to show the current weather on the journal's glass.</string>
   <key>NSLocationUsageDescription</key>
   <string>Your rough location is used once in a while to show the current weather on the journal's glass.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>The microphone records voice notes and voice graphs (transcribed on this Mac by Whisper).</string>
+  <key>NSCameraUsageDescription</key>
+  <string>The camera takes photos, videos and QR codes for your notes.</string>
 </dict>
 </plist>

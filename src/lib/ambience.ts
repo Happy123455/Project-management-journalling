@@ -65,7 +65,7 @@ let weatherAt = 0;
 
 declare global {
   interface Window {
-    JournalLocation?: { request(id: string): void };
+    JournalLocation?: { request(id: string): void; precise?(id: string): void };
     __journalLocation?: (id: string, loc: { lat: number; lon: number } | null) => void;
   }
 }
@@ -186,15 +186,20 @@ function applySoftLight() {
   }
   // The first time (app start, theme switched on) the light is set at once; after that every change
   // (the sun moving, sunset, clouds coming) glides over a few seconds (transitions in themes.css).
-  if (!lightApplied) {
+  const now = new Date();
+  const { rise, set, twilight } = todaySun(now);
+  const l = softLightAt(now.getTime(), rise, set, s.weather ? weather : null, s.tone, twilight);
+  // Battery (2026-11-10): the minute-by-minute nudge of the sun used to glide too, and a glide
+  // redraws every soft shadow on screen for a few seconds: ~5 s of 15 frames a second each minute
+  // with the phone untouched. Only a visible change (sunrise, sunset, clouds, light/dark) glides now;
+  // the small step each minute is put in place at once (one redraw).
+  const glide = lightApplied && (root.dataset.light !== l.phase || root.dataset.tone !== l.tone);
+  if (!glide) {
     root.classList.add("neu-instant");
     requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("neu-instant")));
   }
   lightApplied = true;
-  const now = new Date();
-  const { rise, set, twilight } = todaySun(now);
-  const l = softLightAt(now.getTime(), rise, set, s.weather ? weather : null, s.tone, twilight);
-  const set1 = (k: string, v: string) => root.style.setProperty(k, v);
+  const set1 = (k: string, v: string) => root.style.getPropertyValue(k) !== v && root.style.setProperty(k, v);
   set1("--neu-x", `${l.x}px`);
   set1("--neu-y", `${l.y}px`);
   set1("--neu-blur", `${l.blur}px`);

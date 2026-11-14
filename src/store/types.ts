@@ -13,6 +13,8 @@ export interface DayProps {
   repeat?: "daily" | "weekly" | "monthly" | "yearly";
   /** Days a repeating reminder was ticked off on (it still comes back on the next one). */
   doneDays?: string[];
+  /** The day's preview: a sentence or two the Mac's local model wrote from the note (src/ai/daySnippet.ts). */
+  snippet?: { text: string; at: number; by: string; words: number };
 }
 
 /** A daily page. Pages are blocks of type "day"; child blocks come later. */
@@ -185,4 +187,10 @@ export interface JournalStore {
    * came before the bytes reached the shared folder. Sync fetches these again every round.
    */
   missingFiles(): Promise<FileRecord[]>;
+  /** The document an event left (its `after`), or null when this device doesn't have that event. */
+  eventAfter?(id: string): Promise<string | null>;
+  /** Thins edits older than `cutoff` (see store/thin.ts); returns how many were taken out. */
+  thinHistory?(cutoff: string): Promise<number>;
+  /** Gives the space freed by thinning back to the device (SQLite VACUUM). */
+  reclaimSpace?(): Promise<void>;
 }

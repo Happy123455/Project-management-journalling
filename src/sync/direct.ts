@@ -40,8 +40,12 @@ export interface Clip {
   at: number;
   text?: string;
   mime?: string;
-  /** Image bytes, base64. */
+  /** Image bytes, base64 (any file's bytes for a drop). */
   data?: string;
+  /** Sent from Nexus › Send: kept in its list (and saved to Downloads), not put on the clipboard. */
+  drop?: boolean;
+  /** A dropped file's name. */
+  name?: string;
 }
 
 /** Both apps listen on this port (direct.rs). */
@@ -302,7 +306,7 @@ export async function startHost(store: JournalStore, opts: HostOptions): Promise
     if (path === "/push") {
       // The phone sends these bytes right behind the push: don't ask for them as well.
       for (const h of body?.sending ?? []) asked.set(h, Date.now());
-      const plan = await importRecords(store, body?.records ?? []);
+      const plan = await importRecords(store, body?.records ?? [], "wifi");
       if (plan.events.length) opts.onImported();
       if (plan.files.length) {
         checkWant = true;
@@ -594,7 +598,7 @@ export function startClient(store: JournalStore, address: DirectAddress, opts: C
           for (const c of r.clips ?? []) opts.onClip(c);
           if (r.want?.length) void sendFiles(r.want.filter((h) => !given.has(h)));
           if (r.records?.length) {
-            const plan = await importRecords(store, r.records);
+            const plan = await importRecords(store, r.records, "wifi");
             if (plan.events.length) opts.onImported();
             if (plan.files.length) void fetchMissing();
           }
@@ -656,7 +660,10 @@ export function startClient(store: JournalStore, address: DirectAddress, opts: C
       void flushTyping();
     },
     sendClip(c) {
-      if (up) void post("/clip", { clip: c }, 60_000).catch(() => {});
+      if (up)
+        void post("/clip", { clip: c }, 120_000).catch((e) => {
+          if (c.drop) void import("../lib/toast").then(({ showToast }) => showToast(`${c.name ?? "That"} didn't reach your Mac: ${e instanceof Error ? e.message : String(e)}`, "error", undefined, { background: true }));
+        });
     },
     kick() {
       retryMs = 3000;

@@ -3,7 +3,7 @@ import { Extension } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, Selection, TextSelection, type Command, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
-import { Mapping, ReplaceAroundStep } from "@tiptap/pm/transform";
+import { Mapping, ReplaceAroundStep, ReplaceStep } from "@tiptap/pm/transform";
 import type { JSONContent } from "@tiptap/core";
 import { docToMarkdown } from "../lib/source";
 
@@ -42,6 +42,33 @@ export function blockRange(doc: PMNode, index: number) {
   return { start: index, end, from: blockPos(doc, index), to: blockPos(doc, end) };
 }
 
+/** Where the block at `index` and its children end (an index), without working out positions. */
+function ownEnd(doc: PMNode, index: number): number {
+  const level = indentOf(doc.child(index));
+  let end = index + 1;
+  while (end < doc.childCount && indentOf(doc.child(end)) > level) end++;
+  return end;
+}
+
+/** foldRange's end index alone (see foldRange). */
+function foldEnd(doc: PMNode, index: number): number {
+  const node = doc.child(index);
+  let end = ownEnd(doc, index);
+  if (node.type.name !== "heading") return end;
+  const level = Number(node.attrs.level ?? 1);
+  const base = indentOf(node);
+  while (end < doc.childCount) {
+    const n = doc.child(end);
+    if (indentOf(n) < base) break;
+    if (indentOf(n) === base) {
+      if (n.type.name === "heading" && Number(n.attrs.level ?? 1) <= level) break;
+      if (STOPS_HEADING.has(n.type.name) || isBoxHead(doc, end)) break;
+    }
+    end = ownEnd(doc, end);
+  }
+  return end;
+}
+
 /** A [[Project]]-style line with lines nested under it: drawn as a box. */
 const isBoxHead = (doc: PMNode, i: number) => {
   const n = doc.child(i);
@@ -56,22 +83,8 @@ const STOPS_HEADING = new Set(["horizontalRule", "promptBlock"]);
  * block (a code block, prompt or box). Moving, copying and deleting still use blockRange.
  */
 export function foldRange(doc: PMNode, index: number) {
-  const node = doc.child(index);
-  const own = blockRange(doc, index);
-  if (node.type.name !== "heading") return own;
-  const level = Number(node.attrs.level ?? 1);
-  const base = indentOf(node);
-  let end = own.end;
-  while (end < doc.childCount) {
-    const n = doc.child(end);
-    if (indentOf(n) < base) break;
-    if (indentOf(n) === base) {
-      if (n.type.name === "heading" && Number(n.attrs.level ?? 1) <= level) break;
-      if (STOPS_HEADING.has(n.type.name) || isBoxHead(doc, end)) break;
-    }
-    end = blockRange(doc, end).end;
-  }
-  return { start: index, end, from: own.from, to: blockPos(doc, end) };
+  const end = foldEnd(doc, index);
+  return { start: index, end, from: blockPos(doc, index), to: blockPos(doc, end) };
 }
 
 const selectedIndex = (state: EditorState) => blockIndexAt(state.doc, state.selection.from);
@@ -345,9 +358,12 @@ export function blockDecorations(doc: PMNode): DecorationSet {
   let pos = 0;
   /** Last lines that carry a block's bottom tools: position → size (they become position: relative). */
   const bottomHosts = new Map<number, number>();
+  // Each block's start, worked out once (looking them up block by block was O(n²) per letter typed).
+  const starts = [0];
+  doc.forEach((child) => starts.push(starts[starts.length - 1] + child.nodeSize));
   for (let i = 0; i < doc.childCount; i++) {
     const node = doc.child(i);
-    const range = foldRange(doc, i);
+    const range = { end: foldEnd(doc, i) };
     const classes: string[] = [];
     const attrs: Record<string, string> = {};
     if (i < boxUntil) classes.push(i === boxUntil - 1 ? "block-box-body block-box-end" : "block-box-body");
@@ -381,11 +397,11 @@ export function blockDecorations(doc: PMNode): DecorationSet {
         // Copy and fold at the bottom right, on the block's lower edge (away from the line being
         // typed, so a tap at the end of the text doesn't hit them).
         const last = doc.child(range.end - 1);
-        const lastPos = blockPos(doc, range.end - 1);
+        const lastPos = starts[range.end - 1];
         // Not inside a code block's text: there the ⧉ ▴ became part of the code's lines.
         const found = lastTextblock(last, lastPos);
         const inner = found && found.node.type.name !== "codeBlock" ? found : null;
-        const at = inner ? inner.pos + inner.node.nodeSize - 1 : blockPos(doc, range.end);
+        const at = inner ? inner.pos + inner.node.nodeSize - 1 : starts[range.end];
         if (inner) bottomHosts.set(inner.pos, inner.node.nodeSize);
         decos.push(
           Decoration.widget(at, (view) => {
@@ -447,7 +463,7 @@ export function blockDecorations(doc: PMNode): DecorationSet {
             row.contentEditable = "false";
             row.append(copyButton(() => copyBlock(view, index)));
             return row;
-          }, { side: 1, key: `lcopy-${i}-${node.nodeSize}`, ignoreSelection: true, stopEvent: () => true }),
+          }, { side: 1, key: `lcopy-${i}`, ignoreSelection: true, stopEvent: () => true }),
         );
       }
     }
@@ -459,6 +475,43 @@ export function blockDecorations(doc: PMNode): DecorationSet {
 }
 
 const blocksKey = new PluginKey("blocks");
+
+/** What a line's [[box]] look depends on in its text. */
+function boxTitle(node: PMNode): string {
+  if (!node.isTextblock) return "";
+  const text = node.textContent;
+  return /\[\[[^\]]+\]\]/.test(text) ? `box:${/\[\[([^\]|]+)/.exec(text)?.[1]?.trim() ?? ""}` : "";
+}
+
+/**
+ * Typing letters inside a line (the usual edit) changes no block's shape, so the block marks only
+ * move along with the text instead of being worked out again for the whole note on every key.
+ * True when every step put plain text in (or took it out of) a single line, and no line gained or
+ * lost a [[box]] title.
+ */
+export function onlyTextInLines(tr: Transaction): boolean {
+  for (let i = 0; i < tr.steps.length; i++) {
+    const step = tr.steps[i];
+    if (!(step instanceof ReplaceStep) || (step as unknown as { structure?: boolean }).structure) return false;
+    const slice = step.slice;
+    if (slice.openStart || slice.openEnd) return false;
+    let inline = true;
+    slice.content.forEach((n) => (inline &&= n.isInline));
+    if (!inline) return false;
+    const doc = tr.docs[i];
+    const $from = doc.resolve(step.from);
+    if (!$from.parent.isTextblock || !$from.sameParent(doc.resolve(step.to))) return false;
+  }
+  const before = tr.before;
+  const after = tr.doc;
+  if (before.childCount !== after.childCount) return false;
+  for (let i = 0; i < after.childCount; i++) {
+    const a = before.child(i);
+    const b = after.child(i);
+    if (a !== b && (a.type !== b.type || boxTitle(a) !== boxTitle(b))) return false;
+  }
+  return true;
+}
 
 const LISTS = new Set(["bulletList", "orderedList", "taskList"]);
 
@@ -563,7 +616,7 @@ export const Blocks = Extension.create({
         key: blocksKey,
         state: {
           init: (_, { doc }) => blockDecorations(doc),
-          apply: (tr, old) => (tr.docChanged ? blockDecorations(tr.doc) : old),
+          apply: (tr, old) => (!tr.docChanged ? old : onlyTextInLines(tr) ? old.map(tr.mapping, tr.doc) : blockDecorations(tr.doc)),
         },
         props: { decorations: (state) => blocksKey.getState(state) },
       }),

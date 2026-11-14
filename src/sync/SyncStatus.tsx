@@ -3,6 +3,7 @@ import type { SyncStatus as Status } from "./useSync";
 import type { StorageUsage } from "./engine";
 import { syncStorage } from "./folders";
 import { visibleInterval } from "../lib/power";
+import { ANOMALY_EVENT, anomalies, anomalyText, clearAnomalies, stamp, type AnomalyKind, type Path } from "./anomalies";
 import { bytes, clearTransfers, TRANSFER_EVENT, transfers, type Via } from "./transferLog";
 import type { ConnectResult } from "./direct";
 import { clipShareOn, setClipShare } from "./clipboard";
@@ -107,13 +108,13 @@ function TransferHistory() {
       {open && (
         <div className="sync-history-body">
           <p className="sync-history-sum">
-            Last 24 h: 📶 Wi-Fi {bytes(sum("wifi"))} · ☁︎ Drive {bytes(sum("drive"))}
+            Last 24 h: 📶 Wi-Fi {bytes(sum("wifi"))} · ☁︎ Drive {bytes(sum("drive"))} · 📱 mobile data {bytes(sum("mobile"))}
           </p>
           {list.length ? (
             <ul>
               {list.map((t, i) => (
                 <li key={`${t.at}-${i}`}>
-                  <span className="sync-history-via">{t.via === "wifi" ? "📶" : "☁︎"}</span>
+                  <span className="sync-history-via">{t.via === "wifi" ? "📶" : t.via === "mobile" ? "📱" : "☁︎"}</span>
                   <span className="sync-history-when">{new Date(t.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                   <span className="sync-history-what">{t.what}{t.n > 1 ? ` ×${t.n}` : ""}</span>
                   <span className="sync-history-size">↑{bytes(t.up)} ↓{bytes(t.down)}</span>
@@ -124,6 +125,75 @@ function TransferHistory() {
             <p className="hint">Nothing sent or received yet on this device.</p>
           )}
           {list.length > 0 && <button type="button" onClick={() => (clearTransfers(), setList([]))}>Clear</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const KIND_ICON: Record<AnomalyKind, string> = {
+  clash: "⚡",
+  joined: "🔗",
+  "kept-edited": "🛟",
+  "lines-removed": "✂︎",
+  "out-of-order": "⇅",
+  "clock-ahead": "⏱",
+  unreadable: "⚠︎",
+  "stale-save": "💾",
+  resolved: "✓",
+};
+const PATH_LABEL: Record<Path, string> = { wifi: "Wi-Fi", cloud: "Cloud", "wifi-typing": "Wi-Fi typing", save: "Save", local: "Here" };
+
+/** ▾ Sync log: clashes and anything odd sync noticed, with millisecond times (sync/anomalies.ts). */
+function AnomalyLog() {
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState(anomalies);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const on = () => setList([...anomalies()]);
+    on();
+    window.addEventListener(ANOMALY_EVENT, on);
+    return () => window.removeEventListener(ANOMALY_EVENT, on);
+  }, [open]);
+  const clashes = list.filter((a) => a.kind === "clash").length;
+  return (
+    <div className={`sync-history${open ? " open" : ""}`}>
+      <button type="button" className="sync-history-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
+        {open ? "▴" : "▾"} Sync log{list.length ? ` (${list.length}${clashes ? `, ${clashes} clash${clashes === 1 ? "" : "es"}` : ""})` : ""}
+      </button>
+      {open && (
+        <div className="sync-history-body">
+          {list.length ? (
+            <ul className="sync-anomalies">
+              {list.map((a, i) => (
+                <li key={`${a.at}-${i}`} title={a.detail ? JSON.stringify(a.detail, null, 1) : undefined}>
+                  <span className="sync-history-via">{KIND_ICON[a.kind] ?? "•"}</span>
+                  <span className="sync-history-when">{stamp(a.at).slice(7)}</span>
+                  <span className="sync-history-what">
+                    <b>{PATH_LABEL[a.path] ?? a.path}</b> {a.note ? `${a.note.replace(/^(day|page):/, "")} · ` : ""}
+                    {a.text}
+                    {a.detail?.lagMs !== undefined ? ` · ${a.detail.lagMs} ms after it was made` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="hint">Nothing odd yet. Clashes, lines the other device removed, late or unreadable edits show up here with times to the millisecond.</p>
+          )}
+          {list.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(anomalyText()).then(() => setCopied(true), () => {});
+                }}
+              >
+                {copied ? "Copied" : "Copy log"}
+              </button>{" "}
+              <button type="button" onClick={() => (clearAnomalies(), setList([]))}>Clear</button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -183,9 +253,37 @@ export function SyncStatus({ status, live, direct, onSync, onChooseFolder, onCon
       <button type="button" onClick={onSync} disabled={status.state === "syncing"}>Sync now</button>
       <StorageLine />
       <TransferHistory />
+      <AnomalyLog />
       {status.state === "error" && window.JournalSync && (
         <button type="button" onClick={onChooseFolder}>☁︎ Sign in again…</button>
       )}
     </div>
+  );
+}
+
+/**
+ * The menu's one-line sync status: tap it for Nexus (sync details, Connect, Send, this note's
+ * history). Red when sync failed, ⚡ while linked straight over Wi-Fi.
+ */
+export function SyncChip({ status, live, direct, onOpen }: { status: Status; live?: boolean; direct?: boolean; onOpen: () => void }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => visibleInterval(() => setNow(Date.now()), 30_000), []);
+  const line =
+    status.state === "needs-folder"
+      ? "Sync not set up · tap to start"
+      : status.state === "off"
+        ? `Sync off · ${status.reason}`
+        : status.state === "syncing"
+          ? "Syncing…"
+          : status.state === "error"
+            ? `Sync failed · tap to fix`
+            : `Synced ${ago(status.last, now)}`;
+  return (
+    <button type="button" className={`sync-chip ${status.state}${direct ? " direct" : ""}`} onClick={onOpen} title="Open Nexus: sync, send to your other device, history">
+      <span className="sync-chip-dot" aria-hidden />
+      <span className="sync-chip-line">☁︎ {line}</span>
+      {direct ? <span className="sync-chip-link">⚡ Wi-Fi</span> : live ? <span className="sync-chip-link">⚡ Live</span> : null}
+      <span className="sync-chip-go" aria-hidden>⑂ ›</span>
+    </button>
   );
 }

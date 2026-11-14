@@ -1,7 +1,7 @@
 export type SlashId =
-  | "heading" | "task" | "bullet" | "numbered" | "quote" | "code" | "math"
-  | "divider" | "timestamp" | "link" | "embed" | "tag" | "reminder"
-  | "attach" | "capture" | "project" | "voice" | "meme" | "sound" | "prompt" | "logproject";
+  | "heading" | "task" | "bullet" | "numbered" | "quote" | "code" | "math" | "sheet"
+  | "divider" | "timestamp" | "place" | "link" | "embed" | "tag" | "reminder"
+  | "attach" | "deadline" | "capture" | "project" | "voice" | "meme" | "sound" | "prompt" | "logproject";
 
 export interface SlashItem {
   id: SlashId;
@@ -19,13 +19,16 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: "numbered", label: "Numbers", icon: "1.", keywords: ["list", "ordered"] },
   { id: "quote", label: "Quote", icon: "❝", keywords: ["blockquote", "cite"] },
   { id: "code", label: "Code", icon: "</>", keywords: ["codeblock", "snippet"] },
+  { id: "sheet", label: "Table", icon: "▦", keywords: ["spreadsheet", "excel", "sheet", "grid", "cells", "formula", "sum", "budget"] },
   { id: "math", label: "Math", icon: "∑", keywords: ["equation", "latex", "formula", "handwriting", "calculate", "variable"] },
   { id: "divider", label: "Divider", icon: "—", keywords: ["line", "hr", "separator"] },
+  { id: "place", label: "Location", icon: "📍", keywords: ["location", "place", "where", "gps", "map", "here", "address"] },
   { id: "timestamp", label: "Log / Time", icon: "🕒", keywords: ["timestamp", "stamp", "time", "now", "clock", "log", "entries", "diary"] },
   { id: "link", label: "Link page", icon: "[[ ]]", keywords: ["wikilink", "page", "person", "day", "date", "section"] },
   { id: "embed", label: "Embed note", icon: "⧉", keywords: ["transclude", "preview", "inline", "day", "section", "show"] },
   { id: "tag", label: "Tag", icon: "#", keywords: ["hashtag", "label"] },
   { id: "reminder", label: "Reminder", icon: "🔔", keywords: ["future", "remind", "later", "date"] },
+  { id: "deadline", label: "Deadline bar", icon: "⏳", keywords: ["timeline", "due", "time left", "countdown", "schedule", "plan"] },
   { id: "attach", label: "Attach", icon: "📎", keywords: ["file", "pdf", "photo", "image", "upload", "document"] },
   { id: "voice", label: "Voice", icon: "🎙", keywords: ["audio", "record", "voice note", "mic"] },
   { id: "meme", label: "Meme", icon: "😂", keywords: ["gif", "funny", "reaction", "sticker"] },

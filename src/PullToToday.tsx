@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { onPanSurface } from "./lib/gestures";
 
 const THRESHOLD_PX = 110;
 
@@ -19,7 +20,7 @@ export function PullToToday({ enabled, onToday }: { enabled: boolean; onToday: (
     if (!enabled) return;
     let pulled = 0;
     const onStart = (e: TouchEvent) => {
-      start.current = atBottom() && !typing() && e.touches.length === 1 ? e.touches[0].clientY : null;
+      start.current = atBottom() && !typing() && e.touches.length === 1 && !onPanSurface(e.target) ? e.touches[0].clientY : null;
       pulled = 0;
     };
     const onMove = (e: TouchEvent) => {

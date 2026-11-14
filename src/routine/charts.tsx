@@ -1,4 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+/** Phone held upright (or any tall, narrow window): the charts grow taller to fill it. */
+function usePortrait(): boolean {
+  const q = () => window.innerHeight > window.innerWidth * 1.1;
+  const [p, setP] = useState(q);
+  useEffect(() => {
+    const on = () => setP(q());
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  return p;
+}
 import { minuteClock, minutesText, type PhaseSummary, type RoutineConfig } from "../lib/routine";
 
 /** Categorical slots in fixed order (identity of a routine step); a 9th step and later are grey "other". */
@@ -24,8 +36,9 @@ export function smoothPath(pts: [number, number][]): string {
  */
 export function TrendChart({ values, curve, ahead, labels, aheadLabels }: { values: number[]; curve: number[]; ahead: number[]; labels: string[]; aheadLabels: string[] }) {
   const [hover, setHover] = useState<number | null>(null);
+  const tall = usePortrait();
   const W = 320;
-  const H = 140;
+  const H = tall ? 320 : 160;
   const pad = { l: 22, r: 6, t: 10, b: 18 };
   const n = values.length + ahead.length;
   const max = Math.max(1, ...values, ...curve, ...ahead);
@@ -65,6 +78,8 @@ export function TrendChart({ values, curve, ahead, labels, aheadLabels }: { valu
 /** Each life phase's usual day as a bar from 04:00 to 04:00, one under the other, to compare. */
 export function PhaseChart({ summaries, config }: { summaries: PhaseSummary[]; config: RoutineConfig }) {
   const [hover, setHover] = useState<string | null>(null);
+  const tall = usePortrait();
+  if (tall) return <PhaseColumns summaries={summaries} config={config} hover={hover} setHover={setHover} />;
   const W = 320;
   const row = 30;
   const left = 70;
@@ -122,6 +137,80 @@ export function PhaseChart({ summaries, config }: { summaries: PhaseSummary[]; c
           return b && step ? <><strong>{step.icon} {step.label}</strong> · {s.name}: usually {minuteClock(b.start)}{b.minutes ? `, ${minutesText(b.minutes)}` : ""}</> : " ";
         })()}
       </p>
+      <ul className="phase-legend">
+        {config.steps.filter((s) => s.span).map((s) => {
+          const i = config.steps.indexOf(s);
+          return <li key={s.id}><i style={{ background: stepColor(i) }} />{s.icon} {s.label}</li>;
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/** Upright phone: each phase's usual day as a tall column, 04:00 at the top down to the next 04:00. */
+function PhaseColumns({ summaries, config, hover, setHover }: { summaries: PhaseSummary[]; config: RoutineConfig; hover: string | null; setHover: (h: string | null) => void }) {
+  const W = 320;
+  const H = 480;
+  const top = 26;
+  const left = 36;
+  const bottom = 6;
+  const n = Math.max(1, summaries.length);
+  const col = Math.min(90, (W - left - 4) / n);
+  const sy = (m: number) => top + ((H - top - bottom) * m) / 1440;
+  const tip = (() => {
+    if (!hover) return " ";
+    const [r, id] = hover.split("|");
+    const s = summaries[Number(r)];
+    const b = s?.blocks.find((x) => x.id === id);
+    const step = config.steps.find((x) => x.id === id);
+    return b && step ? <><strong>{step.icon} {step.label}</strong> · {s.name}: usually {minuteClock(b.start)}{b.minutes ? `, ${minutesText(b.minutes)}` : ""}</> : " ";
+  })();
+  return (
+    <div className="phase-chart tall">
+      <p className="trend-tip">{tip}</p>
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Your usual day in each phase">
+        {[0, 120, 240, 360, 480, 600, 720, 840, 960, 1080, 1200, 1320, 1440].map((m) => (
+          <g key={m}>
+            <line x1={left} x2={W - 4} y1={sy(m)} y2={sy(m)} className="grid" />
+            {m % 240 === 0 && <text x={left - 4} y={sy(m) + 3} textAnchor="end" className="axis">{minuteClock(m)}</text>}
+          </g>
+        ))}
+        {summaries.map((s, r) => {
+          const x = left + r * col;
+          const w = col * 0.62;
+          const x0 = x + (col - w) / 2;
+          return (
+            <g key={s.phase?.id ?? "none"}>
+              <text x={x + col / 2} y={14} textAnchor="middle" className="label">{s.name.slice(0, Math.max(4, Math.floor(col / 6.5)))}</text>
+              <rect x={x0} y={sy(0)} width={w} height={sy(1440) - sy(0)} rx={w / 2.5} className="track" />
+              {s.wake !== null && s.sleep !== null && s.sleep > s.wake && <rect x={x0} y={sy(s.wake)} width={w} height={sy(s.sleep) - sy(s.wake)} rx={w / 2.5} className="awake" />}
+              {s.blocks.filter((b) => config.steps.find((x) => x.id === b.id)?.span).map((b) => {
+                const i = config.steps.findIndex((x) => x.id === b.id);
+                const step = config.steps[i];
+                const id = `${r}|${b.id}`;
+                return (
+                  <rect
+                    key={b.id}
+                    x={x0 - 3}
+                    y={sy(b.start)}
+                    width={w + 6}
+                    height={Math.max(4, sy(b.start + b.minutes) - sy(b.start))}
+                    rx={4}
+                    fill={stepColor(i)}
+                    stroke="var(--chart-surface)"
+                    strokeWidth={1}
+                    opacity={hover && hover !== id ? 0.55 : 1}
+                    onPointerEnter={() => setHover(id)}
+                    onPointerDown={() => setHover(id)}
+                  >
+                    <title>{`${step?.label ?? b.id}: ${minuteClock(b.start)}, ${minutesText(b.minutes)}`}</title>
+                  </rect>
+                );
+              })}
+            </g>
+          );
+        })}
+      </svg>
       <ul className="phase-legend">
         {config.steps.filter((s) => s.span).map((s) => {
           const i = config.steps.indexOf(s);

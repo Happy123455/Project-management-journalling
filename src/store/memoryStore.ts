@@ -1,7 +1,7 @@
 import { idFromRef } from "../lib/embeds";
 import { safeFileName } from "../lib/files";
 import { extractLinks, uniqueNames } from "../lib/links";
-import { docMatches, matchText, searchTerms } from "../lib/search";
+import { docMatches, docNames, hasFileScope, matchText, searchTerms } from "../lib/search";
 import { dayKey } from "../lib/timestamp";
 import { countWords, docText } from "../lib/words";
 import { dayBlockId, deviceId, newId, pageBlockId } from "./ids";
@@ -12,6 +12,7 @@ import { withPatch } from "./props";
 import type { DayPage, DayProps, FileRecord, JournalEvent, JournalStore, LinkKind, NamedPage, PageProps, Reference, SaveDayInput, SaveFileInput, SearchHit } from "./types";
 import type { JSONContent } from "@tiptap/react";
 import { notifyLogged } from "./logged";
+import { thinnable } from "./thin";
 
 interface Snapshot {
   pages: Record<string, DayPage>;
@@ -118,6 +119,20 @@ export class MemoryStore implements JournalStore {
       if (page.day >= from && page.day <= to) counts[page.day] = countWords(docText(page.content));
     }
     return counts;
+  }
+
+  thinHistory(cutoff: string) {
+    return this.writes.run(async () => {
+      const gone = thinnable(this.data.events.map((e, seq) => ({ ...e, seq })), cutoff);
+      if (!gone.size) return 0;
+      this.data.events = this.data.events.filter((e) => !gone.has(e.id));
+      this.storage?.setItem(KEY, JSON.stringify(this.data));
+      return gone.size;
+    });
+  }
+
+  async eventAfter(id: string) {
+    return this.data.events.find((e) => e.id === id)?.after ?? null;
   }
 
   async eventsFor(blockId: string) {
@@ -268,14 +283,15 @@ export class MemoryStore implements JournalStore {
   async search(query: string) {
     const terms = searchTerms(query);
     if (!terms.length) return [];
+    const fileScope = hasFileScope(query);
     const hits: SearchHit[] = [];
     const days = Object.values(this.data.pages).sort((a, b) => b.day.localeCompare(a.day));
     for (const p of days) {
-      const text = docText(p.content);
+      const text = fileScope ? `${docText(p.content)}\n${docNames(p.content)}` : docText(p.content);
       if (matchText(text, terms) && docMatches(p.content, query)) hits.push({ kind: "day", blockId: p.id, day: p.day, title: null, text });
     }
     for (const p of Object.values(this.named)) {
-      const text = `${p.title}\n${docText(p.content)}`;
+      const text = `${p.title}\n${docText(p.content)}${fileScope ? `\n${docNames(p.content)}` : ""}`;
       if (matchText(text, terms) && docMatches(p.content, query, p.title)) hits.push({ kind: "page", blockId: p.id, day: null, title: p.title, text });
     }
     for (const f of await this.listFiles()) {

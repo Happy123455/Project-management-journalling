@@ -7,6 +7,7 @@ import type { JournalStore } from "./store";
 import { askAi } from "./ai/client";
 import { loadAiSettings } from "./ai/settings";
 import { cleanAnswer } from "./editor/promptBlock";
+import { AiChat } from "./AiChat";
 
 /** AI replies stay in the chat on this device (the note keeps only what was written). */
 interface Reply {
@@ -38,11 +39,31 @@ const SYSTEM =
   "never lecture or list. Use their language. The day's note so far is given for context.";
 
 /** A day as a chat: its log lines as bubbles; each message sent becomes a new log line. */
-export function ChatView({ store, day, onClose, onChanged }: { store: JournalStore; day: string; onClose: () => void; onChanged: () => void }) {
+export function ChatView({ store, day, onClose, onChanged, openAi }: { store: JournalStore; day: string; onClose: () => void; onChanged: () => void; openAi?: string | null }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [replies, setReplies] = useState<Reply[]>(() => readReplies(day));
   const [thinking, setThinking] = useState(false);
+  // "journal": the day as chat bubbles; "ai": plain AI chat (no journal context).
+  const [mode, setMode] = useState<"journal" | "ai">(() => {
+    if (openAi) return "ai";
+    try {
+      return localStorage.getItem("dynamic-journal.chat-mode") === "ai" ? "ai" : "journal";
+    } catch {
+      return "journal";
+    }
+  });
+  useEffect(() => {
+    if (openAi) setMode("ai");
+  }, [openAi]);
+  const switchMode = (m: "journal" | "ai") => {
+    setMode(m);
+    try {
+      localStorage.setItem("dynamic-journal.chat-mode", m);
+    } catch {
+      // Only a convenience.
+    }
+  };
   const [aiOn, setAiOn] = useState(() => {
     try {
       return localStorage.getItem(AI_KEY) !== "off";
@@ -107,8 +128,12 @@ export function ChatView({ store, day, onClose, onChanged }: { store: JournalSto
     <div className="chat-view" role="dialog" aria-label="Chat journal">
       <header className="graph-bar">
         <button type="button" onClick={onClose} aria-label="Back to the note">‹</button>
-        <h1 className="settings-title">💬 {dayTitle(day)}</h1>
-        <button
+        <h1 className="settings-title">{mode === "ai" ? "🤖 AI chat" : `💬 ${dayTitle(day)}`}</h1>
+        <div className="chat-modes" role="tablist">
+          <button type="button" role="tab" aria-selected={mode === "journal"} className={mode === "journal" ? "active" : ""} onClick={() => switchMode("journal")}>📓</button>
+          <button type="button" role="tab" aria-selected={mode === "ai"} className={mode === "ai" ? "active" : ""} onClick={() => switchMode("ai")}>🤖</button>
+        </div>
+        {mode === "journal" && <button
           type="button"
           className={aiOn ? "chat-ai active" : "chat-ai"}
           onClick={() => {
@@ -124,8 +149,9 @@ export function ChatView({ store, day, onClose, onChanged }: { store: JournalSto
           title="AI replies"
         >
           🤖 {aiOn ? "On" : "Off"}
-        </button>
+        </button>}
       </header>
+      {mode === "ai" ? <AiChat store={store} onChanged={onChanged} openId={openAi} /> : <>
       <div ref={list} className="chat-list">
         {!messages.length && <p className="hint chat-empty">Write a message below. Each one is added to this day's note as a timestamped log line.</p>}
         {replies.filter((r) => r.after === 0).map((r, j) => (
@@ -163,6 +189,7 @@ export function ChatView({ store, day, onClose, onChanged }: { store: JournalSto
         />
         <button type="submit" disabled={!draft.trim()} aria-label="Send">➤</button>
       </form>
+      </>}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import type { JournalStore } from "../store";
 import { addDays, dayKey, dayTitle } from "../lib/timestamp";
@@ -13,6 +13,7 @@ import { DayTimeline } from "./DayTimeline";
 import { PhaseChart, TrendChart } from "./charts";
 import { askHealthAccess, healthAvailable, importHealth } from "./health";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
+import { StepIcon } from "./StepIcon";
 
 type Tab = "now" | "trends" | "phases" | "setup";
 const clock = (t: number) => {
@@ -92,7 +93,7 @@ function NowTab({ store, view, agenda }: { store: JournalStore; view: RoutineVie
       <div className="habit-grid">
         {config.habits.map((h) => (
           <button key={h.id} type="button" className="habit-tap" onClick={() => tap(h, "point")}>
-            <span className="habit-icon">{h.icon}</span>
+            <span className="habit-icon"><StepIcon item={h} /></span>
             <span>{h.label}</span>
             <small>{todayLog?.habits.get(h.id)?.length ?? 0} today</small>
           </button>
@@ -119,7 +120,7 @@ function NowTab({ store, view, agenda }: { store: JournalStore; view: RoutineVie
                   : "";
           return (
             <li key={s.id} className={going ? "going" : done.length ? "done" : est ? "estimated" : ""}>
-              <span className="step-icon">{s.icon}</span>
+              <span className="step-icon"><StepIcon item={s} /></span>
               <span className="step-label">{s.label}{s.health ? <small> ♥</small> : null}</span>
               <span className="step-status">{status}</span>
               <span className="step-actions">
@@ -287,6 +288,54 @@ function SetupTab({ store, config }: { store: JournalStore; config: RoutineConfi
     [steps[i], steps[i + d]] = [steps[i + d], steps[i]];
     setDraft({ ...draft, steps });
   };
+  // Hold ⠿ and drag a row up or down to reorder (steps or habits).
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const [dragging, setDragging] = useState<string | null>(null);
+  const startDrag = (e: ReactPointerEvent, list: "steps" | "habits", id: string) => {
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    setDragging(id);
+    navigator.vibrate?.(10);
+    const move = (ev: PointerEvent) => {
+      const over = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>(`[data-${list}]`);
+      const to = over ? Number(over.dataset[list]) : -1;
+      const d = draftRef.current;
+      const items = [...d[list]] as (RoutineStep | Habit)[];
+      const from = items.findIndex((x) => x.id === id);
+      if (to < 0 || from < 0 || to === from) return;
+      const [it] = items.splice(from, 1);
+      items.splice(to, 0, it);
+      navigator.vibrate?.(5);
+      setDraft({ ...d, [list]: items });
+    };
+    const end = () => {
+      setDragging(null);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  };
+  const pickGif = (apply: (gif: string | undefined) => void, has: boolean) => {
+    if (has) return apply(undefined);
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/gif,image/*";
+    input.onchange = async () => {
+      const f = input.files?.[0];
+      if (!f) return;
+      try {
+        const r = await store.saveFile({ name: f.name || "icon.gif", mime: f.type, bytes: new Uint8Array(await f.arrayBuffer()) });
+        apply(r.id);
+      } catch (err) {
+        showError("Couldn't add the GIF", err);
+      }
+    };
+    input.click();
+  };
   const save = async () => {
     // A renamed step or habit keeps its old name, so lines already written still count.
     const keep = <T extends { id: string; label: string; aliases?: string[] }>(list: T[], old: T[]) =>
@@ -306,8 +355,10 @@ function SetupTab({ store, config }: { store: JournalStore; config: RoutineConfi
       <h3>Steps of your day <small>(in order)</small></h3>
       <ul className="setup-list">
         {draft.steps.map((s, i) => (
-          <li key={s.id}>
-            <input className="emoji" value={s.icon} onChange={(e) => setStep(i, { icon: e.target.value })} aria-label="Icon" />
+          <li key={s.id} data-steps={i} className={dragging === s.id ? "dragging" : ""}>
+            <span className="setup-grip" onPointerDown={(e) => startDrag(e, "steps", s.id)} aria-label="Drag to reorder" title="Drag to reorder">⠿</span>
+            {s.gif ? <span className="emoji setup-gif"><StepIcon item={s} /></span> : <input className="emoji" value={s.icon} onChange={(e) => setStep(i, { icon: e.target.value })} aria-label="Icon" />}
+            <button type="button" className="setup-gif-btn" onClick={() => pickGif((gif) => setStep(i, { gif }), !!s.gif)} title={s.gif ? "Remove the GIF" : "Use a GIF as its icon"}>{s.gif ? "✕GIF" : "GIF"}</button>
             <input value={s.label} onChange={(e) => setStep(i, { label: e.target.value })} aria-label="Name" />
             <label title="Has a start and an end"><input type="checkbox" checked={s.span} onChange={(e) => setStep(i, { span: e.target.checked })} /> start/end</label>
             <label title="Ideal start time (optional)">ideal <input type="time" value={s.ideal ?? ""} onChange={(e) => setStep(i, { ideal: e.target.value || undefined })} /></label>
@@ -325,8 +376,10 @@ function SetupTab({ store, config }: { store: JournalStore; config: RoutineConfi
       <h3>Habits <small>(one tap each)</small></h3>
       <ul className="setup-list">
         {draft.habits.map((h, i) => (
-          <li key={h.id}>
-            <input className="emoji" value={h.icon} onChange={(e) => setHabit(i, { icon: e.target.value })} aria-label="Icon" />
+          <li key={h.id} data-habits={i} className={dragging === h.id ? "dragging" : ""}>
+            <span className="setup-grip" onPointerDown={(e) => startDrag(e, "habits", h.id)} aria-label="Drag to reorder" title="Drag to reorder">⠿</span>
+            {h.gif ? <span className="emoji setup-gif"><StepIcon item={h} /></span> : <input className="emoji" value={h.icon} onChange={(e) => setHabit(i, { icon: e.target.value })} aria-label="Icon" />}
+            <button type="button" className="setup-gif-btn" onClick={() => pickGif((gif) => setHabit(i, { gif }), !!h.gif)} title={h.gif ? "Remove the GIF" : "Use a GIF as its icon"}>{h.gif ? "✕GIF" : "GIF"}</button>
             <input value={h.label} onChange={(e) => setHabit(i, { label: e.target.value })} aria-label="Name" />
             <button type="button" onClick={() => setDraft({ ...draft, habits: draft.habits.filter((_, j) => j !== i) })} aria-label="Remove">✕</button>
           </li>

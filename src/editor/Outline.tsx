@@ -106,7 +106,7 @@ export function outlineOf(doc: PMNode): OutlineItem[] {
 }
 
 /** Scrolls the note to a spot (opening what's folded over it) and flashes it, without opening the keyboard. */
-export function jumpTo(editor: Editor, pos: number, unfold: (editor: Editor, pos: number) => void) {
+export function jumpTo(editor: Editor, pos: number, unfold: (editor: Editor, pos: number) => void, flash?: string) {
   unfold(editor, pos);
   requestAnimationFrame(() => {
     let el: HTMLElement | null = null;
@@ -119,10 +119,13 @@ export function jumpTo(editor: Editor, pos: number, unfold: (editor: Editor, pos
     if (!el) return;
     const r = el.getBoundingClientRect();
     window.scrollTo({ top: window.scrollY + r.top - window.innerHeight * 0.3, behavior: "smooth" });
-    el.classList.remove("outline-flash");
+    // From the time rail: the line glows for 4 s in its time of day's colour (Settings → Editor).
+    const cls = flash ? "time-flash" : "outline-flash";
+    el.classList.remove("outline-flash", "time-flash");
+    if (flash) el.style.setProperty("--flash", flash);
     void el.offsetWidth;
-    el.classList.add("outline-flash");
-    window.setTimeout(() => el?.classList.remove("outline-flash"), 1600);
+    el.classList.add(cls);
+    window.setTimeout(() => el?.classList.remove(cls), flash ? 4100 : 1600);
   });
 }
 
@@ -159,7 +162,25 @@ export function OutlinePanel({ editor, onJump, onClose, day }: { editor: Editor;
   const stamps = useStamps(editor, time);
   const q = filter.trim().toLowerCase();
   const shown = q ? items.filter((i) => i.label.toLowerCase().includes(q)) : items;
-  const shownStamps = q ? stamps.filter((s) => s.label.toLowerCase().includes(q)) : stamps;
+  // 🕒 lists in writing order or, with ⇅, by the clock (a line added later about the morning sits
+  // with the morning).
+  const [byTime, setByTimeState] = useState(() => {
+    try {
+      return localStorage.getItem("journal.outlineByTime") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const setByTime = (on: boolean) => {
+    setByTimeState(on);
+    try {
+      localStorage.setItem("journal.outlineByTime", on ? "1" : "0");
+    } catch {
+      // This session only.
+    }
+  };
+  const filteredStamps = q ? stamps.filter((s) => s.label.toLowerCase().includes(q)) : stamps;
+  const shownStamps = byTime ? [...filteredStamps].sort((a, b) => a.time - b.time || a.pos - b.pos) : filteredStamps;
   const clock = (t: number) => {
     const d = new Date(t);
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -195,22 +216,29 @@ export function OutlinePanel({ editor, onJump, onClose, day }: { editor: Editor;
           <DayView day={day} />
         ) : time ? (
           <>
-            {stamps.length > 1 && <p className="outline-span">{formatGap(span)} from the first to the last timestamp</p>}
+            {stamps.length > 1 && (
+              <p className="outline-span">
+                {formatGap(span)} from the first to the last timestamp
+                <button type="button" className={byTime ? "outline-order active" : "outline-order"} aria-pressed={byTime} title={byTime ? "In time order: tap for writing order" : "In writing order: tap for time order"} onClick={() => setByTime(!byTime)}>
+                  ⇅ {byTime ? "By time" : "As written"}
+                </button>
+              </p>
+            )}
             {shownStamps.length === 0 && <p className="hint">No timestamps in this note yet.</p>}
             <ul>
               {shownStamps.map((s, i) => {
                 const prev = shownStamps[i - 1];
                 const gap = prev ? s.time - prev.time : 0;
                 return (
-                  <li key={`t-${s.pos}`} className="outline-stamp">
+                  <li key={`t-${s.pos}`} className={`outline-stamp${s.edit ? " edit" : ""}`} style={s.edit && prev && gap > 0 ? { paddingTop: `${Math.min(140, Math.round(8 * Math.log2(1 + gap / 60_000)))}px` } : undefined}>
                     {prev && (
                       <span className="outline-gap" title={gap < 0 ? "Earlier than the timestamp above it" : "Time passed since the one above"}>
                         {gap < 0 ? `↑ ${formatGap(gap)} earlier` : `↓ ${formatGap(gap)}`}
                       </span>
                     )}
                     <button type="button" onClick={() => onJump(s.pos)}>
-                      <span className="outline-icon">🕒</span>
-                      <span className="outline-time-at">{clock(s.time)}</span>
+                      <span className="outline-icon">{s.edit ? "✎" : "🕒"}</span>
+                      <span className="outline-time-at">{s.edit ? `${new Date(s.time).toLocaleDateString([], { day: "numeric", month: "short" })} ${clock(s.time)}` : clock(s.time)}</span>
                       <span className="outline-label">{s.label}</span>
                     </button>
                   </li>
