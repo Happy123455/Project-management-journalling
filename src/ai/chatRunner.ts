@@ -116,7 +116,7 @@ export const stopJob = () => stopper?.abort();
 export const isMac = () => "__TAURI_INTERNALS__" in window && !window.JournalShare;
 
 /** Rests in the native side on the Mac (a hidden window's timers are slowed by macOS). */
-async function rest(ms: number, signal?: AbortSignal) {
+export async function rest(ms: number, signal?: AbortSignal) {
   const wait = isMac() ? (await import("@tauri-apps/api/core")).invoke("ai_rest", { ms }) : new Promise((r) => setTimeout(r, ms));
   await Promise.race([wait, new Promise((_, reject) => signal?.addEventListener("abort", () => reject(new DOMException("Stopped", "AbortError")), { once: true }))]);
 }

@@ -10,6 +10,7 @@ import { GRAPH_PREFIX, parseLoadout, type PromptMapData } from "./canvasLoadout"
 import { addFeatures, addPrompt, emptyGraph, localIso } from "./graphFormat";
 import { entryFor } from "./projectDays";
 import { docText } from "./words";
+import { engineData, enginePage, parseRecords, situationMarkdown, type EngineRec } from "./consequence";
 
 export const EXPORT_FORMAT = "dynamic-journal.project-export/1";
 
@@ -24,6 +25,8 @@ export interface ProjectExport extends PromptMapData {
   edits: { at: string; actor: string; where: string; added: string[]; removed: string[] }[];
   chats: { title: string; updated: string; messages: { role: string; by?: string; text: string }[] }[];
   media: { id: string; name: string; mime: string; size: number; where: string; file?: string }[];
+  /** 🎲 What the consequence engine knows (state, latest reading, moves and outcomes), as Markdown. */
+  consequence?: string;
 }
 
 const MEDIA = new Set(["attachmentImage", "attachmentMedia", "attachmentFile"]);
@@ -196,11 +199,15 @@ export async function buildProjectExport(store: JournalStore, page: NamedPage, c
   const used = new Set(graph.segs.map((s) => s.f));
   graph = { ...graph, features: graph.features.filter((f) => used.has(f.id)) };
 
+  const engine = engineData(parseRecords<EngineRec>((await store.getPage(enginePage(title)))?.content));
+  const consequence = engine.state || engine.runs.length || engine.moves.length ? situationMarkdown(title, engine) : undefined;
+
   const prompt =
     `This is the full export of the project "${title}" from Hapi's journal (Dynamic Journal), made ${localIso(now)}. ` +
     `"page" is the project's own page. "notes" are the dated journal lines about it, oldest first. ` +
     `"edits" is how it changed over time: who ("me" is Hapi, any other name is an AI) added or removed which lines, and when. ` +
     `"chats" are AI conversations about it. "media" lists its photos, videos, recordings and files (in the media folder next to this file when included). ` +
+    (consequence ? `"consequence" is what the journal's consequence engine concluded about it (honest reading, choice paths, moves locked in and what really happened). ` : "") +
     `"features", "prompts" and "segs" are the same project as a graph: features are branches, prompts are dated items (the page, each day's notes, chat questions, voice talks), segs are their parts, each on a branch. ` +
     `Use all of it as context for what Hapi asks next.`;
 
@@ -214,6 +221,7 @@ export async function buildProjectExport(store: JournalStore, page: NamedPage, c
     edits,
     chats: chatOut,
     media,
+    ...(consequence ? { consequence } : {}),
     features: graph.features,
     prompts: graph.prompts,
     segs: graph.segs,
@@ -236,6 +244,7 @@ export function exportMarkdown(x: ProjectExport): string {
     for (const e of x.edits) out.push(`- ${e.at.slice(0, 16).replace("T", " ")} · ${e.actor} · ${e.where}: ${[...e.added.map((l) => `+ ${l}`), ...e.removed.map((l) => `− ${l}`)].join(" | ")}`);
     out.push("");
   }
+  if (x.consequence) out.push(x.consequence.replace(/^## /gm, "### ").replace(/^# /, "## "), "");
   if (x.media.length) {
     out.push("## Media", "");
     for (const m of x.media) out.push(`- ${m.file ?? m.name} (${m.mime}, ${Math.round(m.size / 1024)} KB, ${m.where})`);

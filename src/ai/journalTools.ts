@@ -9,6 +9,7 @@ import { parseRule, RULES_PAGE } from "../lib/aiRules";
 import { emptySheet, parseSheet, setCells, sheetForAi, type SheetData } from "../lib/sheet";
 import { dayKey } from "../lib/timestamp";
 import { docText } from "../lib/words";
+import { engineData, enginePage, parseRecords, situationMarkdown, type EngineRec } from "../lib/consequence";
 
 export interface ToolSpec {
   name: string;
@@ -31,6 +32,7 @@ export const TOOL_SPECS: ToolSpec[] = [
   { kind: "read", name: "search", description: "Find days and pages containing all these words.", parameters: obj({ query: { type: "string" } }, ["query"]) },
   { kind: "read", name: "list_days", description: "List every day that has a note.", parameters: obj({}) },
   { kind: "read", name: "list_projects", description: "List the projects (title and status).", parameters: obj({}) },
+  { kind: "read", name: "read_situation", description: "Read what the 🎲 consequence engine knows about a project or person page: its rolling state (people and their patterns, blind spots, lessons), the latest honest reading with its paths and verdict, moves locked in and what really happened.", parameters: obj({ title: { type: "string" } }, ["title"]) },
   { kind: "read", name: "read_sheet", description: "Read a spreadsheet table in a note: each cell with what's typed and, for formulas, the result.", parameters: obj({ date: DATE, title: TITLE, sheet: SHEET }) },
   // Writing
   { kind: "write", name: "append", description: "Add text at the end of a day's note (today if no date). One paragraph per line; [[Page]] links and #tags work.", parameters: obj({ text: { type: "string" }, date: DATE }, ["text"]) },
@@ -149,6 +151,14 @@ export async function runJournalTool(store: JournalStore, name: string, args: Re
       const list = await store.projects();
       if (!list.length) return ok("No projects yet.");
       return ok(list.map((p) => `- ${p.title}${p.props.project?.status ? ` (${p.props.project.status})` : ""}`).join("\n"));
+    }
+    case "read_situation": {
+      const title = String(args.title ?? "").trim();
+      const page = title ? await store.getPage(title) : null;
+      if (!page) return bad(`No page called "${title}".`);
+      const d = engineData(parseRecords<EngineRec>((await store.getPage(enginePage(page.title)))?.content));
+      if (!d.state && !d.runs.length && !d.moves.length) return ok(`The consequence engine hasn't read "${page.title}" yet (🎲 on its page).`);
+      return ok(situationMarkdown(page.title, d));
     }
     case "read_sheet": {
       const note = await noteFor(store, args, now);

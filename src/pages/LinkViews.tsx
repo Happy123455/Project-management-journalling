@@ -6,6 +6,8 @@ import { dayTitle, formatTimestamp } from "../lib/timestamp";
 import { showError } from "../lib/toast";
 import { ProjectPanel } from "../projects/ProjectPanel";
 import { ProjectTimeline } from "../projects/ProjectTimeline";
+import { ConsequencePanel } from "../consequence/ConsequencePanel";
+import { isInternalPage } from "../lib/consequence";
 import { mentionBlocks } from "../lib/mentionBlocks";
 import { DocView } from "./DocView";
 import type { JournalStore, LinkKind, NamedPage, Reference } from "../store";
@@ -293,6 +295,7 @@ export function PageView({ store, page, onBack, handlers, pageNames, find, onFin
       {page.props.project && (
         <ProjectPanel store={store} page={page} refreshKey={saves} onChanged={onPageChanged} onOpenDay={handlers.onOpenDay} />
       )}
+      {!isInternalPage(page.title) && <ConsequencePanel store={store} page={page} refreshKey={saves} onOpenDay={handlers.onOpenDay} />}
       {(
         // Every linked note records its days, like a project.
         <ProjectTimeline store={store} page={page} refreshKey={saves} onOpenDay={(d) => handlers.onOpenDay(d)} onOpenLink={handlers.onOpenLink} onOpenTag={handlers.onOpenTag} />
