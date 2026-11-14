@@ -24,6 +24,7 @@ import { readAloud } from "../lib/readAloud";
 import { isLoneUrl, LinkCard } from "./linkCard";
 import { PromptBlock } from "./promptBlock";
 import { MathBlock } from "./mathBlock";
+import { SheetBlock } from "./sheetBlock";
 import { YoutubeEmbed, youtubeEmbedFrom } from "./youtubeEmbed";
 import { FindHighlight, findKey } from "./findHighlight";
 import { LogBlock } from "./logBlock";
@@ -620,6 +621,7 @@ export function JournalEditor({
       PromptBlock,
       DeadlineBar,
       MathBlock,
+      SheetBlock,
       LinkHighlight.configure({ onOpenLink: (t) => onOpenLink?.(t), onOpenTag: (t) => onOpenTag?.(t) }),
       LinkSuggest.configure({ pageNames: () => pageNames?.() ?? Promise.resolve([]) }),
       Timestamp,

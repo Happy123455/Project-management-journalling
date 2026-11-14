@@ -1,5 +1,5 @@
 export type SlashId =
-  | "heading" | "task" | "bullet" | "numbered" | "quote" | "code" | "math"
+  | "heading" | "task" | "bullet" | "numbered" | "quote" | "code" | "math" | "sheet"
   | "divider" | "timestamp" | "place" | "link" | "embed" | "tag" | "reminder"
   | "attach" | "deadline" | "capture" | "project" | "voice" | "meme" | "sound" | "prompt" | "logproject";
 
@@ -19,6 +19,7 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: "numbered", label: "Numbers", icon: "1.", keywords: ["list", "ordered"] },
   { id: "quote", label: "Quote", icon: "❝", keywords: ["blockquote", "cite"] },
   { id: "code", label: "Code", icon: "</>", keywords: ["codeblock", "snippet"] },
+  { id: "sheet", label: "Table", icon: "▦", keywords: ["spreadsheet", "excel", "sheet", "grid", "cells", "formula", "sum", "budget"] },
   { id: "math", label: "Math", icon: "∑", keywords: ["equation", "latex", "formula", "handwriting", "calculate", "variable"] },
   { id: "divider", label: "Divider", icon: "—", keywords: ["line", "hr", "separator"] },
   { id: "place", label: "Location", icon: "📍", keywords: ["location", "place", "where", "gps", "map", "here", "address"] },

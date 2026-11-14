@@ -9,6 +9,7 @@ import { showToast } from "../lib/toast";
 import { openCapture, pickFiles } from "./attachments";
 import { openVoiceRecorder } from "./VoiceRecorder";
 import { openMemeKit } from "./MemeKit";
+import { newSheetContent } from "./sheetBlock";
 
 /**
  * Log and timestamp in one: on an empty line it starts a log (a list whose entries each begin with
@@ -94,6 +95,8 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       return true;
     case "math":
       return chain.insertContent({ type: "mathBlock" }).run();
+    case "sheet":
+      return chain.insertContent(newSheetContent()).run();
     case "prompt":
       return chain.insertContent({ type: "promptBlock" }).run();
     case "deadline":
