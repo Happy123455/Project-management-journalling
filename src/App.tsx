@@ -38,6 +38,7 @@ import { loadAiSettings } from "./ai/settings";
 import { entryFor, numberEntries, type ProjectEntry } from "./lib/projectDays";
 import { loadGestures, NO_SWIPE, onPanSurface, type CanvasAction } from "./lib/gestures";
 import { parseSpecialPage, setPersonalDates, SPECIAL_DATES_PAGE } from "./lib/specialDates";
+import { useAiNavigation } from "./ai/useAiRules";
 import { ChatView } from "./ChatView";
 import { AiBadge } from "./AiBadge";
 import { startMacWorker } from "./ai/chatRunner";
@@ -63,6 +64,8 @@ import { openTimelines, TimelinesHost } from "./editor/TimelinesView";
 import { deadlineAlarms, useAllDeadlines, watchDeadlines } from "./editor/deadlineStore";
 import { FocusHost } from "./editor/focus";
 import { TodayDeadlines } from "./editor/TodayDeadlines";
+import { DayPreview } from "./editor/DayPreview";
+import { startSnippetWorker } from "./ai/daySnippet";
 import { useEditorPrefs } from "./lib/editorPrefs";
 import { CaptureHost } from "./editor/CaptureHost";
 import { PdfHost } from "./editor/PdfHost";
@@ -510,6 +513,12 @@ function App() {
     const t = window.setTimeout(() => void growPending(store, today, 3).catch(() => {}), 3 * 60 * 1000);
     return () => window.clearTimeout(t);
   }, [store, today]);
+
+  // The Mac writes each day's short preview with the local model (free); it syncs to the phone.
+  useEffect(() => {
+    if (!store || !isDesktopApp()) return;
+    return startSnippetWorker(store);
+  }, [store]);
 
   const [reminders, setReminders] = useState<DayPage[]>([]);
   const loadReminders = useCallback(() => {
@@ -1064,6 +1073,8 @@ function App() {
   // Links tapped inside an embedded note (or anywhere outside an editor).
   const openLinkRef = useRef(handlers.onOpenLink);
   openLinkRef.current = handlers.onOpenLink;
+  // The AI opening notes (open_note) and the "AI rules" page's rules.
+  useAiNavigation(store, (target) => void openLinkRef.current(target));
   useEffect(() => {
     const on = (e: Event) => void openLinkRef.current(String((e as CustomEvent).detail ?? ""));
     window.addEventListener("journal:open-link", on);
@@ -1244,6 +1255,7 @@ function App() {
               // finger lands moved the text up under the finger before the tap was placed, so the caret
               // went somewhere else (in a code block: always its first line).
               <div onClick={() => setCalendarCollapsed(true)}>
+                {store && <DayPreview store={store} day={day} refreshKey={syncTick} />}
                 <JournalEditor
                   key={`${day}:${pageVersion}`}
                   // The latest text, not the copy loaded when the day opened: coming back from a

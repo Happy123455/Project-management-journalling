@@ -167,6 +167,14 @@ async function callOllama(model: string, req: AiRequest) {
   return { text: body.message?.content ?? "", input: body.prompt_eval_count ?? 0, output: body.eval_count ?? 0 };
 }
 
+/** One request to this Mac's local model only (free, nothing leaves the Mac); quick tasks use the small model. */
+export async function askLocal(req: AiRequest & { model?: string }): Promise<{ text: string; model: string }> {
+  const model = req.model || modelFor({ ...loadAiSettings(), provider: "local" }, req.task);
+  const r = await callOllama(model, req);
+  recordUsage(model, r.input, r.output);
+  return { text: r.text, model };
+}
+
 /** Is Ollama running on this Mac? */
 export async function localAvailable(): Promise<boolean> {
   try {

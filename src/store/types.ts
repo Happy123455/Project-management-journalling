@@ -13,6 +13,8 @@ export interface DayProps {
   repeat?: "daily" | "weekly" | "monthly" | "yearly";
   /** Days a repeating reminder was ticked off on (it still comes back on the next one). */
   doneDays?: string[];
+  /** The day's preview: a sentence or two the Mac's local model wrote from the note (src/ai/daySnippet.ts). */
+  snippet?: { text: string; at: number; by: string; words: number };
 }
 
 /** A daily page. Pages are blocks of type "day"; child blocks come later. */

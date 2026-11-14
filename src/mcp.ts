@@ -4,6 +4,8 @@ import { dayKey } from "./lib/timestamp";
 import { docText } from "./lib/words";
 import type { JournalStore } from "./store";
 import type { JSONContent } from "@tiptap/react";
+import { runJournalTool, TOOL_SPECS } from "./ai/journalTools";
+import { saveYoutubeDay } from "./lib/youtubeDigest";
 
 /**
  * The document with the first line containing `find` changed (`find` → `replace`), or null when no
@@ -150,9 +152,29 @@ export async function runMcpTool(store: JournalStore, call: Pick<McpCall, "tool"
       await store.savePage({ id: page.id, content: loadoutPageContent(d), plainText: `Graph: ${name} (${d.segs.length} nodes)`, actor });
       return text(`Saved "${GRAPH_PREFIX}${name}": ${d.segs.length} nodes on ${d.features.length} branches. Open any note's Canvas and pick it in the graph menu.`);
     }
-    default:
-      return text(`Unknown tool ${call.tool}`, true);
+    case "youtube_day": {
+      const day = str("date");
+      if (!DATE_RE.test(day)) return text("date must be YYYY-MM-DD", true);
+      const saved = await saveYoutubeDay(store, day, str("data"), call.actor || "YouTube tracker");
+      return typeof saved === "string" ? text(saved, true) : text(`Kept the YouTube digest for ${day}.`);
+    }
+    default: {
+      const out = await runJournalTool(store, call.tool, args, call.actor || "MCP client", now);
+      return out ? text(out.text, !!out.error) : text(`Unknown tool ${call.tool}`, true);
+    }
   }
+}
+
+/** Every tool, as MCP lists them (the Rust server asks the page for this list). */
+export function mcpToolList() {
+  return [
+    ...TOOL_SPECS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.parameters })),
+    {
+      name: "youtube_day",
+      description: "From the YouTube tracker extension: one day's watching digest (JSON text: watches, useful, distraction, shorts, topics, usefulVideos, note). Shown in that day's preview card.",
+      inputSchema: { type: "object", properties: { date: { type: "string", description: "YYYY-MM-DD" }, data: { type: "string", description: "The digest as JSON text" } }, required: ["date", "data"] },
+    },
+  ];
 }
 
 const MCP_KEY = "dynamic-journal.mcp-enabled";
@@ -184,7 +206,7 @@ export async function setMcpServer(store: JournalStore, on: boolean): Promise<vo
   }
   if (!unlisten) {
     unlisten = await listen<McpCall>("mcp-call", async (e) => {
-      const result = await runMcpTool(store, e.payload).catch((err) => text(err instanceof Error ? err.message : String(err), true));
+      const result = e.payload.tool === "__tools" ? { tools: mcpToolList() } : await runMcpTool(store, e.payload).catch((err) => text(err instanceof Error ? err.message : String(err), true));
       await invoke("mcp_reply", { id: e.payload.id, result });
     });
   }

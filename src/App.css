@@ -3826,3 +3826,15 @@ html.dl-dragging, html.dl-dragging * { user-select: none !important; -webkit-use
 .sheet-edit { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 0 7px; font: inherit; background: var(--bg); color: var(--text); outline: 2px solid var(--accent); box-sizing: border-box; }
 .sheet-fill { position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; background: var(--accent); border: 2px solid var(--bg); border-radius: 2px; cursor: crosshair; touch-action: none; z-index: 2; }
 @media (pointer: coarse) { .sheet-fill { width: 16px; height: 16px; right: -2px; bottom: -2px; border-radius: 4px; } }
+
+/* The day's preview card (the Mac's summary, YouTube watching). */
+.day-preview { margin: 4px 0 10px; padding: 8px 12px; border-radius: 14px; background: color-mix(in srgb, var(--accent) 7%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border)); cursor: pointer; font-size: 13px; line-height: 1.45; }
+.day-preview p { margin: 0; }
+.day-preview .dp-snippet { color: var(--text); }
+.day-preview:not(.open) .dp-snippet { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.day-preview .dp-yt { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.day-preview .dp-more { margin-top: 6px; display: grid; gap: 4px; }
+.day-preview ul { margin: 0; padding-left: 4px; list-style: none; display: grid; gap: 2px; }
+.day-preview a { color: inherit; }
+.day-preview small, .day-preview .dp-rising, .day-preview .dp-note { color: var(--muted); font-size: 12px; }
+.day-preview .dp-by { display: block; margin-top: 4px; }

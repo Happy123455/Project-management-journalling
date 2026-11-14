@@ -4,6 +4,7 @@ import { dayKey } from "../lib/timestamp";
 import { docText } from "../lib/words";
 import type { LocalMessage } from "./local";
 import { applyBlockOp, numbered, type BlockOp, type Section, type Target } from "./blocks";
+import { specsOf } from "./journalTools";
 
 /**
  * The journal tools the local model may call when "Can edit" is on in AI chat. Reads and whole-note
@@ -16,18 +17,8 @@ const obj = (properties: Record<string, unknown>, required: string[] = []) => ({
 const DATE = { type: "string", description: "YYYY-MM-DD" };
 const TITLE = { type: "string", description: "page title instead of a date" };
 
-const READ_TOOLS = [
-  { name: "today", description: "Read today's note.", parameters: obj({}) },
-  { name: "read_day", description: "Read the note of one day.", parameters: obj({ date: DATE }, ["date"]) },
-  { name: "read_page", description: "Read a named page (a project, person, topic).", parameters: obj({ title: { type: "string" } }, ["title"]) },
-  { name: "search", description: "Find days and pages containing all these words.", parameters: obj({ query: { type: "string" } }, ["query"]) },
-  { name: "list_days", description: "List every day that has a note.", parameters: obj({}) },
-];
-const NOTE_TOOLS = [
-  { name: "append", description: "Add text at the end of a day's note (today if no date). One paragraph per line; [[Page]] links and #tags work.", parameters: obj({ text: { type: "string" }, date: DATE }, ["text"]) },
-  { name: "replace_text", description: "In a day's note or a page, replace `find` (first line that has it) with `replace` (empty deletes).", parameters: obj({ find: { type: "string" }, replace: { type: "string" }, date: DATE, title: TITLE }, ["find", "replace"]) },
-  { name: "add_to_page", description: "Add text at the end of a named page, creating it if needed.", parameters: obj({ title: { type: "string" }, text: { type: "string" } }, ["title", "text"]) },
-];
+const READ_TOOLS = specsOf("read", "nav");
+const NOTE_TOOLS = specsOf("write");
 const where = (section: boolean) => (section ? {} : { date: DATE, title: TITLE });
 const blockTools = (section: boolean) => [
   { name: "read_blocks", description: section ? "Read the section you may edit, as numbered blocks." : "Read a note (today if no date) as numbered blocks, to edit one by its number.", parameters: obj(where(section)) },
@@ -36,17 +27,25 @@ const blockTools = (section: boolean) => [
   { name: "delete_block", description: "Delete block n.", parameters: obj({ n: { type: "integer" }, ...where(section) }, ["n"]) },
 ];
 
-export function agentSystem(section?: Section | null, now = new Date()): string {
-  const tools = section ? [...READ_TOOLS, ...blockTools(true)] : [...READ_TOOLS, ...blockTools(false), ...NOTE_TOOLS];
+/** What the model is told about the journal and its tools (any model). */
+export function toolIntro(section?: Section | null, now = new Date()): string {
   const scope = section
     ? `You may change only one section the user picked (${section.label}); call read_blocks first. Everything else is read-only. `
     : "Edit only what the user asks for; read the note first (read_blocks) when you change existing text. ";
   return (
     `You can read and edit the user's journal with tools. Today is ${dayKey(now)}. ${scope}` +
-    "If a tool answers with an error, fix the call and try again. Afterwards tell the user briefly what you changed.\n\n" +
-    "# Tools\n\nYou may call one or more functions to assist with the user query.\n\n" +
+    "If a tool answers with an error, fix the call and try again. Spreadsheet tables: read_sheet, then set_cells (formulas start with =, like =SUM(B2:B9)). " +
+    "To show the user a note or project, use open_note. Afterwards tell the user briefly what you changed."
+  );
+}
+
+export function agentSystem(section?: Section | null, now = new Date()): string {
+  const tools = toolsFor(section);
+  return (
+    toolIntro(section, now) +
+    "\n\n# Tools\n\nYou may call one or more functions to assist with the user query.\n\n" +
     "You are provided with function signatures within <tools></tools> XML tags:\n<tools>\n" +
-    tools.map((t) => JSON.stringify({ type: "function", function: t })).join("\n") +
+    tools.map((t) => JSON.stringify({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })).join("\n") +
     "\n</tools>\n\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n" +
     '<tool_call>\n{"name": <function-name>, "arguments": <args-json-object>}\n</tool_call>'
   );
@@ -98,47 +97,54 @@ export interface ToolRun {
   section?: Section | null;
 }
 
+/** One tool call: its answer for the model, whether it failed, and the section after it. */
+export async function runOneTool(store: JournalStore, c: ToolCall, actor: string, section?: Section | null, now = new Date()): Promise<{ out: string; bad: boolean; section?: Section | null }> {
+  const a = c.arguments;
+  const target: Target = section ? { day: section.day, title: section.title } : { day: typeof a.date === "string" ? a.date : undefined, title: typeof a.title === "string" ? a.title : undefined };
+  try {
+    if (c.error) return { out: c.error, bad: true, section };
+    if (c.name === "read_blocks") {
+      const n = await note(store, target, now);
+      return n ? { out: `# ${n.name}${section ? ` (section: ${section.label})` : ""}\n${numbered(n.doc, section)}`, bad: false, section } : { out: "No such page.", bad: true, section };
+    }
+    if (BLOCK_OPS[c.name]) {
+      const n = await note(store, target, now);
+      if (!n) return { out: "No such page.", bad: true, section };
+      await window.__journalFlush?.();
+      const op = { op: BLOCK_OPS[c.name], n: Number(a.n), text: String(a.text ?? "") } as BlockOp;
+      const r = applyBlockOp(n.doc, op, section);
+      if (typeof r === "string") return { out: r, bad: true, section };
+      await n.save(r.doc, actor);
+      window.dispatchEvent(new Event("journal:reload-page"));
+      return { out: `Done. Now:\n${numbered(r.doc, r.section)}`, bad: false, section: r.section };
+    }
+    if (section && !READ_TOOLS.some((t) => t.name === c.name)) {
+      return { out: "Only the picked section can be changed: use read_blocks, replace_block, insert_after or delete_block.", bad: true, section };
+    }
+    const r = await runMcpTool(store, { tool: c.name, args: a, actor }, now);
+    return { out: r.content.map((p) => p.text).join("\n"), bad: !!r.isError, section };
+  } catch (e) {
+    return { out: e instanceof Error ? e.message : String(e), bad: true, section };
+  }
+}
+
+export const toolLogLine = (c: ToolCall, bad: boolean) => {
+  const a = c.arguments;
+  return `${bad ? "⚠" : "✓"} ${c.name}${a.n !== undefined ? ` ${a.n}` : ""}${a.date ? ` ${a.date}` : ""}${a.title ? ` “${a.title}”` : ""}${a.target ? ` “${a.target}”` : ""}`;
+};
+
+/** The tools offered: with a section picked, reading and that section's block tools only. */
+export const toolsFor = (section?: Section | null) => (section ? [...READ_TOOLS, ...blockTools(true)] : [...READ_TOOLS, ...blockTools(false), ...NOTE_TOOLS]);
+
 /** Runs the calls and gives back the message that carries their results to the model. */
 export async function runTools(store: JournalStore, calls: ToolCall[], actor: string, section?: Section | null, now = new Date()): Promise<ToolRun> {
   const log: string[] = [];
   const parts: string[] = [];
   for (const c of calls) {
-    const a = c.arguments;
-    const target: Target = section ? { day: section.day, title: section.title } : { day: typeof a.date === "string" ? a.date : undefined, title: typeof a.title === "string" ? a.title : undefined };
-    let out: string;
-    let bad = false;
-    try {
-      if (c.error) [out, bad] = [c.error, true];
-      else if (c.name === "read_blocks") {
-        const n = await note(store, target, now);
-        out = n ? `# ${n.name}${section ? ` (section: ${section.label})` : ""}\n${numbered(n.doc, section)}` : "No such page.";
-        bad = !n;
-      } else if (BLOCK_OPS[c.name]) {
-        const n = await note(store, target, now);
-        if (!n) [out, bad] = ["No such page.", true];
-        else {
-          await window.__journalFlush?.();
-          const op = { op: BLOCK_OPS[c.name], n: Number(a.n), text: String(a.text ?? "") } as BlockOp;
-          const r = applyBlockOp(n.doc, op, section);
-          if (typeof r === "string") [out, bad] = [r, true];
-          else {
-            await n.save(r.doc, actor);
-            section = r.section;
-            window.dispatchEvent(new Event("journal:reload-page"));
-            out = `Done. Now:\n${numbered(r.doc, section)}`;
-          }
-        }
-      } else if (section && !READ_TOOLS.some((t) => t.name === c.name)) {
-        [out, bad] = [`Only the picked section can be changed: use read_blocks, replace_block, insert_after or delete_block.`, true];
-      } else {
-        const r = await runMcpTool(store, { tool: c.name, args: a, actor }, now);
-        [out, bad] = [r.content.map((p) => p.text).join("\n"), !!r.isError];
-      }
-    } catch (e) {
-      [out, bad] = [e instanceof Error ? e.message : String(e), true];
-    }
-    parts.push(`<tool_response>\n${out.slice(0, 6000)}\n</tool_response>`);
-    log.push(`${bad ? "⚠" : "✓"} ${c.name}${a.n !== undefined ? ` ${a.n}` : ""}${a.date ? ` ${a.date}` : ""}${a.title ? ` “${a.title}”` : ""}`);
+    const r = await runOneTool(store, c, actor, section, now);
+    section = r.section;
+    parts.push(`<tool_response>\n${r.out.slice(0, 6000)}\n</tool_response>`);
+    log.push(toolLogLine(c, r.bad));
   }
   return { message: { role: "user", content: parts.join("\n") }, log, section };
 }

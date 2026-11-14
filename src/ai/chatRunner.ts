@@ -1,7 +1,9 @@
 import type { JournalStore } from "../store";
 import { askAi, localAvailable } from "./client";
 import { coolGenerate, isChatml, type CoolLevel, type CoolProgress, type LocalMessage } from "./local";
-import { agentSystem, parseToolCalls, runTools } from "./agent";
+import { agentSystem, parseToolCalls, runTools, toolIntro } from "./agent";
+import { geminiAgent } from "./geminiTools";
+import { getKey } from "./secrets";
 import { loadAiSettings, modelFor, recordUsage } from "./settings";
 import { actorFor } from "./providers";
 import type { Section } from "./blocks";
@@ -134,7 +136,24 @@ async function answer(store: JournalStore, chat: Chat, ask: string | undefined, 
   const msgs: LocalMessage[] = chat.messages.filter((m) => !m.kind).map((m) => ({ role: m.role, content: m.content }));
   if (ask) msgs.push({ role: "user", content: ask });
   if (!(settings.enabled && (await localAvailable())) || !isChatml(model)) {
-    // No local model here (or not a Qwen one): one plain request with the transcript, no tools.
+    // No local model here (the phone, or Ollama off): Gemini, with the journal's tools when editing is on.
+    if (settings.enabled && chat.edit && !ask && (await getKey("gemini"))) {
+      const lines: string[] = [];
+      const r = await geminiAgent({
+        store,
+        system: toolIntro(chat.section),
+        messages: msgs.filter((m): m is { role: "user" | "assistant"; content: string } => m.role === "user" || m.role === "assistant"),
+        actor: "Gemini",
+        section: chat.section,
+        signal,
+        onStep: (line) => {
+          lines.push(line);
+          onProgress({ thinking: lines.join("\n"), answer: "", restUntil: 0, speed: 0, hot: false });
+        },
+      });
+      return { msg: { role: "assistant", content: r.text, steps: r.steps.length ? r.steps.map((t) => ({ kind: "tool" as const, text: t })) : undefined, by: "Gemini" }, section: r.section };
+    }
+    // Otherwise one plain request with the transcript, no tools.
     const text = msgs.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n") + "\n\nAssistant:";
     const a = await askAi({ task: "chat", system: "", text, maxTokens: 6000 });
     return { msg: { role: "assistant", content: a.text.trim(), by: a.actor } };

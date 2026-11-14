@@ -73,11 +73,15 @@ fn handle(call: &Caller, msg: &Value) -> Option<Value> {
                 "protocolVersion": PROTOCOL,
                 "capabilities": { "tools": {} },
                 "serverInfo": { "name": "dynamic-journal", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Hapi's journal. Read with today/read_day/read_page/search; add with append. Write only what was asked."
+                "instructions": "Hapi's journal. Read with today/read_day/read_page/search/read_sheet; add with append/add_to_page; tables with set_cells/add_sheet; open_note shows a note on the Mac. Write only what was asked."
             })
         }
         "ping" => json!({}),
-        "tools/list" => json!({ "tools": tools() }),
+        // The page knows every tool (src/ai/journalTools.ts); this list is the fallback when it can't answer.
+        "tools/list" => {
+            let listed = call("__tools", json!({}));
+            if listed.get("tools").map(|t| t.is_array()).unwrap_or(false) { listed } else { json!({ "tools": tools() }) }
+        }
         "tools/call" => call(msg["params"]["name"].as_str().unwrap_or(""), msg["params"]["arguments"].clone()),
         // Notifications (no id) need no answer.
         _ if id.is_none() => return None,
