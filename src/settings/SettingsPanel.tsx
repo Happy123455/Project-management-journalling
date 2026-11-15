@@ -655,6 +655,16 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
               Grow mind map automatically (from today's note, after 10 quiet minutes)
             </label>
             <label className="settings-toggle">
+              <input type="checkbox" checked={s.oilDrop !== false} onChange={(e) => update({ oilDrop: e.target.checked })} />
+              🛢️ Evening oil-drop check (looks for one small repeating problem in the week, from
+              <select value={s.oilDropHour ?? 21} onChange={(e) => update({ oilDropHour: Number(e.target.value) })} aria-label="Check hour" disabled={s.oilDrop === false}>
+                {[18, 19, 20, 21, 22, 23].map((h) => (
+                  <option key={h} value={h}>{h}:00</option>
+                ))}
+              </select>
+              ; most days it's all clear)
+            </label>
+            <label className="settings-toggle">
               <input type="checkbox" checked={s.autoCorrect} onChange={(e) => update({ autoCorrect: e.target.checked })} />
               Auto-correct (apply grammar fixes without asking)
             </label>

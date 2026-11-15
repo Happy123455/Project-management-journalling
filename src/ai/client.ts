@@ -21,6 +21,11 @@ export interface AiRequest {
   system: string;
   text: string;
   images?: AiImage[];
+  /**
+   * Gemini only: files it reads by address, e.g. a public YouTube video it watches itself
+   * ({ uri: "https://www.youtube.com/watch?v=…" }). Watched at low resolution (fewer tokens).
+   */
+  files?: { uri: string; mime?: string }[];
   /** JSON Schema the answer must follow; the answer is then parsed and returned. */
   schema?: Record<string, unknown>;
   maxTokens?: number;
@@ -84,6 +89,7 @@ const retryable = (status: number) => status === 503 || status === 429 || status
 async function callGemini(key: string, model: string, req: AiRequest) {
   const parts: Record<string, unknown>[] = [
     ...(req.images ?? []).map((img) => ({ inlineData: { mimeType: img.mime, data: img.data } })),
+    ...(req.files ?? []).map((f) => ({ fileData: { fileUri: f.uri, ...(f.mime ? { mimeType: f.mime } : {}) } })),
     { text: req.text },
   ];
   // In the app, through Tauri's native HTTP: the Android WebView's own fetch to Google can hang
@@ -96,6 +102,8 @@ async function callGemini(key: string, model: string, req: AiRequest) {
       generationConfig: {
         // Thinking models spend part of the output budget thinking: leave room so the answer isn't cut off.
         maxOutputTokens: (req.maxTokens ?? 8192) + (thinking ? 4096 : 0),
+        // A video at low resolution: about a third of the tokens, and speech is what matters.
+        ...(req.files?.length ? { mediaResolution: "MEDIA_RESOLUTION_LOW" } : {}),
         ...(req.schema ? { responseMimeType: "application/json", responseSchema: req.schema } : {}),
       },
     });
@@ -252,6 +260,11 @@ export async function askAi<T = unknown>(req: AiRequest): Promise<AiAnswer<T>> {
   if (req.provider) settings = { ...settings, provider: req.provider };
   const wanted = settings.provider;
   // The local model when it's running; otherwise Gemini (if it has a key) takes over.
+  if (req.files?.length && settings.provider !== "gemini") {
+    // Only Gemini can watch a video by its address.
+    if (!(await getKey("gemini"))) throw new Error("Watching a video needs Gemini: add a Gemini key in Settings → AI.");
+    settings = { ...settings, provider: "gemini" };
+  }
   if (settings.provider === "local" && req.cloud && (await getKey("gemini"))) settings = { ...settings, provider: "gemini" };
   if (settings.provider === "local" && !(await localAvailable())) {
     if (!(await getKey("gemini"))) throw new Error("The local model (Ollama) isn't running, and there's no Gemini key to fall back on.");

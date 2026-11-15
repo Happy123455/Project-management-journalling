@@ -17,6 +17,10 @@ export interface AiSettings {
   localDefaultSet?: boolean;
   /** Mac: how the local model is kept cool (bursts with rests); "cool" unless changed. */
   cool?: CoolLevel;
+  /** 🛢️ The evening oil-drop check runs by itself (on unless turned off). */
+  oilDrop?: boolean;
+  /** The hour (0–23) it runs from; 21 unless changed. */
+  oilDropHour?: number;
   /** Per-task model overrides, e.g. { organise: "gemini-4-argon" }. */
   models: Partial<Record<Provider, Partial<Record<AiTask, string>>>>;
 }
