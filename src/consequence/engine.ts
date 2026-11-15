@@ -286,7 +286,7 @@ export function stopReading(title: string) {
  * A JSON answer: with the schema, or, if the provider turns the schema down (a 400 about it), once
  * more without it, the shape spelled out in the request instead.
  */
-async function askJson(deps: Deps, req: AiRequest, shape: string): Promise<{ json: unknown; actor: string; model: string }> {
+export async function askJson(deps: Pick<Deps, "ask">, req: AiRequest, shape: string): Promise<{ json: unknown; actor: string; model: string }> {
   try {
     const a = await deps.ask(req);
     return { json: a.json ?? looseJson(a.text), actor: a.actor, model: a.model };
@@ -301,7 +301,7 @@ const CLEAN_SHAPE = 'Answer with only one JSON object: {"entries": [{"i": 0, "cl
 const CALIBRATE_SHAPE = 'Answer with only one JSON object: {"match": 0-100, "surprise": "...", "lesson": "...", "failed": true|false, "people": [{"name": "...", "pattern": "..."}]}';
 
 const fastTask = (p: Provider) => (p === "local" ? "describe" : "grammar");
-const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+export const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** Clean copies for up to `max` entries without one (newest first), plus the pre-flight questions. */
 async function cleanAndAsk(store: JournalStore, title: string, provider: Provider, entries: Entry[], now: string, ask: boolean, deps: Deps, max = 12): Promise<{ questions: string[]; cleaned: number; actor: string }> {

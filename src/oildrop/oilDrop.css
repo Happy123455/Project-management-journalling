@@ -1,0 +1,106 @@
+/* 🛢️ Oil-drop check under the day's note. Theme variables, so Liquid glass, Soft UI and dark mode apply. */
+.od-pill, .od-card {
+  --od-oil: #b45309;
+  --od-warn: #dc2626;
+  --od-calm: #16a34a;
+  margin: 14px 0 4px;
+}
+.od-pill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 999px;
+  width: fit-content;
+  max-width: 100%;
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--lg-sheen), var(--lg-fill);
+  box-shadow: var(--lg-rim), var(--lg-drop);
+}
+.od-pill button { border-radius: 999px; font-size: 12px; padding: 2px 10px; }
+.od-clear { border-radius: 18px; }
+.od-clear .od-clear-main { background: none; border: 0; box-shadow: none; padding: 0; font: inherit; color: var(--od-calm); font-weight: 600; cursor: pointer; }
+.od-note { flex-basis: 100%; color: inherit; }
+.od-error { color: var(--od-warn); border-radius: 16px; }
+.od-spin { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%; border: 2px solid var(--od-oil); border-right-color: transparent; animation: od-spin 0.9s linear infinite; vertical-align: -1px; }
+@keyframes od-spin { to { transform: rotate(360deg); } }
+
+.od-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 20px;
+  background: var(--lg-sheen), var(--lg-fill);
+  box-shadow: var(--lg-rim), var(--lg-drop);
+  border-left: 4px solid var(--od-oil);
+  container-type: inline-size;
+}
+.od-card.od-warning { border-left-color: var(--od-warn); }
+.od-dismissed { opacity: 0.7; border-left-color: var(--muted); }
+.od-head { display: flex; gap: 12px; align-items: flex-start; }
+/* A drop of oil: dark amber with a highlight, like the one under the machine. */
+.od-drop {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: 4px 4px 0;
+  border-radius: 0 50% 50% 50%;
+  transform: rotate(45deg);
+  background: radial-gradient(circle at 35% 35%, #fde68a 0 8%, transparent 9%), linear-gradient(135deg, #92400e, #1c1917);
+  box-shadow: 0 3px 8px rgba(120, 53, 15, 0.35);
+}
+.od-warning .od-drop { animation: od-drip 2.8s ease-in-out 2; }
+@keyframes od-drip { 50% { transform: rotate(45deg) translate(2px, 2px) scale(1.06); } }
+.od-head-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.od-kicker { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: 11px; font-weight: 650; letter-spacing: 0.03em; text-transform: uppercase; color: var(--od-oil); }
+.od-warning .od-kicker { color: var(--od-warn); }
+.od-symptom { font-size: 16px; line-height: 1.35; }
+.od-chip { font-size: 11px; font-weight: 600; text-transform: none; letter-spacing: 0; padding: 1px 8px; border-radius: 999px; color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); white-space: nowrap; }
+.od-repeat { color: var(--od-warn); background: color-mix(in srgb, var(--od-warn) 12%, transparent); }
+.od-muted { margin: 0; font-size: 12px; color: var(--muted); }
+.od-evidence { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-style: italic; }
+.od-evidence li { overflow-wrap: anywhere; }
+.od-day { font-style: normal; font-size: 11px; margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--od-oil) 14%, transparent); color: var(--od-oil); }
+.od-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.od-pair > div, .od-fix { padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--panel) 65%, transparent); }
+.od-card h4 { margin: 0 0 4px; font-size: 12px; color: var(--muted); font-weight: 650; }
+.od-card p { margin: 0; font-size: 14px; line-height: 1.45; }
+
+/* The why ladder: every step sits a little deeper and darker, the root at the bottom. */
+.od-ladder { list-style: none; margin: 0; padding: 0 0 0 14px; display: flex; flex-direction: column; gap: 6px; border-left: 2px dashed color-mix(in srgb, var(--od-oil) 45%, transparent); }
+.od-ladder:empty { display: none; }
+.od-ladder li {
+  position: relative;
+  margin-left: calc(var(--i, 0) * min(14px, 3cqw));
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--od-oil) calc(6% + var(--i, 0) * 4%), transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: od-in 0.35s var(--spring, ease) both;
+}
+.od-ladder li::before { content: ""; position: absolute; left: calc(-16px - var(--i, 0) * min(14px, 3cqw)); top: 16px; width: calc(12px + var(--i, 0) * min(14px, 3cqw)); height: 2px; background: color-mix(in srgb, var(--od-oil) 45%, transparent); }
+@keyframes od-in { from { opacity: 0; transform: translateY(-4px); } }
+.od-q { font-size: 13px; font-weight: 650; }
+.od-a { font-size: 14px; }
+.od-open { outline: 2px solid color-mix(in srgb, var(--od-oil) 40%, transparent); }
+.od-root { background: linear-gradient(135deg, #78350f, #1c1917) !important; color: #fef3c7; }
+.od-answer { display: flex; gap: 6px; }
+.od-card .od-answer input { flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--border); background: color-mix(in srgb, var(--bg) 75%, transparent); color: inherit; }
+.od-primary { font-weight: 600; background: var(--od-oil) !important; color: #fff !important; border-color: transparent !important; border-radius: 10px; }
+.od-primary:disabled { opacity: 0.5; }
+.od-quiet { background: none !important; box-shadow: none !important; border: 0 !important; color: var(--muted); font-size: 12px; padding: 2px 4px; align-self: flex-start; text-decoration: underline; text-underline-offset: 2px; }
+.od-working, .od-error-line { font-size: 13px !important; color: var(--muted); }
+.od-error-line { color: var(--od-warn) !important; }
+.od-fix { display: flex; align-items: center; gap: 10px; border: 1px solid color-mix(in srgb, var(--od-calm) 35%, transparent); }
+.od-fix > div { flex: 1; min-width: 0; }
+.od-fix button { border-radius: 999px; font-size: 13px; padding: 4px 12px; white-space: nowrap; }
+.od-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.od-foot .od-muted { flex: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .od-spin, .od-warning .od-drop, .od-ladder li { animation: none; }
+}

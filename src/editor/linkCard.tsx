@@ -109,26 +109,37 @@ function LinkCardView({ node, updateAttributes, editor, getPos }: NodeViewProps)
           <span className="link-card-site">{site ?? url}</span>
         </span>
       </button>
-      {video && (
+      <span className="link-card-actions" contentEditable={false}>
+        {video && (
+          <button
+            type="button"
+            className="link-card-watched"
+            contentEditable={false}
+            title="Play it here (stored as ![](link), like Obsidian)"
+            onClick={() => {
+              const pos = getPos();
+              if (typeof pos !== "number") return;
+              editor.chain().focus().insertContentAt({ from: pos, to: pos + node.nodeSize }, { type: "paragraph", content: [{ type: "youtubeEmbed", attrs: { url } }] }).run();
+            }}
+          >
+            ▶ Play here
+          </button>
+        )}
+        {video && status === "ready" && (
+          <button type="button" className="link-card-watched" contentEditable={false} onClick={() => void logWatched(url, title)}>
+            ✓ Watched
+          </button>
+        )}
         <button
           type="button"
           className="link-card-watched"
           contentEditable={false}
-          title="Play it here (stored as ![](link), like Obsidian)"
-          onClick={() => {
-            const pos = getPos();
-            if (typeof pos !== "number") return;
-            editor.chain().focus().insertContentAt({ from: pos, to: pos + node.nodeSize }, { type: "paragraph", content: [{ type: "youtubeEmbed", attrs: { url } }] }).run();
-          }}
+          title="Rhetoric firewall: strip the delivery and see the bare argument"
+          onClick={() => void import("../firewall/firewall").then((m) => m.queueFirewall(url))}
         >
-          ▶ Play here
+          🧯 Check logic
         </button>
-      )}
-      {video && status === "ready" && (
-        <button type="button" className="link-card-watched" contentEditable={false} onClick={() => void logWatched(url, title)}>
-          ✓ Watched
-        </button>
-      )}
+      </span>
     </NodeViewWrapper>
   );
 }

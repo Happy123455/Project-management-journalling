@@ -1,0 +1,103 @@
+/* 🧯 Rhetoric firewall panel (inside AI chat). Logic is cool blue, emotional pull warm red. */
+.fw { --fw-logic: #2563eb; --fw-heat: #dc2626; --fw-fair: #16a34a; display: flex; flex-direction: column; min-height: 0; }
+.fw-title { flex: 1; font-size: 15px; }
+.fw-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px 12px 24px; display: flex; flex-direction: column; gap: 12px; }
+.fw-form { display: flex; flex-direction: column; gap: 8px; }
+.fw .fw-form textarea, .fw .fw-form input {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  color: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+.fw-form textarea { resize: vertical; }
+.fw-kind { font-size: 12px; color: var(--muted); }
+.fw-error { margin: 0; font-size: 13px; color: var(--fw-heat); }
+.fw-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fw-actions button { border-radius: 999px; padding: 6px 14px; }
+.fw-primary { font-weight: 650; background: linear-gradient(135deg, var(--fw-logic), #7c3aed) !important; color: #fff !important; border-color: transparent !important; }
+.fw-primary:disabled { opacity: 0.5; }
+.fw-by { font-size: 12px; color: var(--muted); margin-left: auto; }
+
+.fw-conv { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.fw-conv > div { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 3px; }
+.fw-conv button { padding: 4px 0; font-size: 12px; border-radius: 8px; min-width: 0; }
+.fw-conv button.on { background: var(--fw-logic) !important; color: #fff !important; border-color: transparent !important; }
+
+.fw-status { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; border-radius: 12px; font-size: 14px; background: color-mix(in srgb, var(--fw-logic) 10%, transparent); }
+.fw-spin { display: inline-block; flex: none; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%; border: 2px solid var(--fw-logic); border-right-color: transparent; animation: fw-spin 0.9s linear infinite; vertical-align: -1px; }
+@keyframes fw-spin { to { transform: rotate(360deg); } }
+
+.fw-live { display: flex; flex-direction: column; gap: 8px; }
+.fw-words { margin: 0; max-height: 7.5em; overflow-y: auto; font-size: 14px; line-height: 1.5; color: var(--muted); padding: 8px 10px; border-radius: 12px; background: color-mix(in srgb, var(--panel) 60%, transparent); white-space: pre-wrap; }
+
+.fw-result { display: flex; flex-direction: column; gap: 12px; }
+.fw-head { display: flex; align-items: flex-start; gap: 8px; }
+.fw-head > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.fw-head b { font-size: 17px; }
+.fw-head span { font-size: 13px; color: var(--muted); }
+.fw-src { border-radius: 999px; font-size: 12px; padding: 3px 10px; white-space: nowrap; }
+
+/* Logic ←→ Emotion: one bar, the marker where this talk sits. */
+.fw-meter { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; }
+.fw-meter-l { color: var(--fw-logic); }
+.fw-meter-r { color: var(--fw-heat); }
+.fw-meter-bar { position: relative; height: 10px; border-radius: 999px; background: linear-gradient(90deg, var(--fw-logic), #a855f7, var(--fw-heat)); opacity: 0.85; }
+.fw-meter-bar i { position: absolute; top: -4px; left: calc(var(--h) * 1% - 3px); width: 6px; height: 18px; border-radius: 3px; background: var(--text); box-shadow: 0 0 0 2px var(--bg); transition: left 0.6s var(--spring, ease); }
+.fw-verdict { margin: 0; padding: 12px 14px; border-radius: 14px; font-size: 15px; font-weight: 600; line-height: 1.45; background: color-mix(in srgb, var(--text) 88%, transparent); color: var(--bg); }
+.fw-tally { display: flex; flex-wrap: wrap; gap: 4px; }
+.fw-tally span { font-size: 12px; padding: 2px 9px; border-radius: 999px; color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); }
+.fw-tally span.hot, .fw-tally .fw-top { color: var(--fw-heat); background: color-mix(in srgb, var(--fw-heat) 12%, transparent); }
+
+.fw-claims { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.fw-claim {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border-left: 4px solid color-mix(in oklab, var(--fw-heat) calc(var(--h, 0) * 1%), var(--fw-logic));
+  background: var(--lg-sheen), var(--lg-fill);
+  box-shadow: var(--lg-rim);
+  animation: fw-in 0.3s var(--spring, ease) both;
+}
+@keyframes fw-in { from { opacity: 0; transform: translateY(-4px); } }
+.fw-claim p { margin: 0; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.fw-claim-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; }
+.fw-n { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; background: color-mix(in srgb, var(--text) 80%, transparent); color: var(--bg); }
+.fw-t { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--fw-logic) 14%, transparent); color: var(--fw-logic); border: 0; box-shadow: none; }
+.fw-basis { color: var(--muted); }
+.fw-heat { margin-left: auto; color: color-mix(in oklab, var(--fw-heat) calc(var(--h, 0) * 1%), var(--muted)); font-weight: 600; }
+.fw-quote { font-style: italic; color: var(--muted); }
+.fw-premise { padding: 6px 10px; border-radius: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px !important; background: color-mix(in srgb, var(--fw-logic) 8%, transparent); }
+.fw-premise span { display: block; font-family: inherit; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fw-logic); }
+.fw-badges { display: flex; flex-wrap: wrap; gap: 4px; align-items: flex-start; }
+.fw-fallacy summary { list-style: none; cursor: pointer; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; color: var(--fw-heat); background: color-mix(in srgb, var(--fw-heat) 12%, transparent); }
+.fw-fallacy summary::-webkit-details-marker { display: none; }
+.fw-fallacy[open] { flex-basis: 100%; }
+.fw-fallacy p { margin: 4px 0 0; font-size: 13px !important; color: var(--muted); }
+.fw-vs { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; color: #b45309; background: color-mix(in srgb, #f59e0b 16%, transparent); }
+.fw-incentive { font-size: 13px !important; color: var(--muted); }
+.fw-plain { font-weight: 600; }
+
+.fw-box { padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--panel) 65%, transparent); }
+.fw-box h4 { margin: 0 0 6px; font-size: 13px; }
+.fw-box p { margin: 0 0 6px; font-size: 14px; line-height: 1.45; }
+.fw-box ul { margin: 0; padding: 0 0 0 4px; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.fw-clash { border-left: 4px solid #f59e0b; }
+.fw-fair { border-left: 4px solid var(--fw-fair); }
+.fw-shift { margin: 0; font-size: 13px; font-weight: 600; color: var(--fw-logic); }
+
+.fw-history summary { cursor: pointer; font-size: 13px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.fw-shiftchip { font-weight: 500; font-size: 11px; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--fw-logic) 12%, transparent); color: var(--fw-logic); }
+.fw-history ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.fw-history li button { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; font-size: 13px; padding: 6px 10px; border-radius: 10px; }
+.fw-history li button.on { outline: 2px solid color-mix(in srgb, var(--fw-logic) 50%, transparent); }
+.fw-hist-heat { flex: none; width: 8px; height: 8px; border-radius: 50%; background: color-mix(in oklab, var(--fw-heat) calc(var(--h, 0) * 1%), var(--fw-logic)); }
+.fw-hist-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fw-hist-day { color: var(--muted); font-size: 11px; }
+@media (prefers-reduced-motion: reduce) { .fw-spin, .fw-claim { animation: none; } }

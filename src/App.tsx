@@ -80,6 +80,8 @@ import { addDays, dayKey, dayTitle } from "./lib/timestamp";
 import { countWords, docText } from "./lib/words";
 import { openStore, type DayPage, type JournalStore, type NamedPage, type SearchHit } from "./store";
 import { dayBlockId } from "./store/ids";
+import { OilDropCard } from "./oildrop/OilDropCard";
+import { startEveningCheck } from "./oildrop/oilDrop";
 import "./App.css";
 import "./themes.css";
 
@@ -579,11 +581,14 @@ function App() {
     publishReminders(reminders, today, own, [...nudges, ...deadlineRings]);
   }, [reminders, today, todayDoc, nudges, deadlineRings]);
   useEffect(() => startInAppNudges((d) => void goTo(d)), []);
+  // 🛢️ The evening oil-drop check (once a day, while the app is open).
+  useEffect(() => (store ? startEveningCheck(store) : undefined), [store]);
   // A tapped notification or widget row opens its day.
   useEffect(() => {
-    const open = () => {
-      const d = window.JournalReminders?.takeOpenDay?.();
-      if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) void goTo(d);
+    const open = (e?: Event) => {
+      // A day named by the app itself (🛢️ "Open"), or one from a tapped notification.
+      const d = (e as CustomEvent<string> | undefined)?.detail || window.JournalReminders?.takeOpenDay?.();
+      if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)) void goTo(d);
     };
     open();
     window.addEventListener("journal:open-day", open);
@@ -1321,6 +1326,7 @@ function App() {
                 />
               </div>
             )}
+            {store && loadedDay === day && <OilDropCard store={store} day={day} today={today} chars={text.length} refreshKey={syncTick} />}
             {store && loadedDay === day && (
               <BacklinksFooter store={store} target={day} exclude={dayBlockId(day)} handlers={handlers} refreshKey={`${syncTick}:${days.length}`} />
             )}

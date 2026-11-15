@@ -136,7 +136,7 @@ export const enginePage = (title: string) => ENGINE_PREFIX + title;
 export const cleanPage = (title: string) => CLEAN_PREFIX + title;
 
 /** Pages that are the app's own data, not a situation to read (no engine on them). */
-const INTERNAL = [ENGINE_PREFIX, CLEAN_PREFIX, "AI chat data · ", "Graph · ", "AI decision models", "AI rules"];
+const INTERNAL = [ENGINE_PREFIX, CLEAN_PREFIX, "AI chat data · ", "Graph · ", "AI decision models", "AI rules", "Oil drops", "Rhetoric firewall"];
 export const isInternalPage = (title: string) => INTERNAL.some((p) => title.startsWith(p));
 
 /** Runs kept on the page (older ones are dropped; facts, moves and outcomes are always kept). */
