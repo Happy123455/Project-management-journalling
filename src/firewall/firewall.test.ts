@@ -167,3 +167,19 @@ describe("firewall runner", () => {
     expect((await loadChecks(store))[0].transcript).toContain("Everyone is buying");
   });
 });
+
+describe("checks from the YouTube extension", () => {
+  it("keeps one per video, replaced when sent again", async () => {
+    const { saveExtensionCheck } = await import("./firewall");
+    const store = new MemoryStore();
+    const data = { videoId: "rvs8Nljqmvw", title: "Huang clip", at: "2026-11-15T10:00:00.000Z", by: "Gemini", model: "gemini-3.1-pro-preview", ...CHECK, before: 8 };
+    expect(await saveExtensionCheck(store, "nope", "YouTube tracker")).toBe("data isn't JSON");
+    expect(await saveExtensionCheck(store, JSON.stringify({ ...data, videoId: "" }), "YouTube tracker")).toBe("data has no videoId");
+    await saveExtensionCheck(store, JSON.stringify(data), "YouTube tracker");
+    await saveExtensionCheck(store, JSON.stringify({ ...data, after: 3 }), "YouTube tracker");
+    const all = await loadChecks(store);
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ id: "yt-rvs8Nljqmvw", before: 8, after: 3, speaker: "Jensen Huang", source: { kind: "youtube", url: "https://www.youtube.com/watch?v=rvs8Nljqmvw", title: "Huang clip" } });
+    expect(all[0].claims[0].fallacies).toEqual(["Straw man"]);
+  });
+});

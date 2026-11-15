@@ -431,6 +431,42 @@ export function cancelListening() {
   set({ phase: "idle", step: "", live: undefined });
 }
 
+// ───── From the YouTube extension ─────
+
+/**
+ * A check the YouTube tracker extension made (its 🧯 on YouTube, through the MCP server): kept with
+ * the app's own, one per video (sent again after "And now?" or a re-check, it replaces itself), so
+ * both share one history and the speaker memory. Returns an error text, or the record.
+ */
+export async function saveExtensionCheck(store: JournalStore, data: string, actor: string): Promise<CheckRec | string> {
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(data);
+  } catch {
+    return "data isn't JSON";
+  }
+  const videoId = typeof raw?.videoId === "string" && /^[\w-]{6,20}$/.test(raw.videoId) ? raw.videoId : null;
+  if (!videoId) return "data has no videoId";
+  const c = normalizeCheck(raw);
+  if (!c.claims.length) return "data has no claims";
+  const at = typeof raw.at === "string" && !Number.isNaN(Date.parse(raw.at)) ? raw.at : new Date().toISOString();
+  const num = (v: unknown) => (typeof v === "number" && v >= 0 && v <= 10 ? Math.round(v) : undefined);
+  const title = typeof raw.title === "string" ? raw.title.slice(0, 200) : "";
+  const rec: CheckRec = {
+    kind: "check",
+    id: `yt-${videoId}`,
+    at,
+    by: typeof raw.by === "string" ? raw.by.slice(0, 40) : "Gemini",
+    model: typeof raw.model === "string" ? raw.model.slice(0, 60) : "",
+    source: { kind: "youtube", url: watchUrl(videoId), ...(title ? { title } : {}) },
+    ...c,
+    ...(num(raw.before) !== undefined ? { before: num(raw.before) } : {}),
+    ...(num(raw.after) !== undefined ? { after: num(raw.after) } : {}),
+  };
+  await updateCheck(store, rec.id, () => rec, actor);
+  return rec;
+}
+
 // ───── After a check ─────
 
 /** "And now?": how convinced Hapi is after reading it (0–10). */

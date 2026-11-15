@@ -158,6 +158,11 @@ export async function runMcpTool(store: JournalStore, call: Pick<McpCall, "tool"
       const saved = await saveYoutubeDay(store, day, str("data"), call.actor || "YouTube tracker");
       return typeof saved === "string" ? text(saved, true) : text(`Kept the YouTube digest for ${day}.`);
     }
+    case "firewall_check": {
+      const { saveExtensionCheck } = await import("./firewall/firewall");
+      const saved = await saveExtensionCheck(store, str("data"), call.actor || "YouTube tracker");
+      return typeof saved === "string" ? text(saved, true) : text(`Kept the 🧯 check of ${saved.source.title || saved.source.url}.`);
+    }
     default: {
       const out = await runJournalTool(store, call.tool, args, call.actor || "MCP client", now);
       return out ? text(out.text, !!out.error) : text(`Unknown tool ${call.tool}`, true);
@@ -173,6 +178,11 @@ export function mcpToolList() {
       name: "youtube_day",
       description: "From the YouTube tracker extension: one day's watching digest (JSON text: watches, useful, distraction, shorts, topics, usefulVideos, note). Shown in that day's preview card.",
       inputSchema: { type: "object", properties: { date: { type: "string", description: "YYYY-MM-DD" }, data: { type: "string", description: "The digest as JSON text" } }, required: ["date", "data"] },
+    },
+    {
+      name: "firewall_check",
+      description: "From the YouTube tracker extension: one 🧯 rhetoric-firewall check of a video (JSON text: videoId, title, speaker, topic, claims, contradictions, past, heat, verdict, steelman, holds, ask, before, after). Kept in the journal's firewall history, one per video.",
+      inputSchema: { type: "object", properties: { data: { type: "string", description: "The check as JSON text" } }, required: ["data"] },
     },
   ];
 }
