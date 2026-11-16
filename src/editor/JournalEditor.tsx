@@ -790,10 +790,13 @@ export function JournalEditor({
       else return;
       e.preventDefault();
     };
+    const close = () => setOutlineOpen(false);
     window.addEventListener("journal:outline", open);
+    window.addEventListener("journal:outline-close", close);
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("journal:outline", open);
+      window.removeEventListener("journal:outline-close", close);
       window.removeEventListener("keydown", onKey);
     };
   }, []);

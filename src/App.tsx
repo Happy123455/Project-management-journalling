@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } fr
 import { closeTopPanel } from "./ui/useEscapeToClose";
 import type { Editor, JSONContent } from "@tiptap/react";
 import { MonthCalendar, YearPanel } from "./calendar/Calendar";
+import { setViewMode, viewMode as currentViewMode } from "./editor/viewMode";
 import { Upcoming, UpcomingPanel, type ReminderAction, type UpcomingPage } from "./calendar/Upcoming";
 import { FestivalsAhead } from "./calendar/SpecialTiles";
 import { DayPickerSheet } from "./calendar/ReminderSheet";
@@ -785,15 +786,21 @@ function App() {
   };
   /** Double-tap Home: the end of today's note, the cursor there and the keyboard up. */
   const writeAtEnd = () => {
+    // Item 8: from Reading, Source, Canvas or the Outline, back to the normal editor first (its
+    // editable switch runs a frame later, so the cursor waits for it).
+    const switched = currentViewMode() !== "live";
+    if (switched) setViewMode("live");
+    window.dispatchEvent(new Event("journal:outline-close"));
     const focusEnd = () =>
-      requestAnimationFrame(() => {
+      window.setTimeout(() => requestAnimationFrame(() => {
         const editor = document.querySelector<HTMLElement & { editor?: Editor }>(".tiptap")?.editor;
         if (!editor) return;
         setCalendarCollapsed(true);
+        if (!editor.isEditable) editor.setEditable(true);
         editor.commands.focus("end");
         window.JournalShare?.showKeyboard();
         window.scrollTo({ top: document.documentElement.scrollHeight });
-      });
+      }), switched ? 80 : 0);
     if (route.kind === "day" && day === today) return focusEnd();
     setFind(null);
     quickNote.current = "note";
