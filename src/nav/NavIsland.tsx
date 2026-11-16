@@ -70,11 +70,13 @@ type Gesture = {
   movedAfter: boolean;
 };
 
-const QUICK: { key: ViewMode | "outline"; icon: string; label: string }[] = [
+const QUICK: { key: ViewMode | "outline"; icon: string; label: string; outer?: boolean }[] = [
   { key: "reading", icon: "📖", label: "View" },
   { key: "live", icon: "✎", label: "Edit" },
   { key: "source", icon: "</>", label: "Source" },
   { key: "outline", icon: "🗂", label: "Outline" },
+  // On a wider ring, so the four above keep their places under the thumb.
+  { key: "canvas", icon: "🗺️", label: "Canvas", outer: true },
 ];
 
 /**
@@ -86,9 +88,11 @@ const QUICK: { key: ViewMode | "outline"; icon: string; label: string }[] = [
  *   for faster, a tick as it goes);
  *   double-tap Home: the end of today's note, ready to write;
  * - swipe up from (or hold) the tabs: tab previews float up, slide onto one and let go to open it;
- * - hold the menu: View / Edit / Source / Outline fan out, slide onto one and let go.
+ * - hold the menu: View / Edit / Source / Outline fan out (Canvas on a wider ring), slide onto one and let go;
+ * - hold Home and draw it up into the top third of the screen: let go there and a floating AI agent
+ *   starts where the thumb is (Home goes back to its place). Do it again for another one.
  */
-export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onForward, onHome, onHomeDouble, onShiftDay, onSearchHistory, onPickPast, onSearch, onTabs, onSwitchTab, onNewTab, actions, onAssist }: {
+export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onForward, onHome, onHomeDouble, onShiftDay, onSearchHistory, onPickPast, onSearch, onTabs, onSwitchTab, onNewTab, actions, onAssist, onAgent }: {
   /** A panel or sheet covers the page: the island tucks away. */
   away: boolean;
   tabs: TabsState;
@@ -112,6 +116,8 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   actions: MenuAction[];
   /** Item 13: ✦ the assistant. Tap: type; hold: talk, and let go to run what was said. */
   onAssist?: (kind: "tap" | "hold" | "release") => void;
+  /** Home drawn up into the top third and let go: a new floating agent there. */
+  onAgent?: (x: number, y: number) => void;
 }) {
   const mode = useViewMode();
   const [menu, setMenu] = useState(false);
@@ -127,7 +133,9 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   // lean (days), off: up/down lean (scrolling). days: days moved so far, acc: progress to the next one.
   // lane: half-width (px) of the scroll-only lane around Home (Settings → Gestures); side: which line
   // the thumb is past (-1 left, 1 right, 0 inside).
-  const joyRun = useRef<{ frame: number; at: number; off: number; offX: number; travel: number; edge: boolean; armed: boolean; lift: number; days: number; acc: number; go: number; lane: number; side: number } | null>(null);
+  // agent: 0 the stick works; 1 drawn past its reach (paused); 2 in the top third (let go: an agent).
+  const joyRun = useRef<{ frame: number; at: number; off: number; offX: number; travel: number; edge: boolean; armed: boolean; lift: number; days: number; acc: number; go: number; lane: number; side: number; agent: 0 | 1 | 2 } | null>(null);
+  const [agentArm, setAgentArm] = useState<0 | 1 | 2>(0);
   const [lane, setLane] = useState<{ x: number; w: number; side: number } | null>(null);
   const [joyX, setJoyX] = useState(0);
   const joyMode = useRef<ViewMode | null>(null);
@@ -155,6 +163,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     setJoyX(0);
     setJoyDays(0);
     setLane(null);
+    setAgentArm(0);
     // Back to writing mode, without focusing the note (tap the text to type).
     if (joyMode.current === "live" && currentViewMode() === "reading") window.setTimeout(() => setViewMode("live"), 80);
     joyMode.current = null;
@@ -170,7 +179,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     const r = homeEl?.getBoundingClientRect();
     // The button follows the thumb, so it only needs to clear the bottom edge before the stick engages.
     const lift = JOY_LIFT;
-    const j = { frame: 0, at: performance.now(), off: 0, offX: 0, travel: 0, edge: false, armed: false, lift, days: 0, acc: 0, go: 0, lane: joyLane(), side: 0 };
+    const j = { frame: 0, at: performance.now(), off: 0, offX: 0, travel: 0, edge: false, armed: false, lift, days: 0, acc: 0, go: 0, lane: joyLane(), side: 0, agent: 0 as 0 | 1 | 2 };
     joyRun.current = j;
     // The faint lane lines rise from Home: between them it only scrolls; past one, the day changes.
     if (r) setLane({ x: r.left + r.width / 2, w: j.lane, side: 0 });
@@ -180,7 +189,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
       // Inside the lane it only scrolls; past a lane line it changes days (one at once as the line
       // is crossed, then faster the further past it the thumb goes).
       const leanX = Math.abs(j.offX) - j.lane;
-      const sideways = leanX > 0;
+      const sideways = leanX > 0 && !j.agent;
       const side = sideways ? Math.sign(j.offX) : 0;
       if (side !== j.side) {
         j.side = side;
@@ -203,7 +212,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
         if (j.acc === 0) j.acc = 0.0001;
       } else j.acc = 0;
       const lean = Math.abs(j.off) - 8;
-      if (j.armed && !sideways && lean > 0) {
+      if (j.armed && !sideways && lean > 0 && !j.agent) {
         // Fine near the middle, quick at full lean (about a screen a second at 80px).
         const v = Math.sign(j.off) * Math.pow(Math.min(lean, 90) / 82, 1.6) * 2600;
         const before = window.scrollY;
@@ -350,7 +359,15 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
       // edge (nothing scrolls yet); once it's a safe height up the stick engages there.
       j.offX = Math.max(-j.lane - 110, Math.min(j.lane + 110, dx));
       setJoyX(j.offX);
-      setJoy(Math.max(-window.innerHeight * 0.7, Math.min(0, dy)));
+      setJoy(Math.max(-window.innerHeight + 60, Math.min(0, dy)));
+      // Just under the top third the stick pauses (well past its full-speed reach); in the top third, letting go starts an agent.
+      const agent: 0 | 1 | 2 = !onAgent ? 0 : e.clientY < window.innerHeight / 3 ? 2 : j.armed && e.clientY < window.innerHeight * 0.45 ? 1 : 0;
+      if (agent !== j.agent) {
+        if (agent === 2) haptic("press", 1);
+        else if (j.agent === 2) haptic("tick", 0.5);
+        j.agent = agent;
+        setAgentArm(agent);
+      }
       if (!j.armed) {
         if (dy > -j.lift) return;
         j.armed = true;
@@ -376,7 +393,16 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
       if (s.movedAfter) closePicker();
       return;
     }
-    if (s.mode === "joy") return stopJoy();
+    if (s.mode === "joy") {
+      const agent = joyRun.current?.agent === 2;
+      // Home goes back to its place; the agent appears where the thumb let go.
+      stopJoy();
+      if (agent) {
+        haptic("edge", 1);
+        onAgent?.(e.clientX, e.clientY);
+      }
+      return;
+    }
     if (s.mode === "talk") {
       haptic("edge", 0.7);
       return onAssist?.("release");
@@ -438,7 +464,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
         <button
           type="button"
           data-zone="home"
-          className={`nav-home${atToday ? " at-today" : ""}`}
+          className={`nav-home${atToday ? " at-today" : ""}${agentArm === 2 ? " agent-arm" : ""}`}
           style={joy != null ? ({ "--joy": `${joy}px`, "--joy-x": `${joyX}px` } as React.CSSProperties) : undefined}
           onClick={press(() => {
             const now = Date.now();
@@ -451,8 +477,9 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
           })}
           aria-label="Today's note (double-tap: write at its end; hold: scroll)"
         >
-          {joy != null ? <span className="nav-joy-arrows" aria-hidden>▲<span>◀<i />▶</span>▼</span> : <Icon d={HOME} size={28} />}
-          {joy != null && joyDays !== 0 && <span className="nav-joy-day">{joyDays > 0 ? `+${joyDays}` : joyDays} day{Math.abs(joyDays) === 1 ? "" : "s"}</span>}
+          {joy != null && agentArm === 2 ? <span className="nav-agent-star" aria-hidden>✦</span> : joy != null ? <span className="nav-joy-arrows" aria-hidden>▲<span>◀<i />▶</span>▼</span> : <Icon d={HOME} size={28} />}
+          {joy != null && agentArm > 0 && <span className="nav-joy-day nav-agent-hint">{agentArm === 2 ? "Let go: new agent" : "↑ Higher for an agent"}</span>}
+          {joy != null && !agentArm && joyDays !== 0 && <span className="nav-joy-day">{joyDays > 0 ? `+${joyDays}` : joyDays} day{Math.abs(joyDays) === 1 ? "" : "s"}</span>}
         </button>
         <div className="nav-side">
           {onAssist && (
@@ -473,7 +500,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
           </button>
         </div>
       </nav>
-      {lane &&
+      {lane && !agentArm &&
         createPortal(
           <div className={`joy-lane${lane.side < 0 ? " past-left" : lane.side > 0 ? " past-right" : ""}`} style={{ left: lane.x - lane.w, width: lane.w * 2 }} aria-hidden />,
           document.body,
@@ -499,7 +526,7 @@ function QuickPicker({ mode, hover, onPick, onClose }: { mode: ViewMode; hover: 
             type="button"
             role="menuitem"
             data-pick={q.key}
-            className={`${hover === q.key ? "hover" : ""}${mode === q.key ? " current" : ""}`}
+            className={`${hover === q.key ? "hover" : ""}${mode === q.key ? " current" : ""}${q.outer ? " outer" : ""}`}
             style={{ "--i": i } as React.CSSProperties}
             onClick={() => onPick(q.key)}
           >

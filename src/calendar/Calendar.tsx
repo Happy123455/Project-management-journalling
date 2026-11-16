@@ -1,5 +1,5 @@
 import React, { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { effectText, KIND_COLOR, monthEvents, waveLength, waves, type MonthEvent } from "./monthEvents";
+import { KIND_COLOR, monthEvents, waveLength, waves, type MonthEvent } from "./monthEvents";
 import { useAllDeadlines } from "../editor/deadlineStore";
 import { personalDates, specialsOn, subscribePersonalDates } from "../lib/specialDates";
 import { useEditorPrefs } from "../lib/editorPrefs";
@@ -61,7 +61,7 @@ interface GridProps {
   /** Show only the week that holds `selected`. */
   weekOnly?: boolean;
   mini?: boolean;
-  /** The month's major events (item 5): marked on their tiles, listed under the grid. */
+  /** The month's major events (item 5): marked on their tiles (no chip list under the grid; Hapi 16 Nov). */
   events?: MonthEvent[];
   /** Set to a new time when the month opens: the events pulse and send waves over the days after. */
   play?: number;
@@ -156,19 +156,6 @@ function MonthGridView({ year, month, counts, max, search, selected, today, onPi
       })}
       {hold.preview}
     </div>
-    {!!events?.length && !mini && !weekOnly && (
-      <div className="ev-legend" aria-label="Major events this month">
-        {events.map((e) => (
-          <button key={`${e.day}-${e.kind}-${e.label}`} type="button" className={`ev-chip ev-${e.kind}`} style={{ "--ev": e.color && e.kind !== "festival" && e.kind !== "writing" ? e.color : KIND_COLOR[e.kind] } as CSSProperties} onClick={() => onPick(e.day)}>
-            <span aria-hidden>{e.emoji}</span> <b>{Number(e.day.slice(8))}</b> {e.label}
-            {e.effect !== null && <small className={e.effect >= 0.05 ? "up" : e.effect <= -0.05 ? "down" : ""}> · {effectText(e.effect)}</small>}
-          </button>
-        ))}
-        {playing && (
-          <button type="button" className="ev-skip" onClick={() => setPlaying(false)}>Skip ⏭</button>
-        )}
-      </div>
-    )}
     </>
   );
 }

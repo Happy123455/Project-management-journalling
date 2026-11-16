@@ -35,6 +35,8 @@ export interface RunOpts {
   onUpdate?: (steps: Step[]) => void;
   confirm?: (question: string) => Promise<boolean>;
   signal?: AbortSignal;
+  /** Who the edits are written as (each floating agent has its own name, so its Undo is its own). */
+  actor?: string;
   now?: Date;
 }
 
@@ -127,22 +129,19 @@ async function runStep(step: Step, opts: RunOpts, ctx: RunCtx, model: string, be
     runTool: (call) => runAssistantTool(call, ctx),
     onStep: (line) => {
       step.lines.push(line);
-      opts.onUpdate?.(snapshot);
+      opts.onUpdate?.([]);
     },
   });
   return { answer: r.text, fast: false };
 }
 
-let snapshot: Step[] = [];
-
 export async function runAssistant(opts: RunOpts): Promise<RunResult> {
   const now = opts.now ?? new Date();
   const text = opts.text.trim();
-  const ctx: RunCtx = { store: opts.store, actor: ASSISTANT_ACTOR, now, confirm: opts.confirm, touched: new Set(), found: [], opened: [] };
+  const ctx: RunCtx = { store: opts.store, actor: opts.actor ?? ASSISTANT_ACTOR, now, confirm: opts.confirm, touched: new Set(), found: [], opened: [] };
   const lines = linesAsSteps(text);
   const parts = lines.length > 1 ? lines : looksLong(text) && !fastPath(text, now) ? await splitSentence(text) : [text];
   const steps: Step[] = parts.map((t) => ({ text: t, status: "wait", lines: [] }));
-  snapshot = steps;
   const update = () => opts.onUpdate?.(steps.map((s) => ({ ...s, lines: [...s.lines] })));
   update();
   const settings = { ...loadAiSettings(), provider: "gemini" as const };

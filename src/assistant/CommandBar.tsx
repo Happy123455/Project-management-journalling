@@ -28,9 +28,25 @@ interface ViewTurn {
   voice?: boolean;
 }
 
-// The conversation outlives the bar for 10 minutes (follow-ups keep their context).
-let convo: { turns: ViewTurn[]; at: number } = { turns: [], at: 0 };
+// The conversation outlives the bar for 10 minutes (follow-ups keep their context). Each floating
+// agent has its own conversation, kept for as long as the agent lives.
+type Convo = { turns: ViewTurn[]; at: number };
+const convos = new Map<string, Convo>();
 const KEEP_MS = 10 * 60_000;
+export const forgetConvo = (key: string) => convos.delete(key);
+
+/** What a floating agent's bubble shows while it's folded away. */
+export type AgentStatus = "idle" | "run" | "ask" | "done" | "fail";
+
+/** A floating agent (dragged up from Home): the same assistant, in a panel under its bubble. */
+export interface AgentChrome {
+  key: string;
+  actor: string;
+  name: string;
+  open: boolean;
+  onCollapse: () => void;
+  onStatus: (s: AgentStatus, last: string) => void;
+}
 
 export const ASSIST_EVENT = "journal:assist";
 export type AssistRequest = { mode: "type" } | { mode: "talk" } | { mode: "run"; text: string; bid?: string };
@@ -68,8 +84,11 @@ function scheduleIn(text: string) {
   return null;
 }
 
-export function CommandBar({ store, request, onClose }: { store: JournalStore; request: AssistRequest; onClose: () => void }) {
-  if (Date.now() - convo.at > KEEP_MS) convo = { turns: [], at: 0 };
+export function CommandBar({ store, request, onClose, agent }: { store: JournalStore; request: AssistRequest; onClose: () => void; agent?: AgentChrome }) {
+  const key = agent?.key ?? "main";
+  let convo = convos.get(key) ?? { turns: [], at: 0 };
+  if (!agent && Date.now() - convo.at > KEEP_MS) convo = { turns: [], at: 0 };
+  convos.set(key, convo);
   const [turns, setTurns] = useState<ViewTurn[]>(convo.turns);
   const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
@@ -84,20 +103,42 @@ export function CommandBar({ store, request, onClose }: { store: JournalStore; r
   const viaVoice = useRef(false);
 
   // A run keeps going when the bar closes (only Stop stops it); a question it was waiting on is a no.
+  const actor = agent?.actor ?? ASSISTANT_ACTOR;
   const close = () => {
     listening?.cancel();
     fx("close");
     onClose();
   };
-  useEscapeToClose(close);
+  useEscapeToClose(agent ? () => agent.open && agent.onCollapse() : close);
   const askRef = useRef(ask);
   askRef.current = ask;
   useEffect(() => () => askRef.current?.answer(false), []);
+  // An agent that's put away (merged into Home or ✕) is done: its job stops and its talk is
+  // forgotten. The plain bar's run keeps going after it closes.
+  const isAgent = !!agent;
+  useEffect(
+    () => () => {
+      if (!isAgent) return;
+      abort.current?.abort();
+      forgetConvo(key);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   const keep = (next: ViewTurn[]) => {
-    convo = { turns: next.slice(-12), at: Date.now() };
-    setTurns(convo.turns);
+    const c = { turns: next.slice(-12), at: Date.now() };
+    convos.set(key, c);
+    setTurns(c.turns);
   };
+  const cur = () => convos.get(key) ?? { turns: [], at: 0 };
+  // The bubble shows how its agent is doing (working, waiting on a yes/no, finished).
+  const onStatus = agent?.onStatus;
+  useEffect(() => {
+    if (!onStatus) return;
+    const last = turns[turns.length - 1];
+    onStatus(ask ? "ask" : running || last?.status === "run" ? "run" : !last ? "idle" : last.status === "fail" ? "fail" : "done", last ? (last.answer || last.q).slice(0, 120) : "");
+  }, [turns, ask, running, onStatus]);
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [turns, ask]);
@@ -110,11 +151,11 @@ export function CommandBar({ store, request, onClose }: { store: JournalStore; r
     fx("start");
     const startedAt = Date.now();
     const turn: ViewTurn = { q: text, steps: [], answer: "", status: "run", startedAt, voice: opts.voice };
-    keep([...convo.turns, turn]);
+    keep([...cur().turns, turn]);
     // Turns are matched by when they started (each update makes a new object for React).
     const put = (patch: Partial<ViewTurn>) => {
       Object.assign(turn, patch);
-      keep(convo.turns.map((t) => (t.startedAt === startedAt && t.q === text ? { ...turn } : t)));
+      keep(cur().turns.map((t) => (t.startedAt === startedAt && t.q === text ? { ...turn } : t)));
     };
     const sched = opts.bid ? null : scheduleIn(text);
     if (sched) {
@@ -130,7 +171,7 @@ export function CommandBar({ store, request, onClose }: { store: JournalStore; r
     setRunning(true);
     const ctl = new AbortController();
     abort.current = ctl;
-    const history: Turn[] = convo.turns
+    const history: Turn[] = cur().turns
       .filter((t) => t.startedAt !== startedAt && t.status === "done")
       .slice(-4)
       .flatMap((t) => [
@@ -143,6 +184,7 @@ export function CommandBar({ store, request, onClose }: { store: JournalStore; r
         text,
         history,
         signal: ctl.signal,
+        actor,
         onUpdate: (steps) => put({ steps }),
         confirm: (q) =>
           new Promise<boolean>((resolve) => {
@@ -150,7 +192,7 @@ export function CommandBar({ store, request, onClose }: { store: JournalStore; r
             setAsk({ q, answer: (yes) => (setAsk(null), resolve(yes)) });
           }),
       });
-      const changes = (await store.aiChanges(60)).filter((c) => c.event.actor === ASSISTANT_ACTOR && Date.parse(c.event.createdAt) >= startedAt - 1000);
+      const changes = (await store.aiChanges(60)).filter((c) => c.event.actor === actor && Date.parse(c.event.createdAt) >= startedAt - 1000);
       const stopped = ctl.signal.aborted;
       put({ steps: r.steps, answer: r.answer, status: stopped ? "stopped" : r.steps.some((s) => s.status === "fail") ? "fail" : "done", undo: changes.length || undefined });
       fx(stopped ? "stop" : "done");
@@ -166,12 +208,12 @@ export function CommandBar({ store, request, onClose }: { store: JournalStore; r
   };
 
   const undo = async (t: ViewTurn) => {
-    const changes = (await store.aiChanges(60)).filter((c) => c.event.actor === ASSISTANT_ACTOR && Date.parse(c.event.createdAt) >= t.startedAt - 1000);
+    const changes = (await store.aiChanges(60)).filter((c) => c.event.actor === actor && Date.parse(c.event.createdAt) >= t.startedAt - 1000);
     let n = 0;
     for (const c of changes) if (await store.undoAiChange(c.event.id)) n++;
     window.dispatchEvent(new Event("journal:reload-page"));
     fx("undone");
-    keep(convo.turns.map((x) => (x.startedAt === t.startedAt ? { ...x, undo: undefined, answer: `${x.answer}\n↩ Undone (${n} of ${changes.length} change${changes.length === 1 ? "" : "s"}).` } : x)));
+    keep(cur().turns.map((x) => (x.startedAt === t.startedAt ? { ...x, undo: undefined, answer: `${x.answer}\n↩ Undone (${n} of ${changes.length} change${changes.length === 1 ? "" : "s"}).` } : x)));
   };
 
   const listen = async () => {
@@ -246,12 +288,11 @@ export function CommandBar({ store, request, onClose }: { store: JournalStore; r
     void run(input, { voice: v });
   };
 
-  return createPortal(
-    <div className="dls-back cmd-back" onClick={close}>
-      <div className="dls dls-wide cmd" role="dialog" aria-label="Assistant" onClick={(e) => e.stopPropagation()}>
-        <div className="dls-grip" />
+  const panel = (
+      <div className={agent ? "dls dls-wide cmd agent-panel" : "dls dls-wide cmd"} role="dialog" aria-label={agent ? agent.name : "Assistant"} hidden={agent ? !agent.open : undefined} onClick={(e) => e.stopPropagation()}>
+        {!agent && <div className="dls-grip" />}
         <header className="dls-head">
-          <h3 className="cmd-title">✦ Assistant</h3>
+          <h3 className="cmd-title">✦ {agent ? agent.name : "Assistant"}</h3>
           {turns.length > 0 && !running && (
             <button type="button" className="link cmd-new" onClick={() => keep([])}>
               New
@@ -260,7 +301,12 @@ export function CommandBar({ store, request, onClose }: { store: JournalStore; r
           <button type="button" className="cmd-help-btn" aria-expanded={help} onClick={() => setHelp(!help)} aria-label="What can I ask?">
             ?
           </button>
-          <button type="button" className="dls-x" onClick={close} aria-label="Close">
+          {agent && (
+            <button type="button" className="dls-x" onClick={agent.onCollapse} aria-label="Fold into its bubble">
+              ⌃
+            </button>
+          )}
+          <button type="button" className="dls-x" onClick={close} aria-label={agent ? "Close this agent" : "Close"}>
             ✕
           </button>
         </header>
@@ -352,6 +398,12 @@ export function CommandBar({ store, request, onClose }: { store: JournalStore; r
           )}
         </div>
       </div>
+  );
+  // A floating agent's panel is drawn by its bubble; the plain assistant is a sheet over the page.
+  if (agent) return panel;
+  return createPortal(
+    <div className="dls-back cmd-back" onClick={close}>
+      {panel}
     </div>,
     document.body,
   );

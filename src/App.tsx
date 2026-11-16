@@ -45,6 +45,7 @@ import { useAiNavigation } from "./ai/useAiRules";
 import { newTalkBox } from "./editor/talkBox";
 import { ASSIST_EVENT, CommandBar, type AssistRequest } from "./assistant/CommandBar";
 import { runAssistant } from "./assistant/runner";
+import { AgentBubbles, spawnAgent } from "./assistant/AgentBubbles";
 import { findBlock, recordRun, setScheduled, startScheduler, thisDevice } from "./assistant/scheduler";
 import { ChatView } from "./ChatView";
 import { AiBadge } from "./AiBadge";
@@ -1084,8 +1085,6 @@ function App() {
   const [assist, setAssist] = useState<(AssistRequest & { n: number }) | null>(null);
   const assistN = useRef(0);
   const openAssist = (r: AssistRequest) => setAssist({ ...r, n: ++assistN.current });
-  // While ✦ is held the island stays (it has the finger); otherwise the open bar covers it.
-  const [talkHeld, setTalkHeld] = useState(false);
   useEffect(() => {
     const on = (e: Event) => openAssist((e as CustomEvent<AssistRequest>).detail);
     window.addEventListener(ASSIST_EVENT, on);
@@ -1526,7 +1525,7 @@ function App() {
       <Toasts />
       {touch && store && (
         <NavIsland
-          away={overlayOpen || routineOpen || moneyOpen || !!dayPicker || (!!assist && !talkHeld)}
+          away={overlayOpen || routineOpen || moneyOpen || !!dayPicker || !!assist}
           tabs={tabs}
           today={today}
           canBack={activeTab(tabs).index > 0}
@@ -1549,11 +1548,8 @@ function App() {
             previewNext.current = true;
             void goTo(next);
           }}
-          onAssist={(kind) => {
-            if (kind === "tap") openAssist({ mode: "type" });
-            else if (kind === "hold") (setTalkHeld(true), openAssist({ mode: "talk" }));
-            else (setTalkHeld(false), window.dispatchEvent(new Event("journal:assist-release")));
-          }}
+          // The ✦ island button gave way to agents: hold Home and draw it into the top third (Hapi 16 Nov).
+          onAgent={spawnAgent}
           onSearch={() => setTitleSearchOpen(true)}
           onSearchHistory={() => {
             (document.activeElement as HTMLElement | null)?.blur?.();
@@ -1617,6 +1613,7 @@ function App() {
         />
       )}
       {assist && store && <CommandBar key={assist.n} store={store} request={assist} onClose={() => setAssist(null)} />}
+      {store && <AgentBubbles store={store} />}
       {tabsOpen && (
         <TabSwitcher
           tabs={tabs}

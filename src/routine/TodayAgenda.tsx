@@ -28,8 +28,8 @@ export function jumpToLine(text: string) {
 }
 
 /**
- * Coming up → Today: today's timed reminders in order with a "now" line between what's past and
- * what's ahead, each with quick actions (✓ done, +15 m, +1 h), and the next step of your usual day.
+ * Coming up → Today: today's timed reminders in order (now is a small time mark on the day line above; no
+ * separate now row, Hapi 16 Nov), each with quick actions (✓ done, +15 m, +1 h), and the next step of your usual day.
  */
 export function TodayAgenda({ store, view, onOpenRoutine }: { store: JournalStore; view: RoutineView | null; onOpenRoutine: () => void }) {
   const { items, now } = useTodayAgenda(store);
@@ -39,7 +39,6 @@ export function TodayAgenda({ store, view, onOpenRoutine }: { store: JournalStor
   if (!items.length && !nextStep && !open) return null;
   const dayStart = new Date(now).setHours(0, 0, 0, 0);
   const dayPct = (t: number) => Math.max(0, Math.min(100, ((t - dayStart) / 86_400_000) * 100));
-  const nowAt = items.findIndex((i) => i.at > now);
   const rows = items.map((item) => (
     <li key={item.id} className={item.done ? "agenda-row done" : item.at <= now ? "agenda-row past" : "agenda-row"} style={{ "--p": `${dayPct(item.at)}%` } as React.CSSProperties}>
       {/* An arrow up to this reminder's point on the day line above (its time is shown there). */}
@@ -62,9 +61,6 @@ export function TodayAgenda({ store, view, onOpenRoutine }: { store: JournalStor
         )}
       </span>
     </li>
-  ));
-  rows.splice(nowAt < 0 ? rows.length : nowAt, 0, (
-    <li key="now" className="agenda-now"><span className="agenda-time">{clock(now)}</span><span className="agenda-now-line" /><span>now</span></li>
   ));
   return (
     <section className="reminders today-agenda">

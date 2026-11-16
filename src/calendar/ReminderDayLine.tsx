@@ -78,7 +78,12 @@ export function TodayDayLine({ day, items, onPick }: { day: string; items: { at:
       <span className="rdl-track" style={{ background: sky.gradient }}>
         {inDay(rise) && <i className="rdl-sun" style={{ left: `${rise}%` }} />}
         {inDay(set) && <i className="rdl-sun set" style={{ left: `${set}%` }} />}
-        {inDay(nowPct) && <i className="rdl-now" style={{ left: `${nowPct}%` }} />}
+        {inDay(nowPct) && (
+          <i className="rdl-now" style={{ left: `${nowPct}%` }}>
+            {/* Small "now" time above the line; hidden when a reminder's own time sits right there. */}
+            {!items.some((it) => Math.abs(pctOf(it.at) - nowPct) < 5) && <span className="rdl-now-time">{clock(now)}</span>}
+          </i>
+        )}
         {items.map((it, i) => {
           const p = pctOf(it.at);
           if (!inDay(p)) return null;
