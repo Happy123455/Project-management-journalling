@@ -1388,11 +1388,11 @@ function App() {
           tab={nexusTab}
           sync={
             <>
-              <SyncStatus status={sync.status} live={sync.live} direct={sync.direct} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} onConnect={sync.connect} />
+              <SyncStatus status={sync.status} live={sync.live} direct={sync.direct} link={sync.link} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} onConnect={sync.connect} />
               <DoubleLinesPanel store={store} />
             </>
           }
-          send={<DropPanel linked={!!sync.direct} onConnect={sync.connect ? () => void sync.connect() : undefined} onAddToToday={addDropToToday} />}
+          send={<DropPanel linked={!!sync.direct} reason={sync.link.reason} onConnect={sync.connect} onAddToToday={addDropToToday} />}
           onClose={() => setNexus(null)}
           onRestored={async () => {
             if (nexus.kind === "page") setRoute({ kind: "page", page: await store.ensurePage(nexus.title) });

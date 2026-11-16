@@ -6,6 +6,7 @@ import { visibleInterval } from "../lib/power";
 import { ANOMALY_EVENT, anomalies, anomalyText, clearAnomalies, stamp, type AnomalyKind, type Path } from "./anomalies";
 import { bytes, clearTransfers, TRANSFER_EVENT, transfers, type Via } from "./transferLog";
 import type { ConnectResult } from "./direct";
+import type { LinkState } from "./linkState";
 import { clipShareOn, setClipShare } from "./clipboard";
 import { showToast } from "../lib/toast";
 
@@ -212,10 +213,11 @@ function ago(date: Date, now: number): string {
 }
 
 /** "☁︎ Synced 2 min ago" with a Sync now button, or what's needed to start syncing. */
-export function SyncStatus({ status, live, direct, onSync, onChooseFolder, onConnect }: {
+export function SyncStatus({ status, live, direct, link, onSync, onChooseFolder, onConnect }: {
   status: Status;
   live?: boolean;
   direct?: boolean;
+  link?: LinkState;
   onSync: () => void;
   onChooseFolder: () => void;
   onConnect?: () => Promise<ConnectResult>;
@@ -246,9 +248,14 @@ export function SyncStatus({ status, live, direct, onSync, onChooseFolder, onCon
     <div className={`sync-status ${status.state}`}>
       <span className="sync-line" title={status.label}>☁︎ {line}</span>
       {direct ? (
-        <span className="sync-live" title="Connected straight over Wi-Fi: edits, photos and copies go across at once (Drive still keeps a copy)">⚡ Instant with your other device (Wi-Fi)</span>
+        <span className="sync-live" title="Connected straight over Wi-Fi: edits, photos and copies go across at once (Drive still keeps a copy)">
+          ⚡ Wi-Fi link to your {onPhone() ? "Mac" : "phone"}{link?.state === "up" && link.rttMs !== undefined ? ` · answered in ${link.rttMs} ms` : ""}
+        </span>
       ) : (
-        live && <span className="sync-live" title="The app is open on your other device too: changes go across within seconds">⚡ Live with your other device</span>
+        <>
+          {live && <span className="sync-line" title="The journal is open on your other device too (seen through Google Drive): changes go across through Drive within seconds">☁︎ Your {onPhone() ? "Mac" : "phone"}'s journal is open · syncing through Drive</span>}
+          {inApp() && link && <span className="sync-line sync-link-off" title="Send, the shared clipboard and letter-by-letter typing need the Wi-Fi link">📶 Wi-Fi link {link.state === "trying" ? "· connecting…" : `off · ${link.reason ?? "not connected"}`}</span>}
+        </>
       )}
       {onConnect && inApp() && <ConnectButton direct={direct} onConnect={onConnect} />}
       {inApp() && <ClipToggle />}
@@ -284,7 +291,7 @@ export function SyncChip({ status, live, direct, onOpen }: { status: Status; liv
     <button type="button" className={`sync-chip ${status.state}${direct ? " direct" : ""}`} onClick={onOpen} title="Open Nexus: sync, send to your other device, history">
       <span className="sync-chip-dot" aria-hidden />
       <span className="sync-chip-line">☁︎ {line}</span>
-      {direct ? <span className="sync-chip-link">⚡ Wi-Fi</span> : live ? <span className="sync-chip-link">⚡ Live</span> : null}
+      {direct ? <span className="sync-chip-link">⚡ Wi-Fi</span> : live ? <span className="sync-chip-link" title="The other device's journal is open; the Wi-Fi link isn't up, so changes go through Drive">☁︎ Live</span> : null}
       <span className="sync-chip-go" aria-hidden>⑂ ›</span>
     </button>
   );

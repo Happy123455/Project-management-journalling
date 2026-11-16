@@ -28,6 +28,7 @@ import {
 import { receiveClip, setClipSink, startClipWatch } from "./clipboard";
 import { setSideNames } from "./merge";
 import { setStampDevice } from "./lineStamps";
+import { LINK_EVENT, linkState, setLink, type LinkState } from "./linkState";
 
 // Clash lines are labelled by device (sync/merge.ts): the Mac hosts the Wi-Fi link, the phone joins it.
 setSideNames(canHost() ? "Mac" : "Phone", canHost() ? "Phone" : "Mac");
@@ -244,10 +245,22 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
       }
       if (!canConnect()) return "not-found";
       if (client.current?.isUp()) return "linked";
+      setLink({ state: "trying", reason: "looking for your Mac on this Wi-Fi" });
       const f = await folder().catch(() => null);
       if (f) await readPresence(f, me, known).catch(() => {});
       const { address, result } = await findMac(openHost(known) ?? null);
-      if (!address) return result;
+      if (!address) {
+        setLink({
+          state: "down",
+          reason:
+            result === "no-wifi"
+              ? "this phone isn't on Wi-Fi"
+              : result === "no-key"
+                ? "this phone hasn't met your Mac yet: open the journal on both with Drive sync on for a minute"
+                : "your Mac wasn't found on this Wi-Fi: is the journal open on it, and on the same Wi-Fi?",
+        });
+        return result;
+      }
       linkTo(address, true);
       for (let i = 0; i < 30; i++) {
         if (client.current?.isUp()) return "linked";
@@ -323,6 +336,16 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("pagehide", bye);
+    // Phone: back on a network (Wi-Fi came back, switched networks): try the Mac again now,
+    // instead of waiting out the retry pause. An event, not a timer.
+    const onNet = () => {
+      if (!canConnect() || document.visibilityState === "hidden" || client.current?.isUp()) return;
+      const saved = savedMac();
+      if (saved) linkTo(saved, true);
+    };
+    const conn = (navigator as Navigator & { connection?: EventTarget }).connection;
+    window.addEventListener("online", onNet);
+    conn?.addEventListener?.("change", onNet);
     return () => {
       stopped = true;
       window.clearTimeout(timer);
@@ -335,6 +358,8 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
       setClipSink(me, null);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pagehide", bye);
+      window.removeEventListener("online", onNet);
+      conn?.removeEventListener?.("change", onNet);
     };
   }, [store]);
 
@@ -356,5 +381,13 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
   /** ⚡ Connect: find the other device's open app on this Wi-Fi and link now. */
   const connect = useCallback(() => connectRef.current(), []);
 
-  return { status, live, direct, syncNow: () => syncNow.current(), afterSaved, chooseFolder, connect };
+  /** The Wi-Fi link in words (sync/linkState.ts). */
+  const [link, setLinkView] = useState<LinkState>(linkState);
+  useEffect(() => {
+    const on = () => setLinkView(linkState());
+    window.addEventListener(LINK_EVENT, on);
+    return () => window.removeEventListener(LINK_EVENT, on);
+  }, []);
+
+  return { status, live, direct, link, syncNow: () => syncNow.current(), afterSaved, chooseFolder, connect };
 }

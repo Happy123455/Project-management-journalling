@@ -8,6 +8,7 @@ import { fromBase64, toBase64 } from "../store/files";
 import { sha256 } from "../lib/files";
 import type { FileRecord } from "../store/types";
 import { visibleInterval } from "../lib/power";
+import { linkReason, setLink } from "./linkState";
 
 /**
  * Instant sync over the home Wi-Fi. The Mac app listens (src-tauri/src/direct.rs) and puts its
@@ -268,11 +269,13 @@ export async function startHost(store: JournalStore, opts: HostOptions): Promise
   const onLogged = () => wake?.();
   window.addEventListener(EVENT_LOGGED, onLogged);
 
-  const setLinked = (v: boolean) => {
+  const setLinked = (v: boolean, why = "your phone's journal went quiet (no request for 35 s)") => {
     if (v === up) return;
     up = v;
+    setLink(v ? { state: "up", ip: readLocal(PHONE_KEY) ?? undefined } : { state: "down", reason: why });
     opts.onLink(v);
   };
+  setLink({ state: "off", reason: "waiting for your phone: open the journal on it (same Wi-Fi)" });
   const heard = () => {
     seen = Date.now();
     setLinked(true);
@@ -289,7 +292,7 @@ export async function startHost(store: JournalStore, opts: HostOptions): Promise
     if (path === "/bye") {
       seen = 0;
       sent = null;
-      setLinked(false);
+      setLinked(false, "your phone's journal went to the background (it links again when you open it)");
       wake?.();
       return { ok: true };
     }
@@ -545,7 +548,8 @@ export function startClient(store: JournalStore, address: DirectAddress, opts: C
     }
   };
 
-  const setUp = (v: boolean) => {
+  const setUp = (v: boolean, why?: unknown) => {
+    if (!v && why !== undefined && !stopped) setLink({ state: "down", reason: linkReason(why, "Mac", address.ip), ip: address.ip });
     if (v === up) return;
     up = v;
     if (!v) {
@@ -575,8 +579,8 @@ export function startClient(store: JournalStore, address: DirectAddress, opts: C
         // A new photo: its bytes go right behind its record, so the Mac shows it at once.
         if (files.length) void sendFiles(files);
       } while (again);
-    } catch {
-      setUp(false);
+    } catch (e) {
+      setUp(false, e);
     } finally {
       pushing = false;
     }
@@ -585,9 +589,14 @@ export function startClient(store: JournalStore, address: DirectAddress, opts: C
   void (async () => {
     while (!stopped) {
       try {
+        if (!up) setLink({ state: "trying", reason: `looking for your Mac at ${address.ip}`, ip: address.ip });
+        const t0 = Date.now();
+        // Up only after a real round trip: the Mac's journal itself answered this hello.
         await post("/hello", { ip: opts.myIp?.() ?? null }, 4000);
+        const rttMs = Date.now() - t0;
         sent = new Set(await store.ownEventIds());
         retryMs = 3000;
+        setLink({ state: "up", ip: address.ip, rttMs });
         setUp(true);
         void fetchMissing();
         let fresh = true;
@@ -603,8 +612,8 @@ export function startClient(store: JournalStore, address: DirectAddress, opts: C
             if (plan.files.length) void fetchMissing();
           }
         }
-      } catch {
-        setUp(false);
+      } catch (e) {
+        setUp(false, e);
       }
       if (stopped) break;
       // Not there (the Mac app closed or another Wi-Fi): try again, less often each time.
@@ -641,6 +650,7 @@ export function startClient(store: JournalStore, address: DirectAddress, opts: C
   const stopFiles = visibleInterval(() => void fetchMissing(), ASK_AGAIN_MS);
 
   const stop = () => {
+    if (!stopped) setLink({ state: "off", reason: document.visibilityState === "hidden" ? "the journal is in the background on this phone (links again when you open it)" : "stopped" });
     stopped = true;
     window.removeEventListener(EVENT_LOGGED, onLogged);
     stopChecker();

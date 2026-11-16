@@ -3,6 +3,8 @@ import { sendDrop, copyClip, waitForSink } from "./clipboard";
 import { addDrop, DROP_EVENT, dropData, listDrops, MAX_DROP, removeDrop, saveToDownloads, type DropItem } from "./drop";
 import { bytes } from "./transferLog";
 import { showToast } from "../lib/toast";
+import type { ConnectResult } from "./direct";
+import { linkState } from "./linkState";
 
 const onPhone = () => /Android/i.test(navigator.userAgent);
 
@@ -19,9 +21,11 @@ function readBase64(f: File): Promise<string> {
  * Nexus › Send: type or paste text, pick or drop files, and they go straight to the other device
  * over Wi-Fi. Below, what went across both ways, to copy, save again or put into today's note.
  */
-export function DropPanel({ linked, onConnect, onAddToToday }: {
+export function DropPanel({ linked, reason, onConnect, onAddToToday }: {
   linked: boolean;
-  onConnect?: () => void;
+  /** Why the Wi-Fi link is down (sync/linkState.ts). */
+  reason?: string;
+  onConnect?: () => Promise<ConnectResult>;
   onAddToToday: (item: DropItem, data: string | null) => Promise<void>;
 }) {
   const other = onPhone() ? "Mac" : "phone";
@@ -37,11 +41,25 @@ export function DropPanel({ linked, onConnect, onAddToToday }: {
     return () => window.removeEventListener(DROP_EVENT, on);
   }, []);
 
+  /**
+   * Linked now, or after one try to connect (shows why not, with Retry). Before 16 Nov Send only
+   * said "tap Connect first", even while the menu said Live.
+   */
+  const ensureLink = async (retry: () => void): Promise<boolean> => {
+    if (await waitForSink(1500)) return true;
+    const r = onConnect ? await onConnect().catch(() => "not-found" as const) : "not-found";
+    if (r === "linked" && (await waitForSink(12_000))) return true;
+    const why = linkState().reason ?? `your ${other} wasn't found on this Wi-Fi`;
+    showToast(`📶 Not sent: ${why}`, "error", { label: "Retry", run: retry });
+    return false;
+  };
+
   const sendText = async () => {
     const t = text.trim() ? text : "";
     if (!t) return;
+    if (!(await ensureLink(() => void sendText()))) return;
     const c = sendDrop({ text: t });
-    if (!c) return void showToast(`Not connected to your ${other}: tap ⚡ Connect first`, "error");
+    if (!c) return void showToast(`📶 Lost the link to your ${other} just now`, "error", { label: "Retry", run: () => void sendText() });
     await addDrop({ id: c.id, at: c.at, mine: true, text: t, size: t.length });
     setText("");
     showToast(`📤 Sent to your ${other}`);
@@ -52,10 +70,7 @@ export function DropPanel({ linked, onConnect, onAddToToday }: {
     setBusy(true);
     try {
       // Back from the photo picker the phone is still re-linking (it unlinks in the background).
-      if (!(await waitForSink(1500))) {
-        onConnect?.();
-        if (!(await waitForSink(12_000))) return void showToast(`Not connected to your ${other}: tap ⚡ Connect first`, "error");
-      }
+      if (!(await waitForSink(3000)) && !(await ensureLink(() => void sendFiles(files)))) return;
       let sent = 0;
       for (const f of files) {
         if (f.size > MAX_DROP) {
@@ -104,8 +119,8 @@ export function DropPanel({ linked, onConnect, onAddToToday }: {
     >
       {!linked && (
         <p className="hint">
-          Sending goes straight over your Wi-Fi while both apps are open.{" "}
-          {onConnect && <button type="button" onClick={onConnect}>⚡ Connect to {other}</button>}
+          📶 Wi-Fi link off{reason ? `: ${reason}` : ""}. Sending goes straight over your Wi-Fi while both journals are open.{" "}
+          {onConnect && <button type="button" onClick={() => void onConnect()}>⚡ Connect to {other}</button>}
         </p>
       )}
       <textarea
