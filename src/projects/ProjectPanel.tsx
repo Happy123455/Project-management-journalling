@@ -9,6 +9,25 @@ import { dayTitle } from "../lib/timestamp";
 import type { JournalStore, NamedPage } from "../store";
 import { loadProjectTasks, setRolledTask, type RolledTask } from "./rollup";
 
+const FOLD_KEY = "journal.project-tasks-folded";
+/** Pages whose task list is folded, on this device. */
+export function foldedTasks(pageId: string): boolean {
+  try {
+    return (JSON.parse(localStorage.getItem(FOLD_KEY) ?? "[]") as string[]).includes(pageId);
+  } catch {
+    return false;
+  }
+}
+export function setFoldedTasks(pageId: string, folded: boolean) {
+  try {
+    const list = (JSON.parse(localStorage.getItem(FOLD_KEY) ?? "[]") as string[]).filter((id) => id !== pageId);
+    if (folded) list.push(pageId);
+    localStorage.setItem(FOLD_KEY, JSON.stringify(list.slice(-200)));
+  } catch {
+    // Private window: it just won't be remembered.
+  }
+}
+
 const STATUSES: { value: ProjectStatus; label: string }[] = [
   { value: "active", label: "● Active" },
   { value: "paused", label: "❚❚ Paused" },
@@ -26,6 +45,13 @@ export function ProjectPanel({ store, page, refreshKey, onChanged, onOpenDay }: 
   const [tasks, setTasks] = useState<RolledTask[] | null>(null);
   const [tick, setTick] = useState(0);
   const [exporting, setExporting] = useState(false);
+  // The task list folds from its header; remembered per page on this device (item 7).
+  const [folded, setFolded] = useState(() => foldedTasks(page.id));
+  useEffect(() => setFolded(foldedTasks(page.id)), [page.id]);
+  const fold = (v: boolean) => {
+    setFolded(v);
+    setFoldedTasks(page.id, v);
+  };
   const exportAi = async () => {
     setExporting(true);
     try {
@@ -110,12 +136,20 @@ export function ProjectPanel({ store, page, refreshKey, onChanged, onOpenDay }: 
       </p>
       {tasks && (
         <>
-          <h3>To do · {open.length}</h3>
-          {open.length ? <ul className="project-tasks">{open.map(row)}</ul> : <p className="hint">Nothing open.</p>}
-          {done.length > 0 && (
+          <h3 className="project-tasks-head">
+            <button type="button" className="project-tasks-fold" aria-expanded={!folded} onClick={() => fold(!folded)}>
+              Tasks · {open.length} open{done.length ? `, ${done.length} done` : ""} <span aria-hidden>{folded ? "▾" : "▴"}</span>
+            </button>
+          </h3>
+          {!folded && (
             <>
-              <h3>Done · {done.length}</h3>
-              <ul className="project-tasks">{done.map(row)}</ul>
+              {open.length ? <ul className="project-tasks">{open.map(row)}</ul> : <p className="hint">Nothing open.</p>}
+              {done.length > 0 && (
+                <>
+                  <h3>Done · {done.length}</h3>
+                  <ul className="project-tasks">{done.map(row)}</ul>
+                </>
+              )}
             </>
           )}
         </>

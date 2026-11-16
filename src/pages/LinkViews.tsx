@@ -292,10 +292,11 @@ export function PageView({ store, page, onBack, handlers, pageNames, find, onFin
         onFindCount={onFindCount}
       />
       </div>
+      {/* The Consequence engine first, then the (foldable) task list (item 7). */}
+      {!isInternalPage(page.title) && <ConsequencePanel store={store} page={page} refreshKey={saves} onOpenDay={handlers.onOpenDay} />}
       {page.props.project && (
         <ProjectPanel store={store} page={page} refreshKey={saves} onChanged={onPageChanged} onOpenDay={handlers.onOpenDay} />
       )}
-      {!isInternalPage(page.title) && <ConsequencePanel store={store} page={page} refreshKey={saves} onOpenDay={handlers.onOpenDay} />}
       {(
         // Every linked note records its days, like a project.
         <ProjectTimeline store={store} page={page} refreshKey={saves} onOpenDay={(d) => handlers.onOpenDay(d)} onOpenLink={handlers.onOpenLink} onOpenTag={handlers.onOpenTag} />

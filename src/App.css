@@ -424,6 +424,8 @@ button:hover { background: var(--panel); }
 /* Projects */
 .project-panel { margin-top: 16px; padding: 12px; border-radius: 16px; background: var(--glass); border: 1px solid var(--glass-edge); }
 .project-panel h3 { font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+.project-tasks-fold { all: unset; cursor: pointer; display: inline-flex; gap: 6px; align-items: baseline; font: inherit; color: inherit; padding: 4px 0; }
+.project-tasks-fold span { font-size: 11px; }
 .project-status { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
 .project-status button { border-radius: 999px; font-size: 13px; padding: 3px 12px; }
 .project-status button.active.status-active { color: #fff; background: #16a34a; border-color: #16a34a; }
