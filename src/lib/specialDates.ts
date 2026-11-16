@@ -34,6 +34,8 @@ export interface Special {
   school?: boolean;
   /** Moon-sighted (Islamic) or regional day: it can move by a day. */
   approx?: boolean;
+  /** One of the big ones (marked as a major event in the month). */
+  major?: boolean;
 }
 
 export const SPECIAL_DATES_PAGE = "Special dates";
@@ -140,26 +142,27 @@ interface FestDef {
   group: FestGroup;
   school?: boolean;
   approx?: boolean;
+  major?: boolean;
   /** Its days ("MM-DD") in a year: a fixed day, a table, or worked out. */
   on: string | YearTable | ((year: number) => string[]);
 }
 
 /** Every festival, the most important first (the first one on a day gives the tile its look). */
 const FESTS: FestDef[] = [
-  { title: "Diwali", short: "Diwali", emoji: "🪔", greeting: "Happy Diwali! May the lamps light up the year ahead.", look: "diwali", group: "india", school: true, on: DIWALI },
-  { title: "Christmas", short: "Xmas", emoji: "🎄", greeting: "Merry Christmas! 🎅", look: "christmas", group: "world", school: true, on: "12-25" },
-  { title: "Holi", short: "Holi", emoji: "🎨", greeting: "Happy Holi! A day of colours.", look: "holi", group: "india", school: true, on: HOLI },
-  { title: "Uttarayan", short: "Kites", emoji: "🪁", greeting: "Happy Uttarayan! Kai po che!", look: "uttarayan", group: "india", school: true, on: "01-14" },
-  { title: "Bestu Varas", short: "New Yr", emoji: "🌅", greeting: "Saal Mubarak! A happy Gujarati New Year.", look: "lamp", group: "india", school: true, on: T.bestu },
-  { title: "New Year", short: "New Yr", emoji: "🎆", greeting: "Happy New Year!", look: "newyear", group: "world", on: "01-01" },
-  { title: "Republic Day", short: "Rep Day", emoji: "🇮🇳", greeting: "Happy Republic Day! Jai Hind.", look: "flag", group: "india", school: true, on: "01-26" },
-  { title: "Independence Day", short: "Indep.", emoji: "🇮🇳", greeting: "Happy Independence Day! Jai Hind.", look: "flag", group: "india", school: true, on: "08-15" },
+  { title: "Diwali", major: true, short: "Diwali", emoji: "🪔", greeting: "Happy Diwali! May the lamps light up the year ahead.", look: "diwali", group: "india", school: true, on: DIWALI },
+  { title: "Christmas", major: true, short: "Xmas", emoji: "🎄", greeting: "Merry Christmas! 🎅", look: "christmas", group: "world", school: true, on: "12-25" },
+  { title: "Holi", major: true, short: "Holi", emoji: "🎨", greeting: "Happy Holi! A day of colours.", look: "holi", group: "india", school: true, on: HOLI },
+  { title: "Uttarayan", major: true, short: "Kites", emoji: "🪁", greeting: "Happy Uttarayan! Kai po che!", look: "uttarayan", group: "india", school: true, on: "01-14" },
+  { title: "Bestu Varas", major: true, short: "New Yr", emoji: "🌅", greeting: "Saal Mubarak! A happy Gujarati New Year.", look: "lamp", group: "india", school: true, on: T.bestu },
+  { title: "New Year", major: true, short: "New Yr", emoji: "🎆", greeting: "Happy New Year!", look: "newyear", group: "world", on: "01-01" },
+  { title: "Republic Day", major: true, short: "Rep Day", emoji: "🇮🇳", greeting: "Happy Republic Day! Jai Hind.", look: "flag", group: "india", school: true, on: "01-26" },
+  { title: "Independence Day", major: true, short: "Indep.", emoji: "🇮🇳", greeting: "Happy Independence Day! Jai Hind.", look: "flag", group: "india", school: true, on: "08-15" },
   { title: "Gandhi Jayanti", short: "Gandhi", emoji: "🕊️", greeting: "Gandhi Jayanti: truth and non-violence.", look: "flag", group: "india", school: true, on: "10-02" },
-  { title: "Navratri", short: "Garba", emoji: "💃", greeting: "Happy Navratri! Nine nights of garba.", look: "garba", group: "india", on: (y) => span(T.navratri[y], T.dussehra[y], y) },
-  { title: "Dussehra", short: "Dussehra", emoji: "🏹", greeting: "Happy Dussehra! Good wins over evil.", look: "sun", group: "india", school: true, on: T.dussehra },
-  { title: "Janmashtami", short: "Krishna", emoji: "🦚", greeting: "Happy Janmashtami! Jai Shri Krishna.", look: "temple", group: "india", school: true, on: T.janmashtami },
-  { title: "Raksha Bandhan", short: "Rakhi", emoji: "🧶", greeting: "Happy Raksha Bandhan!", look: "rakhi", group: "india", school: true, on: T.rakhi },
-  { title: "Ganesh Chaturthi", short: "Ganesh", emoji: "🐘", greeting: "Ganpati Bappa Morya!", look: "temple", group: "india", on: T.ganesh },
+  { title: "Navratri", major: true, short: "Garba", emoji: "💃", greeting: "Happy Navratri! Nine nights of garba.", look: "garba", group: "india", on: (y) => span(T.navratri[y], T.dussehra[y], y) },
+  { title: "Dussehra", major: true, short: "Dussehra", emoji: "🏹", greeting: "Happy Dussehra! Good wins over evil.", look: "sun", group: "india", school: true, on: T.dussehra },
+  { title: "Janmashtami", major: true, short: "Krishna", emoji: "🦚", greeting: "Happy Janmashtami! Jai Shri Krishna.", look: "temple", group: "india", school: true, on: T.janmashtami },
+  { title: "Raksha Bandhan", major: true, short: "Rakhi", emoji: "🧶", greeting: "Happy Raksha Bandhan!", look: "rakhi", group: "india", school: true, on: T.rakhi },
+  { title: "Ganesh Chaturthi", major: true, short: "Ganesh", emoji: "🐘", greeting: "Ganpati Bappa Morya!", look: "temple", group: "india", on: T.ganesh },
   { title: "Maha Shivratri", short: "Shivratri", emoji: "🔱", greeting: "Har Har Mahadev! Happy Maha Shivratri.", look: "temple", group: "india", school: true, on: T.shivratri },
   { title: "Ram Navami", short: "Ram Nav.", emoji: "🏹", greeting: "Happy Ram Navami! Jai Shri Ram.", look: "temple", group: "india", school: true, on: T.ramnavami },
   { title: "Hanuman Jayanti", short: "Hanuman", emoji: "🙏", greeting: "Happy Hanuman Jayanti!", look: "temple", group: "india", on: T.hanuman },
@@ -182,8 +185,8 @@ const FESTS: FestDef[] = [
   { title: "Onam", short: "Onam", emoji: "🌼", greeting: "Happy Onam!", look: "harvest", group: "india", on: T.onam },
   { title: "Gudi Padwa / Ugadi", short: "Ugadi", emoji: "🎋", greeting: "Happy Gudi Padwa and Ugadi!", look: "bloom", group: "india", on: T.ugadi },
   { title: "Parsi New Year", short: "Navroz", emoji: "🔥", greeting: "Navroz Mubarak!", look: "lamp", group: "india", school: true, approx: true, on: T.parsi },
-  { title: "Eid ul-Fitr", short: "Eid", emoji: "🌙", greeting: "Eid Mubarak!", look: "moon", group: "india", school: true, approx: true, on: T.eidfitr },
-  { title: "Eid ul-Adha", short: "Bakri Eid", emoji: "🌙", greeting: "Eid Mubarak!", look: "moon", group: "india", school: true, approx: true, on: T.eidadha },
+  { title: "Eid ul-Fitr", major: true, short: "Eid", emoji: "🌙", greeting: "Eid Mubarak!", look: "moon", group: "india", school: true, approx: true, on: T.eidfitr },
+  { title: "Eid ul-Adha", major: true, short: "Bakri Eid", emoji: "🌙", greeting: "Eid Mubarak!", look: "moon", group: "india", school: true, approx: true, on: T.eidadha },
   { title: "Muharram", short: "Muharram", emoji: "🌙", greeting: "Muharram (Ashura).", look: "moon", group: "india", school: true, approx: true, on: T.muharram },
   { title: "Milad-un-Nabi", short: "Milad", emoji: "🌙", greeting: "Milad-un-Nabi Mubarak!", look: "moon", group: "india", school: true, approx: true, on: T.milad },
   { title: "Christmas Eve", short: "Xmas Eve", emoji: "🎄", greeting: "Christmas Eve! 🎁", look: "christmas", group: "world", on: "12-24" },
@@ -221,7 +224,7 @@ function yearIndex(year: number): Map<string, Special[]> {
   idx = new Map();
   for (const f of FESTS) {
     const days = typeof f.on === "string" ? [f.on] : typeof f.on === "function" ? f.on(year) : f.on[year] ? [f.on[year]] : [];
-    const s: Special = { kind: f.look, title: f.title, short: f.short, emoji: f.emoji, greeting: f.greeting, group: f.group, school: f.school, approx: f.approx };
+    const s: Special = { kind: f.look, title: f.title, short: f.short, emoji: f.emoji, greeting: f.greeting, group: f.group, school: f.school, approx: f.approx, major: f.major };
     for (const d of days) idx.set(d, [...(idx.get(d) ?? []), s]);
   }
   byYear.set(year, idx);

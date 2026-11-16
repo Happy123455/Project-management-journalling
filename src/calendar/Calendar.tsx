@@ -1,4 +1,8 @@
-import React, { memo, useEffect, useRef, useState, type CSSProperties } from "react";
+import React, { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { effectText, KIND_COLOR, monthEvents, waveLength, waves, type MonthEvent } from "./monthEvents";
+import { useAllDeadlines } from "../editor/deadlineStore";
+import { personalDates, specialsOn, subscribePersonalDates } from "../lib/specialDates";
+import { useEditorPrefs } from "../lib/editorPrefs";
 import { dayKey } from "../lib/timestamp";
 import { heat } from "../lib/words";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
@@ -57,6 +61,30 @@ interface GridProps {
   /** Show only the week that holds `selected`. */
   weekOnly?: boolean;
   mini?: boolean;
+  /** The month's major events (item 5): marked on their tiles, listed under the grid. */
+  events?: MonthEvent[];
+  /** Set to a new time when the month opens: the events pulse and send waves over the days after. */
+  play?: number;
+}
+
+/** The month's major events, while the month is open and not searching. */
+function useMonthEvents(prefix: string, counts: Counts, today: string, on: boolean): MonthEvent[] | undefined {
+  const deadlines = useAllDeadlines();
+  const personal = useSyncExternalStore(subscribePersonalDates, personalDates, personalDates);
+  const groups = useEditorPrefs().festGroups;
+  return useMemo(
+    () =>
+      on
+        ? monthEvents(
+            prefix,
+            counts,
+            today,
+            deadlines.map((t) => ({ title: t.info.title || t.title, emoji: t.info.emoji, color: t.info.color, endAt: t.info.endAt || t.endAt, start: t.rows.map((r) => r.day).sort()[0], status: t.info.status, steps: t.info.steps })),
+            (d) => specialsOn(d, personal, groups),
+          )
+        : undefined,
+    [on, prefix, counts, today, deadlines, personal, groups],
+  );
 }
 
 /** One month as a heat map: each day is filled purple, brighter the more was written. */
@@ -65,14 +93,35 @@ export const MonthGrid = memo(MonthGridView, (a, b) =>
   (Object.keys(a) as (keyof GridProps)[]).every((k) => typeof a[k] === "function" || a[k] === b[k]),
 );
 
-function MonthGridView({ year, month, counts, max, search, selected, today, onPick, weekOnly, mini }: GridProps) {
+function MonthGridView({ year, month, counts, max, search, selected, today, onPick, weekOnly, mini, events, play }: GridProps) {
   let weeks = monthWeeks(year, month);
   if (weekOnly) weeks = weeks.filter((w) => w.includes(selected)).slice(0, 1);
   const specialsOf = useSpecials();
   const animate = useFestiveTiles();
   const hold = useHoldPreview();
+  const prefix = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const eventOn = useMemo(() => {
+    const m = new Map<string, MonthEvent>();
+    for (const e of events ?? []) if (!m.has(e.day)) m.set(e.day, e);
+    return m;
+  }, [events]);
+  // Once, when the month opens (a play time from before this grid was drawn is an old one), and
+  // never for reduced motion. Tapping the month skips it; afterwards the tiles stay still.
+  const born = useRef(Date.now());
+  const [playing, setPlaying] = useState(false);
+  useEffect(() => {
+    if (!play || play < born.current - 50 || !events?.length) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    setPlaying(true);
+    const t = window.setTimeout(() => setPlaying(false), waveLength(events));
+    return () => window.clearTimeout(t);
+    // Only a new opening plays it (not new events while it's open).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [play]);
+  const wave = useMemo(() => (playing && events ? waves(events, prefix) : null), [playing, events, prefix]);
   return (
-    <div className={mini ? "month-grid mini" : "month-grid"}>
+    <>
+    <div className={`${mini ? "month-grid mini" : "month-grid"}${playing ? " waving" : ""}`} onPointerDown={playing ? () => setPlaying(false) : undefined}>
       {WEEKDAY_LETTERS.map((l, i) => <span key={i} className="weekday">{l}</span>)}
       {weeks.flat().map((d, i) => {
         if (!d) return <span key={i} />;
@@ -82,16 +131,21 @@ function MonthGridView({ year, month, counts, max, search, selected, today, onPi
         const s = specials[0];
         // Off: plain tiles. Mini (year view): a still tint only. The week strip and month: moving.
         const fest = s && animate;
-        const classes = ["cal-day", d === selected && "selected", d === today && "today", reminder && "reminder", fest && `fest fest-${s.kind}`, fest && !mini && "fest-anim"]
+        const ev = eventOn.get(d);
+        const w = wave?.get(d);
+        const classes = ["cal-day", d === selected && "selected", d === today && "today", reminder && "reminder", fest && `fest fest-${s.kind}`, fest && !mini && "fest-anim", ev && `ev ev-${ev.kind}`, w && (w.source ? "wave-src" : "wave")]
           .filter(Boolean)
           .join(" ");
+        const style: Record<string, string | number> = { "--heat": reminder ? 0 : heat(words, max) };
+        if (ev) style["--ev"] = ev.color && ev.kind !== "festival" && ev.kind !== "writing" ? ev.color : KIND_COLOR[ev.kind];
+        if (w) Object.assign(style, { "--wd": `${w.delay}ms`, "--ws": w.strength, "--wc": w.color });
         return (
           <button
             key={d}
             type="button"
             className={classes}
-            style={{ "--heat": reminder ? 0 : heat(words, max) } as CSSProperties}
-            title={`${s ? `${specials.map((x) => x.title).join(", ")} · ` : ""}${reminder ? `${d}: reminder` : search ? `${d}: ${words} matches` : `${d}: ${words} words`}`}
+            style={style as CSSProperties}
+            title={`${ev ? `${ev.emoji} ${ev.label} · ` : ""}${s ? `${specials.map((x) => x.title).join(", ")} · ` : ""}${reminder ? `${d}: reminder` : search ? `${d}: ${words} matches` : `${d}: ${words} words`}`}
             onClick={() => !hold.wasHold() && onPick(d)}
             {...hold.bind(d, specials)}
           >
@@ -102,6 +156,20 @@ function MonthGridView({ year, month, counts, max, search, selected, today, onPi
       })}
       {hold.preview}
     </div>
+    {!!events?.length && !mini && !weekOnly && (
+      <div className="ev-legend" aria-label="Major events this month">
+        {events.map((e) => (
+          <button key={`${e.day}-${e.kind}-${e.label}`} type="button" className={`ev-chip ev-${e.kind}`} style={{ "--ev": e.color && e.kind !== "festival" && e.kind !== "writing" ? e.color : KIND_COLOR[e.kind] } as CSSProperties} onClick={() => onPick(e.day)}>
+            <span aria-hidden>{e.emoji}</span> <b>{Number(e.day.slice(8))}</b> {e.label}
+            {e.effect !== null && <small className={e.effect >= 0.05 ? "up" : e.effect <= -0.05 ? "down" : ""}> · {effectText(e.effect)}</small>}
+          </button>
+        ))}
+        {playing && (
+          <button type="button" className="ev-skip" onClick={() => setPlaying(false)}>Skip ⏭</button>
+        )}
+      </div>
+    )}
+    </>
   );
 }
 
@@ -306,6 +374,16 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
   };
   // Mac: wheeling on past the end folds the month to its week, the same as the swipe.
   const wheelPast = useRef(0);
+  // Item 5: the month's major events; they play once each time the month opens.
+  const prefs = useEditorPrefs();
+  const events = useMonthEvents(day.slice(0, 7), shading.counts, today, !collapsed && !shading.search && scrub == null);
+  const [play, setPlay] = useState(0);
+  const wasCollapsed = useRef(true);
+  useEffect(() => {
+    if (wasCollapsed.current && !collapsed && prefs.monthWaves) setPlay(Date.now());
+    wasCollapsed.current = collapsed;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapsed]);
   return (
     <>
       {sheet && <div className="cal-spacer" style={{ height: stripHeight.current }} />}
@@ -317,7 +395,7 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
         // A day opens that day; anywhere else (not a button) opens the week into the month, or folds the month back.
         onClick={(e) => {
           const t = e.target as HTMLElement;
-          if (t.closest("button, a, input, .reminders, .tdl")) return;
+          if (t.closest("button, a, input, .reminders, .tdl, .ev-legend")) return;
           toggle(collapsed);
         }}
         onScroll={(e) => {
@@ -442,6 +520,8 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
           today={today}
           onPick={onPick}
           weekOnly={collapsed && scrub == null}
+          events={events}
+          play={play}
         />
         {/* "Coming up" opens with the month, wherever the calendar is pinned. */}
         {!collapsed && below}

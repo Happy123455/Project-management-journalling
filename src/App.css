@@ -4013,3 +4013,34 @@ html.dl-dragging * { overflow-anchor: none !important; touch-action: none !impor
 .sheet-handle.end { right: -10px; bottom: -10px; }
 .sheet-grid td:has(.sheet-handle) { overflow: visible; }
 .sheet-range-tools { flex-wrap: wrap; width: 100%; }
+
+/* ───── Item 5: major events in the month ─────
+   Still: a coloured line under the event's tile and the list under the grid. When the month opens
+   (once): each event pulses and a wave runs over the days after it, dim → lit, fading with distance.
+   Only opacity, transform and a short box-shadow; paused at rest and off for reduced motion. */
+.cal-day.ev { position: relative; box-shadow: inset 0 -3px 0 var(--ev); }
+.month-grid.mini .cal-day.ev { box-shadow: inset 0 -1px 0 var(--ev); }
+.month-calendar.compact .cal-day.ev { box-shadow: none; }
+.ev-legend { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 8px 0 4px; }
+.ev-chip { display: inline-flex; align-items: baseline; gap: 3px; padding: 3px 9px 3px 7px; border-radius: 999px; font-size: 11.5px; border: 1px solid color-mix(in srgb, var(--ev) 55%, transparent); background: color-mix(in srgb, var(--ev) 12%, transparent); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ev-chip b { font-weight: 700; }
+.ev-chip small { color: var(--muted); }
+.ev-chip small.up { color: #2fa86a; }
+.ev-chip small.down { color: #d9534f; }
+.ev-skip { font-size: 11.5px; padding: 3px 10px; border-radius: 999px; }
+.month-calendar.compact .ev-legend { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .month-grid.waving .cal-day.wave { animation: ev-wave 0.9s ease-out both; animation-delay: var(--wd, 0ms); }
+  .month-grid.waving .cal-day.wave-src { z-index: 2; animation: ev-pulse 1.1s cubic-bezier(0.2, 1.4, 0.4, 1) both; animation-delay: var(--wd, 0ms); }
+}
+@keyframes ev-wave {
+  0% { opacity: calc(1 - 0.7 * var(--ws, 1)); transform: scale(0.92); }
+  45% { opacity: 1; transform: scale(1.06); box-shadow: inset 0 0 0 2px var(--wc), 0 0 calc(12px * var(--ws, 1)) var(--wc); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes ev-pulse {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.25); box-shadow: 0 0 0 3px var(--wc), 0 0 18px var(--wc); }
+  60% { transform: scale(0.97); box-shadow: 0 0 0 2px var(--wc), 0 0 26px transparent; }
+  100% { transform: scale(1); }
+}

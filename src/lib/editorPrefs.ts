@@ -24,6 +24,8 @@ export interface EditorPrefs {
   festiveTiles: boolean;
   /** Festival groups shown in the calendar (Settings → Editor); all on unless switched off. */
   festGroups: { india: boolean; world: boolean; fun: boolean };
+  /** Opening the month plays its major events as waves over the days after them. */
+  monthWaves: boolean;
 }
 
 /** Follows the prefs (Settings changes them while the app runs). */
@@ -38,7 +40,7 @@ export function useEditorPrefs(): EditorPrefs {
 }
 
 const KEY = "journal.editor";
-const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true, prettyMath: true, typingGuide: false, maxCps: 6, monthDeadlines: "below", timeFlash: true, festiveTiles: true, festGroups: { india: true, world: true, fun: true } };
+const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true, prettyMath: true, typingGuide: false, maxCps: 6, monthDeadlines: "below", timeFlash: true, festiveTiles: true, festGroups: { india: true, world: true, fun: true }, monthWaves: true };
 
 /** Read on every letter typed (formulas, edit stamps…): parsed again only when the stored text changes. */
 let cached: { raw: string | null; prefs: EditorPrefs } | null = null;
