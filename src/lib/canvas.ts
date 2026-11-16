@@ -29,8 +29,39 @@ export interface CanvasItem {
   /** Line id of its first block, to jump to it in the note. */
   lid?: string;
   kind: "line" | "task" | "done" | "code" | "media";
+  /** The first photo, GIF, clip, voice note or file in it, drawn in its card (item 10). */
+  media?: CanvasMedia;
   /** Position in the note (and across notes, in the order they were read). */
   order: number;
+}
+
+export interface CanvasMedia {
+  type: "image" | "video" | "audio" | "pdf" | "file";
+  fileId: string;
+  name: string;
+  gif?: boolean;
+}
+
+/** The first stored photo, clip, sound or file in some blocks. */
+export function mediaOf(blocks: JSONContent[]): CanvasMedia | undefined {
+  let out: CanvasMedia | undefined;
+  const walk = (n: JSONContent) => {
+    if (out) return;
+    const a = n.attrs ?? {};
+    if (a.fileId && n.type === "attachmentImage") out = { type: "image", fileId: a.fileId, name: a.name ?? "", gif: /gif$/i.test(a.mime ?? a.name ?? "") };
+    else if (a.fileId && n.type === "attachmentMedia") out = { type: a.kind === "audio" ? "audio" : a.kind === "pdf" ? "pdf" : "video", fileId: a.fileId, name: a.name ?? "", gif: /^(meme-|gif-)/.test(a.name ?? "") };
+    else if (a.fileId && n.type === "attachmentFile") out = { type: /pdf$/i.test(a.mime ?? "") || /\.pdf$/i.test(a.name ?? "") ? "pdf" : "file", fileId: a.fileId, name: a.name ?? "" };
+    else n.content?.forEach(walk);
+  };
+  blocks.forEach(walk);
+  return out;
+}
+
+/** A media card's label when it has no words: "🎞 GIF", "📕 notes.pdf". */
+function mediaLabel(m: CanvasMedia): string {
+  if (m.type === "pdf" || m.type === "file") return `${m.type === "pdf" ? "📕" : "📎"} ${m.name || "File"}`;
+  if (m.gif) return "🎞 GIF";
+  return m.type === "image" ? "🖼 Photo" : m.type === "video" ? "🎬 Clip" : "🎙 Voice note";
 }
 
 const isList = (t?: string) => !!t && /List$/.test(t);
@@ -167,7 +198,11 @@ export function itemsFromBlocks(blocks: JSONContent[], src: ItemSource): CanvasI
       continue;
     }
     if (b.type === "paragraph") {
-      if (!text) continue;
+      // A photo or clip placed on a line of its own is a media card (item 10).
+      if (!text) {
+        if (mediaOf([b])) raws.push({ blocks: [b], indent, section, kind: "media", open: false });
+        continue;
+      }
       const next = blocks[i + 1];
       if (labelOnly(text)) {
         if (next && Number(next.attrs?.indent ?? 0) > indent) {
@@ -195,11 +230,13 @@ export function itemsFromBlocks(blocks: JSONContent[], src: ItemSource): CanvasI
   const order0 = src.startOrder ?? 0;
   const items: CanvasItem[] = raws.map((r, i) => {
     let text = plainText(r.blocks.map((b) => ({ ...b, attrs: { ...b.attrs, indent: Math.max(0, Number(b.attrs?.indent ?? 0) - r.indent) } })));
-    if (!text.trim()) text = MEDIA[r.blocks[0].type ?? ""] ?? "";
+    const media = mediaOf(r.blocks);
+    if (!text.trim()) text = (media && mediaLabel(media)) || MEDIA[r.blocks[0].type ?? ""] || "";
     const stamp = stampIn(r.blocks.map(textOf).join("\n"));
     const born = stamp == null ? firstBorn(r.blocks) : null;
     const lid = firstLid(r.blocks);
-    const label = shortLabel(text) || MEDIA[r.blocks[0].type ?? ""] || "…";
+    // A card that's only a photo or file (its text is just "[name]") says what it is.
+    const label = (media && !text.replace(/\[[^\]]*\]/g, "").trim() && mediaLabel(media)) || shortLabel(text) || MEDIA[r.blocks[0].type ?? ""] || "…";
     return {
       key: lid ?? `${src.day ?? "page"}:${hash(text)}:${i}`,
       text,
@@ -211,6 +248,7 @@ export function itemsFromBlocks(blocks: JSONContent[], src: ItemSource): CanvasI
       tags: tagsIn(text, src.self),
       lid,
       kind: r.kind,
+      media,
       order: order0 + i,
     };
   });

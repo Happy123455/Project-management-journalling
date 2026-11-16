@@ -15,6 +15,7 @@ import { docText } from "../lib/words";
 import { GRAPH_PREFIX, loadoutFrom, loadoutPageContent, parseLoadout, type Loadout } from "../lib/canvasLoadout";
 import type { JournalStore } from "../store";
 import "./canvas.css";
+import { CardThumb, MediaPeekCard } from "./CanvasMedia";
 import { loadCanvasData, sortIntoTopics, summarize, summaryHash, updateCanvasData, type NoteCanvasData, type SummaryScope } from "./canvasData";
 
 /** What a note's canvas shows: a daily note (its own lines) or a page (its own lines and every day's entry for it). */
@@ -829,6 +830,9 @@ export default function NoteCanvas({ editor, source, onJump, onClose }: { editor
               onOpen={() => openInNote(it)}
             />
           ))}
+          {selItem?.media && selItem.ms <= shownCur && (
+            <MediaPeekCard key={selItem.key} media={selItem.media} x={selItem.x} y={selItem.y - PEEK_H - 8} width={NODE_W} />
+          )}
         </div>
 
         {caption && !panel && (
@@ -1012,6 +1016,9 @@ function highlight(text: string, q: string) {
   return out;
 }
 
+/** The selected media card's peek (CanvasMedia), above the card. */
+const PEEK_H = 132;
+
 const KIND_ICON: Record<CanvasItem["kind"], string> = { line: "", task: "☐", done: "✓", code: "▣", media: "" };
 
 const Node = memo(function Node({
@@ -1031,7 +1038,7 @@ const Node = memo(function Node({
   return (
     <button
       type="button"
-      className={`nc-node${on ? " on" : ""}${fresh ? " fresh" : ""}${sel ? " sel" : ""}${hit ? " hit" : ""}${dim ? " dim" : ""} k-${it.kind}`}
+      className={`nc-node${on ? " on" : ""}${fresh ? " fresh" : ""}${sel ? " sel" : ""}${hit ? " hit" : ""}${dim ? " dim" : ""} k-${it.kind}${it.media ? " has-media" : ""}`}
       style={{ left: it.x, top: it.y, width: NODE_W, height: NODE_H, ["--hue" as string]: hue }}
       onClick={onPick}
       onDoubleClick={onOpen}
@@ -1042,6 +1049,7 @@ const Node = memo(function Node({
       <i className="nc-dot" style={{ background: dot }} aria-hidden />
       <time>{hhmm(it.ms)}</time>
       {KIND_ICON[it.kind] && <b className="nc-kind" aria-hidden>{KIND_ICON[it.kind]}</b>}
+      {it.media && <CardThumb media={it.media} on={on} />}
       <span>{it.label}</span>
     </button>
   );

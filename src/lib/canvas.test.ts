@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { entryStart, itemsFromBlocks, keywordGroups, layoutCanvas, momentsOf, NODE_W, noonOf, OTHER, branchOf, UNSORTED } from "./canvas";
+import { entryStart, itemsFromBlocks, mediaOf, keywordGroups, layoutCanvas, momentsOf, NODE_W, noonOf, OTHER, branchOf, UNSORTED } from "./canvas";
 
 const p = (text: string, attrs: Record<string, unknown> = {}) => ({ type: "paragraph", attrs: { indent: 0, ...attrs }, content: text ? [{ type: "text", text }] : undefined });
 const task = (text: string, checked = false, born?: string) => ({
@@ -94,5 +94,24 @@ describe("canvas layout", () => {
     expect(L.unit).toBe("hour");
     expect(L.columns).toHaveLength(6);
     expect(momentsOf(L.items)).toHaveLength(2);
+  });
+
+  it("media cards carry their file (item 10)", () => {
+    const blocks = [
+      { type: "attachmentImage", attrs: { fileId: "f1", name: "cat.gif" } },
+      { type: "paragraph", content: [{ type: "text", text: "Look at this " }, { type: "attachmentMedia", attrs: { fileId: "f2", kind: "video", name: "meme-facepalm.mp4" } }] },
+      { type: "attachmentMedia", attrs: { fileId: "f3", kind: "pdf", name: "notes.pdf" } },
+      { type: "attachmentFile", attrs: { fileId: "f4", name: "a.zip", mime: "application/zip" } },
+      { type: "paragraph", content: [{ type: "attachmentImage", attrs: { fileId: "f5", name: "photo.jpg", align: "inline" } }] },
+    ];
+    const items = itemsFromBlocks(blocks, { day: "2026-11-12", fallbackMs: noonOf("2026-11-12") });
+    expect(items.map((i) => [i.kind, i.media?.type, i.media?.gif])).toEqual([
+      ["media", "image", true],
+      ["line", "video", true],
+      ["media", "pdf", false],
+      ["media", "file", undefined],
+      ["media", "image", false],
+    ]);
+    expect(mediaOf([{ type: "paragraph", content: [{ type: "text", text: "no media" }] }])).toBeUndefined();
   });
 });
