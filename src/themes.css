@@ -555,3 +555,77 @@ html[data-theme="neu"] .ambience-rain { opacity: 0.7; }
 :where(html[data-theme="neu"]) .focus-pill { box-shadow: var(--neu-out); }
 :where(html[data-theme="neu"]) .dl-plan, :where(html[data-theme="neu"]) .ds-plan { box-shadow: var(--neu-out-xs); }
 :where(html[data-theme="neu"]) .dls-back { backdrop-filter: none; background: rgba(0, 0, 0, 0.18); }
+
+/* ═══════════ Pure black (OLED) ═══════════
+   True #000 everywhere so the phone's OLED pixels switch off. Panels are black too and are set
+   apart by a thin dark line, not a fill. Colour is kept for a few thin neon accents: today, time
+   chips, deadlines, the agent bubbles. Always dark, whatever the system says. No glass blur, no
+   washes or weather on the page (both cost GPU time and would light pixels up). */
+:root[data-theme="oled"] {
+  --bg: #000;
+  --panel: #0b0b0c;
+  --text: #ececee;
+  --muted: #8a8a92;
+  --border: #1f1f23;
+  --accent: #00e0ff;
+  --tag: #ffb547;
+  --heat-rgb: 0, 224, 255;
+  --reminder: #ffb547;
+  --mark: rgba(255, 43, 214, 0.32);
+  --heat-empty: #0e0e10;
+  --oled-hot: #ff2bd6;
+  --oled-line: #1f1f23;
+
+  --glass: #000;
+  --glass-strong: #000;
+  --glass-rim: transparent;
+  --glass-edge: var(--oled-line);
+  --glass-shadow: none;
+  --glass-blur: none;
+  --wash-1: transparent;
+  --wash-2: transparent;
+  --wash-3: transparent;
+  --lg-fill: linear-gradient(#000, #000);
+  --lg-sheen: linear-gradient(transparent, transparent);
+  --lg-rim: inset 0 0 0 1px var(--oled-line);
+  --lg-drop: none;
+  --lg-panel: #000;
+  --lg-press: rgba(0, 224, 255, 0.14);
+  --block-edge: var(--oled-line);
+  color-scheme: dark;
+  background: #000;
+}
+html[data-theme="oled"] body { background: #000; color: var(--text); }
+html[data-theme="oled"] .ambience-layer { display: none !important; }
+
+/* Things that float over the page keep a hairline so they don't melt into the black. */
+:where(html[data-theme="oled"]) :is(.menu, .popover, .sheet, .toast, .dialog, [role="dialog"], [role="menu"]) {
+  background: #000; border: 1px solid #2a2a30; box-shadow: 0 0 0 1px #000, 0 18px 40px rgba(0, 0, 0, 0.9);
+}
+
+/* Time chips: an outline in the time of day's neon instead of a filled sky. */
+:where(html[data-theme="oled"]) .ts-chip {
+  --neon: #7aa7ff;
+  background: transparent; color: var(--neon); box-shadow: inset 0 0 0 1px var(--neon), 0 0 8px -3px var(--neon);
+  font-variant-numeric: tabular-nums;
+}
+:where(html[data-theme="oled"]) .ts-chip.ts-dawn { --neon: #ff9f6e; }
+:where(html[data-theme="oled"]) .ts-chip.ts-day { --neon: #00e0ff; }
+:where(html[data-theme="oled"]) .ts-chip.ts-sunset { --neon: #ff2bd6; }
+:where(html[data-theme="oled"]) .ts-chip.ts-night { --neon: #8f86ff; }
+:where(html[data-theme="oled"]) .ts-chip.ts-edit { border-color: color-mix(in srgb, var(--neon) 50%, transparent); }
+
+/* Buttons: black with a hairline; on or pressed = a thin accent ring, never a solid fill. */
+:where(html[data-theme="oled"]) button { background-color: #000; border-color: var(--oled-line); }
+:where(html[data-theme="oled"]) button[aria-pressed="true"],
+:where(html[data-theme="oled"]) button[aria-checked="true"],
+:where(html[data-theme="oled"]) button.active,
+:where(html[data-theme="oled"]) button.on { color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+:where(html[data-theme="oled"]) :is(input, textarea, select) { background: #000; border-color: #2a2a30; color: var(--text); }
+:where(html[data-theme="oled"]) :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Theme picker preview. */
+.theme-preview.oled { background: #000; box-shadow: inset 0 0 0 1px #1f1f23; }
+.theme-preview.oled .tp-card { background: #000; box-shadow: inset 0 0 0 1px #26262b; }
+.theme-preview.oled .tp-button { background: #000; box-shadow: inset 0 0 0 1px #00e0ff, 0 0 10px -3px #00e0ff; }
+.theme-preview.oled .tp-well { background: #000; box-shadow: inset 0 0 0 1px #ff2bd6, 0 0 10px -3px #ff2bd6; }

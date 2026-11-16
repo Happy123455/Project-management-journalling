@@ -4,7 +4,7 @@
  * over the base look (liquid glass is the base, so it needs no attribute rules of its own).
  * Light or dark still follows the system.
  */
-export type ThemeId = "glass" | "neu";
+export type ThemeId = "glass" | "neu" | "oled";
 
 export interface ThemeInfo {
   id: ThemeId;
@@ -15,6 +15,7 @@ export interface ThemeInfo {
 export const THEMES: ThemeInfo[] = [
   { id: "glass", name: "Liquid glass", hint: "See-through panels, bright rims, weather on the glass" },
   { id: "neu", name: "Soft UI", hint: "Neumorphism: raised and pressed shapes in one soft colour" },
+  { id: "oled", name: "Pure black", hint: "True black that switches pixels off to save battery, thin neon accents" },
 ];
 
 const KEY = "journal.theme";
