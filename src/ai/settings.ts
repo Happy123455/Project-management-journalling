@@ -21,6 +21,10 @@ export interface AiSettings {
   oilDrop?: boolean;
   /** The hour (0–23) it runs from; 21 unless changed. */
   oilDropHour?: number;
+  /** Gemini: the order to fall back in when a model doesn't answer (ai/gemini.ts); Pro → Flash → Flash-Lite unless changed. */
+  geminiOrder?: ("pro" | "flash" | "lite")[];
+  /** Gemini: seconds to wait for Pro before moving on (45 unless changed). */
+  geminiWaitS?: number;
   /** Per-task model overrides, e.g. { organise: "gemini-4-argon" }. */
   models: Partial<Record<Provider, Partial<Record<AiTask, string>>>>;
 }

@@ -5,10 +5,10 @@ import type { JournalStore } from "../store";
 import type { Section } from "./blocks";
 import { runOneTool, toolLogLine, toolsFor, type ToolCall } from "./agent";
 import { geminiChain } from "./client";
+import { geminiCall } from "./gemini";
 import { getKey } from "./secrets";
 import { loadAiSettings, modelFor, recordUsage } from "./settings";
 
-const GEMINI = "https://generativelanguage.googleapis.com/v1beta";
 
 type Part = { text?: string; thought?: boolean; functionCall?: { name: string; args?: Record<string, unknown> }; functionResponse?: unknown; thoughtSignature?: string };
 interface Content {
@@ -52,7 +52,6 @@ export async function geminiAgent(opts: {
 }): Promise<GeminiAgentResult> {
   const key = await getKey("gemini");
   if (!key) throw new Error("Add a Gemini key in Settings → AI to use the journal's tools from here.");
-  const http = opts.fetchImpl ?? ("__TAURI_INTERNALS__" in window ? (await import("@tauri-apps/plugin-http")).fetch : fetch);
   const model0 = modelFor({ ...loadAiSettings(), provider: "gemini" }, "chat");
   let section = opts.section;
   const contents: Content[] = opts.messages.map((m) => ({ role: m.role === "user" ? "user" : "model", parts: [{ text: m.content }] }));
@@ -60,38 +59,21 @@ export async function geminiAgent(opts: {
   let chain = geminiChain(model0);
   for (let round = 0; round < 8; round++) {
     const tools = [{ functionDeclarations: declarations(toolsFor(section)) }];
-    let json: { candidates?: { content?: Content; finishReason?: string }[]; usageMetadata?: Record<string, number> } | null = null;
-    let used = chain[0];
-    let lastError: Error | null = null;
-    for (const m of chain) {
-      let res: Response;
-      try {
-        res = await http(`${GEMINI}/models/${encodeURIComponent(m)}:generateContent`, {
-          method: "POST",
-          signal: opts.signal ?? AbortSignal.timeout(45_000),
-          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-          body: JSON.stringify({ systemInstruction: { parts: [{ text: opts.system }] }, contents, tools, generationConfig: { maxOutputTokens: 6000 } }),
-        });
-      } catch (e) {
-        if (opts.signal?.aborted) throw new DOMException("Stopped", "AbortError");
-        lastError = new Error(`Couldn't reach Gemini: ${e instanceof Error ? e.message : String(e)}`);
-        continue;
-      }
-      if (res.status === 503 || res.status === 429 || res.status === 404 || res.status >= 500) {
-        lastError = new Error(`Gemini ${res.status} on ${m}`);
-        continue;
-      }
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(/API key not valid/i.test(body) ? "The Gemini API key isn't valid." : `Gemini ${res.status}: ${body.slice(0, 160)}`);
-      }
-      json = await res.json();
-      used = m;
-      // Stay on the model that answered for the next rounds.
-      chain = [m, ...chain.filter((x) => x !== m)];
-      break;
-    }
-    if (!json) throw lastError ?? new Error("Gemini didn't answer.");
+    // One path for every Gemini call (ai/gemini.ts): a model that hangs, errors or answers with
+    // nothing hands over to the next one.
+    const r = await geminiCall({
+      key,
+      model: chain[0],
+      chain,
+      signal: opts.signal,
+      fastTimeoutMs: 45_000,
+      fetchImpl: opts.fetchImpl,
+      body: () => ({ systemInstruction: { parts: [{ text: opts.system }] }, contents, tools, generationConfig: { maxOutputTokens: 6000 } }),
+    });
+    const json = r.json as { candidates?: { content?: Content; finishReason?: string }[]; usageMetadata?: Record<string, number> };
+    const used = r.model;
+    // Stay on the model that answered for the next rounds.
+    chain = [used, ...chain.filter((x) => x !== used)];
     const u = json.usageMetadata ?? {};
     recordUsage(used, u.promptTokenCount ?? 0, (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0));
     const content = json.candidates?.[0]?.content;

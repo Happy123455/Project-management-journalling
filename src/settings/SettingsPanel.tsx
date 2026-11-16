@@ -1,3 +1,4 @@
+import { DEFAULT_ORDER, DEFAULT_WAIT_S, TIER_NAME, type Tier } from "../ai/gemini";
 import { JOY_LANE_MAX, JOY_LANE_MIN, joyLane, setJoyLane } from "../nav/joyPrefs";
 import { ambienceSettings, setAmbienceSettings, type AmbienceSettings } from "../lib/ambience";
 import type { ToneMode } from "../lib/softLight";
@@ -668,6 +669,7 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
               <input type="checkbox" checked={s.autoCorrect} onChange={(e) => update({ autoCorrect: e.target.checked })} />
               Auto-correct (apply grammar fixes without asking)
             </label>
+            <GeminiFallback order={s.geminiOrder ?? DEFAULT_ORDER} waitS={s.geminiWaitS ?? DEFAULT_WAIT_S} onChange={(p) => update(p)} />
             <p className="hint">
               Models: grammar {modelFor(s, "grammar")}, Organise {modelFor(s, "organise")}, photos {modelFor(s, "describe")}
               {modelFor(s, "organise") !== DEFAULT_MODELS[s.provider].organise ? " (custom)" : ""}. AI only runs when you tap or finish a paragraph.
@@ -728,6 +730,44 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
         </nav>
         <div className="settings-body">{content}</div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Gemini fallback (ai/gemini.ts): the order to fall back in when a model doesn't answer, and how
+ * long to wait for Pro before moving on.
+ */
+function GeminiFallback({ order, waitS, onChange }: { order: Tier[]; waitS: number; onChange: (p: { geminiOrder?: Tier[]; geminiWaitS?: number }) => void }) {
+  const move = (i: number, d: -1 | 1) => {
+    const next = [...order];
+    const j = i + d;
+    if (j < 0 || j >= next.length) return;
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange({ geminiOrder: next });
+  };
+  return (
+    <div className="settings-toggle gemini-fallback">
+      <span>Gemini fallback when a model doesn't answer:</span>
+      <span className="gemini-order">
+        {order.map((t, i) => (
+          <span key={t} className="gemini-tier">
+            {i > 0 && " → "}
+            <button type="button" className="link" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move ${TIER_NAME[t]} earlier`}>‹</button>
+            {TIER_NAME[t]}
+            <button type="button" className="link" onClick={() => move(i, 1)} disabled={i === order.length - 1} aria-label={`Move ${TIER_NAME[t]} later`}>›</button>
+          </span>
+        ))}
+      </span>
+      <label>
+        Wait for Pro up to{" "}
+        <select value={waitS} onChange={(e) => onChange({ geminiWaitS: Number(e.target.value) })} aria-label="Seconds to wait for Pro">
+          {[15, 25, 45, 60, 90, 120].map((n) => (
+            <option key={n} value={n}>{n} s</option>
+          ))}
+        </select>
+        , then use the next one (a model that failed is skipped for 10 minutes)
+      </label>
     </div>
   );
 }

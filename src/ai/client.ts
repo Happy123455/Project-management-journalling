@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getKey } from "./secrets";
 import { loadAiSettings, modelFor, recordUsage } from "./settings";
 import { actorFor, OLLAMA_URL, type AiTask, type Provider } from "./providers";
+import { answerText, fallbackChain, fallbackPrefs, geminiCall, usageOf } from "./gemini";
 
 /** Thrown when AI is off or no key is set; the UI shows "add your key in Settings". */
 export class AiUnavailableError extends Error {
@@ -49,42 +50,8 @@ export interface AiAnswer<T = unknown> {
   model: string;
 }
 
-const GEMINI = "https://generativelanguage.googleapis.com/v1beta";
-
-/** A Gemini API error as a short readable message. */
-async function geminiError(res: Response): Promise<Error> {
-  let message = `${res.status} ${res.statusText}`;
-  try {
-    const body = await res.json();
-    if (body?.error?.message) message = body.error.message;
-  } catch {
-    // Keep the status line.
-  }
-  if (res.status === 400 && /API key not valid/i.test(message)) message = "The Gemini API key isn't valid.";
-  if (res.status === 429) message = "Gemini rate limit reached — try again in a minute.";
-  return new Error(message);
-}
-
-/**
- * Models to fall back on, in order, when the chosen one is overloaded (Google answers 503 "high
- * demand", often only after 30–50 s, which looked like the app had stopped responding), rate
- * limited, timed out or gone. Lite models answer in a couple of seconds.
- */
-export const GEMINI_FALLBACKS = ["gemini-3.5-flash-lite", "gemini-flash-latest", "gemini-3.6-flash", "gemini-flash-lite-latest"];
-
-/** A model that just failed is skipped for a while, so the next request doesn't wait on it again. */
-const resting = new Map<string, number>();
-const REST_MS = 10 * 60_000;
-
-/** The models to try for a request, the chosen one first unless it failed in the last few minutes. */
-export function geminiChain(model: string, now = Date.now(), rest: Map<string, number> = resting): string[] {
-  const all = [model, ...GEMINI_FALLBACKS.filter((m) => m !== model)];
-  const fresh = all.filter((m) => !rest.has(m) || now - rest.get(m)! >= REST_MS);
-  return fresh.length ? fresh : all;
-}
-
-/** Worth trying the next model: overloaded, rate limited, unknown model, or no answer in time. */
-const retryable = (status: number) => status === 503 || status === 429 || status === 404 || status === 500 || status === 504;
+/** The models a request for `model` may end up on, in order (see ai/gemini.ts). */
+export const geminiChain = (model: string, now = Date.now(), rest?: Map<string, number>) => fallbackChain(model, fallbackPrefs().order, now, rest);
 
 async function callGemini(key: string, model: string, req: AiRequest) {
   const parts: Record<string, unknown>[] = [
@@ -92,11 +59,11 @@ async function callGemini(key: string, model: string, req: AiRequest) {
     ...(req.files ?? []).map((f) => ({ fileData: { fileUri: f.uri, ...(f.mime ? { mimeType: f.mime } : {}) } })),
     { text: req.text },
   ];
-  // In the app, through Tauri's native HTTP: the Android WebView's own fetch to Google can hang
-  // (a cross-site request with a key header). A stalled connection still ends in an error.
-  const http = "__TAURI_INTERNALS__" in window ? (await import("@tauri-apps/plugin-http")).fetch : fetch;
-  const body = (thinking: boolean) =>
-    JSON.stringify({
+  // In the app the request goes through Tauri's native HTTP (ai/gemini.ts): the Android WebView's
+  // own fetch to Google can hang (a cross-site request with a key header).
+  const body = (m: string) => {
+    const thinking = !m.includes("lite");
+    return {
       ...(req.system ? { systemInstruction: { parts: [{ text: req.system }] } } : {}),
       contents: [{ role: "user", parts }],
       generationConfig: {
@@ -106,52 +73,13 @@ async function callGemini(key: string, model: string, req: AiRequest) {
         ...(req.files?.length ? { mediaResolution: "MEDIA_RESOLUTION_LOW" } : {}),
         ...(req.schema ? { responseMimeType: "application/json", responseSchema: req.schema } : {}),
       },
-    });
-  // Quick tasks give up on a slow model sooner and move on to the next one.
-  const limit = req.timeoutMs ?? (req.task === "organise" ? 90_000 : req.images?.length ? 30_000 : 20_000);
-  let lastError: Error | null = null;
-  for (const m of geminiChain(model)) {
-    let res: Response;
-    try {
-      res = await http(`${GEMINI}/models/${encodeURIComponent(m)}:generateContent`, {
-        signal: AbortSignal.timeout(limit),
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-        body: body(!m.includes("lite")),
-      });
-    } catch (e) {
-      // Timed out or no connection: a timeout means this model is slow right now, try the next.
-      const timedOut = e instanceof DOMException ? e.name === "TimeoutError" || e.name === "AbortError" : /timed? ?out|abort/i.test(String(e));
-      if (!timedOut) throw new Error(`Couldn't reach Gemini: ${e instanceof Error ? e.message : String(e)}`);
-      resting.set(m, Date.now());
-      lastError = new Error(`Gemini (${m}) didn't answer in ${limit / 1000} s.`);
-      continue;
-    }
-    if (!res.ok) {
-      const err = await geminiError(res);
-      if (!retryable(res.status)) throw err;
-      resting.set(m, Date.now());
-      lastError = err;
-      continue;
-    }
-    resting.delete(m);
-    const json = await res.json();
-    const candidate = json.candidates?.[0];
-    const text = (candidate?.content?.parts ?? []).map((p: { text?: string; thought?: boolean }) => (p.thought ? "" : p.text ?? "")).join("");
-    if (!text) {
-      const why = candidate?.finishReason ?? json.promptFeedback?.blockReason ?? "unknown";
-      // Ran out of room thinking: another model may do it; a blocked prompt won't change.
-      if (why === "MAX_TOKENS") {
-        lastError = new Error("Gemini ran out of room before answering.");
-        continue;
-      }
-      throw new Error(`Gemini returned no answer (${why}).`);
-    }
-    const u = json.usageMetadata ?? {};
-    // Thinking tokens are billed as output.
-    return { text, model: m, input: u.promptTokenCount ?? 0, output: (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0) };
-  }
-  throw lastError ?? new Error("Gemini didn't answer.");
+    };
+  };
+  // Pro waits as long as Settings says; quick tasks give up on a slow fast model sooner.
+  const fast = req.task === "organise" ? 90_000 : req.images?.length ? 30_000 : 20_000;
+  const r = await geminiCall({ key, model, body, timeoutMs: req.timeoutMs, fastTimeoutMs: fast });
+  const [input, output] = usageOf(r.json);
+  return { text: answerText(r.json), model: r.model, input, output, note: r.note };
 }
 
 /** Ollama's chat API on this Mac (JSON mode when a schema is given; thinking only for the chat journal). */

@@ -21,19 +21,34 @@ describe("local model", () => {
   });
 });
 
-import { geminiChain, GEMINI_FALLBACKS } from "./client";
+import { fallbackChain, restingModels, tierOf, unusable } from "./gemini";
 
 describe("Gemini fallbacks", () => {
-  it("tries the chosen model first, then the fallbacks once each", () => {
-    const chain = geminiChain("gemini-3.8-flash", 0, new Map());
-    expect(chain[0]).toBe("gemini-3.8-flash");
-    expect(chain.slice(1)).toEqual(GEMINI_FALLBACKS);
+  it("goes down from the model asked for: Pro → Flash → Flash-Lite", () => {
+    const chain = fallbackChain("gemini-3.1-pro-preview", undefined, 0, new Map());
+    expect(chain.map(tierOf)).toEqual(["pro", "flash", "flash", "flash", "lite", "lite"]);
+    expect(chain[0]).toBe("gemini-3.1-pro-preview");
+    expect(fallbackChain("gemini-3.8-flash", undefined, 0, new Map()).map(tierOf)).toEqual(["flash", "flash", "flash", "lite", "lite"]);
+    // Lite has nothing lower: Flash is the spare, never Pro.
+    expect(fallbackChain("gemini-3.5-flash-lite", undefined, 0, new Map()).map(tierOf)).toEqual(["lite", "lite", "flash", "flash", "flash"]);
   });
-  it("skips a model that just failed, but never ends up with nothing", () => {
-    const rest = new Map([["gemini-3.8-flash", 1000]]);
-    expect(geminiChain("gemini-3.8-flash", 2000, rest)[0]).toBe("gemini-3.5-flash-lite");
-    expect(geminiChain("gemini-3.8-flash", 1000 + 11 * 60_000, rest)[0]).toBe("gemini-3.8-flash");
-    const all = new Map([["gemini-3.8-flash", 0], ...GEMINI_FALLBACKS.map((m) => [m, 0] as [string, number])]);
-    expect(geminiChain("gemini-3.8-flash", 5, all).length).toBe(GEMINI_FALLBACKS.length + 1);
+  it("follows the order set in Settings", () => {
+    expect(fallbackChain("gemini-3.1-pro-preview", ["pro", "lite", "flash"], 0, new Map()).map(tierOf)).toEqual(["pro", "lite", "lite", "flash", "flash", "flash"]);
+  });
+  it("puts a model that just failed last for 10 minutes, but never leaves nothing", () => {
+    const rest = new Map([["gemini-3.1-pro-preview", 1000]]);
+    expect(fallbackChain("gemini-3.1-pro-preview", undefined, 2000, rest)[0]).toBe("gemini-3.8-flash");
+    expect(fallbackChain("gemini-3.1-pro-preview", undefined, 2000, rest).pop()).toBe("gemini-3.1-pro-preview");
+    expect(fallbackChain("gemini-3.1-pro-preview", undefined, 1000 + 11 * 60_000, rest)[0]).toBe("gemini-3.1-pro-preview");
+    expect(restingModels.size).toBe(0);
+  });
+  it("calls an empty, blocked or cut-off answer unusable", () => {
+    expect(unusable({ candidates: [{ content: { parts: [{ text: "hi" }] }, finishReason: "STOP" }] })).toBeNull();
+    expect(unusable({ candidates: [{ content: { parts: [] }, finishReason: "STOP" }] })).toBe("answered with nothing");
+    expect(unusable({ candidates: [{ content: { parts: [] }, finishReason: "STOP" }] }, true)).toBeNull();
+    expect(unusable({ candidates: [{ finishReason: "SAFETY" }] })).toBe("blocked (SAFETY)");
+    expect(unusable({ promptFeedback: { blockReason: "OTHER" } })).toBe("blocked (OTHER)");
+    expect(unusable({ candidates: [{ content: { parts: [{ text: "thinking", thought: true }] }, finishReason: "MAX_TOKENS" }] })).toBe("ran out of room before answering");
+    expect(unusable({ candidates: [{ content: { parts: [{ functionCall: { name: "x" } }] } }] })).toBeNull();
   });
 });

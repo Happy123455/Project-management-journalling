@@ -53,6 +53,8 @@ export async function transcribe(engine: Engine, samples: Float32Array, before =
     },
     fetchImpl,
     60_000,
+    // No speech in this piece is a real answer.
+    { allowEmpty: true },
   );
   return clean(text);
 }

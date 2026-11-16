@@ -3,6 +3,7 @@
 // (evaluation schema) and when the answer counts (scoring and thresholds). One built-in config
 // decides where a new node goes in a graph (src/ai/voiceGraph.ts uses it), many lines per request.
 import type { JournalStore } from "../store";
+import { answerText, fallbackChain, fallbackPrefs, geminiCall, usageOf } from "./gemini";
 import { getKey } from "./secrets";
 import { recordUsage } from "./settings";
 
@@ -139,42 +140,18 @@ export interface DecideInput {
 }
 
 /**
- * One Gemini request through a chain of models (the next one when a model is busy or missing):
- * the answer's text, thoughts left out. Shared by the decision models and voice transcription.
+ * One Gemini request through a chain of models (ai/gemini.ts: the next one when a model is busy,
+ * hangs, answers with nothing or is blocked): the answer's text, thoughts left out. Shared by
+ * the decision models, voice transcription and voice graphs.
  */
-export async function geminiText(models: string[], body: Record<string, unknown>, fetchImpl?: typeof fetch, timeoutMs = 30_000): Promise<{ text: string; model: string }> {
+export async function geminiText(models: string[], body: Record<string, unknown>, fetchImpl?: typeof fetch, timeoutMs = 30_000, opts: { allowEmpty?: boolean } = {}): Promise<{ text: string; model: string }> {
   const key = await getKey("gemini");
   if (!key) throw new Error("This uses Gemini: add a key in Settings → AI.");
-  const http = fetchImpl ?? ("__TAURI_INTERNALS__" in window ? (await import("@tauri-apps/plugin-http")).fetch : fetch);
-  let last: Error | null = null;
-  for (const m of [...new Set(models)]) {
-    let res: Response;
-    try {
-      res = await http(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
-        method: "POST",
-        signal: AbortSignal.timeout(timeoutMs),
-        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-        body: JSON.stringify(body),
-      });
-    } catch (e) {
-      last = new Error(`Couldn't reach Gemini: ${e instanceof Error ? e.message : String(e)}`);
-      continue;
-    }
-    if (res.status === 503 || res.status === 429 || res.status === 404 || res.status >= 500) {
-      last = new Error(`Gemini ${res.status} on ${m}`);
-      continue;
-    }
-    if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      throw new Error(/API key not valid/i.test(t) ? "The Gemini API key isn't valid." : `Gemini ${res.status}: ${t.slice(0, 160)}`);
-    }
-    const json = await res.json();
-    const u = json.usageMetadata ?? {};
-    recordUsage(m, u.promptTokenCount ?? 0, (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0));
-    const text = (json.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string; thought?: boolean }) => (p.thought ? "" : p.text ?? "")).join("");
-    return { text, model: m };
-  }
-  throw last ?? new Error("Gemini didn't answer.");
+  const chain = [...new Set([...models, ...fallbackChain(models[0], fallbackPrefs().order).filter((m) => !models.includes(m))])];
+  const r = await geminiCall({ key, model: models[0], chain, body: () => body, fastTimeoutMs: timeoutMs, fetchImpl, allowEmpty: opts.allowEmpty });
+  const [input, output] = usageOf(r.json);
+  recordUsage(r.model, input, output);
+  return { text: answerText(r.json), model: r.model };
 }
 
 /** A JSON answer in `schema` (the next model when one gives unreadable JSON). */

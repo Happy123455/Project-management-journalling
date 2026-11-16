@@ -3907,3 +3907,8 @@ html.at-rest .vg-dot { animation: none; }
 .doubles-row .nexus-removed-text small { opacity: 0.7; }
 .doubles-row .doubles-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 6px; }
 .doubles-row .doubles-actions button { font-size: 13px; grid-column: auto; grid-row: auto; }
+
+/* Settings › AI › Gemini fallback order */
+.gemini-fallback { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.gemini-order { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+.gemini-tier button { padding: 0 4px; }
