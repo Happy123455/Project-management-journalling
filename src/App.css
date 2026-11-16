@@ -4071,3 +4071,19 @@ html.dl-dragging * { overflow-anchor: none !important; touch-action: none !impor
 .dgp-layers button { flex: 1 1 auto; padding: 6px 10px; border-radius: 999px; font-size: 12.5px; }
 .dgp-layers button.on { background: var(--accent); color: #fff; border-color: transparent; }
 .dgp-hint { margin: 4px 0 6px; font-size: 11.5px; color: var(--muted); }
+
+/* ───── Item 6: ✨ Improve sheet ───── */
+.improve-title { margin: 0; font-size: 16px; flex: 1; }
+.improve-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .improve-cols { grid-template-columns: 1fr; } }
+.improve-cols h4 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.improve-text { margin: 0; white-space: pre-wrap; line-height: 1.5; font-size: 14.5px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--text) 5%, transparent); max-height: 40vh; overflow: auto; }
+.improve-wait { color: var(--muted); animation: improve-blink 1.6s ease-in-out infinite; }
+@keyframes improve-blink { 50% { opacity: 0.45; } }
+.improve-new { background: transparent; color: inherit; text-decoration: underline; text-decoration-color: #2fa86a; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.improve-edit { width: 100%; box-sizing: border-box; font: inherit; font-size: 14.5px; line-height: 1.5; padding: 10px 12px; border-radius: 12px; }
+.improve-why { margin-top: 10px; font-size: 13px; }
+.improve-why p { margin: 6px 0 0; }
+.improve-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.improve-actions .hint { flex: 1; }
+.prompt-improve { white-space: nowrap; }

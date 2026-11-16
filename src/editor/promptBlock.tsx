@@ -4,6 +4,24 @@ import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type Nod
 import { fillPrompt, promptFields } from "../lib/prompt";
 import { showToast } from "../lib/toast";
 import { copyText, FoldButton } from "./codeBlock";
+import { ImproveSheet } from "./ImproveSheet";
+
+/** Applies a kept "✨ Improve" to the block as an AI edit (shown in Nexus, undoable), with Undo in a toast. */
+function keepImproved(props: NodeViewProps, key: "raw" | "template", text: string, actor: string) {
+  const { editor, getPos, node } = props;
+  const pos = getPos();
+  if (typeof pos !== "number") return;
+  const before = node.attrs[key] as string;
+  editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, [key]: text }).setMeta("aiActor", actor));
+  showToast("✨ Improved prompt kept", "info", {
+    label: "Undo",
+    run: () => {
+      const at = getPos();
+      const now = typeof at === "number" ? editor.state.doc.nodeAt(at) : null;
+      if (typeof at === "number" && now?.type.name === "promptBlock") editor.view.dispatch(editor.state.tr.setNodeMarkup(at, undefined, { ...now.attrs, [key]: before }));
+    },
+  });
+}
 
 const EXAMPLE = "Write a {{tone}} message to {{person}} about {{topic}}. Keep it under {{length}} words.";
 
@@ -75,9 +93,11 @@ function LazyTextarea({ value, onCommit, ...rest }: Omit<TextareaHTMLAttributes<
  * "/" Prompt: write roughly what you want on top (with {a word you can't find} in braces), pick
  * "Fix grammar" or "Make it a good prompt", and the AI writes the ready prompt below, with Copy.
  */
-function PromptBuilder({ node, updateAttributes, editor }: NodeViewProps) {
+function PromptBuilder(props: NodeViewProps) {
+  const { node, updateAttributes, editor } = props;
   const { title, raw, mode, output } = node.attrs as { title: string; raw: string; mode: Mode; output: string };
   const [busy, setBusy] = useState(false);
+  const [improving, setImproving] = useState(false);
   const [error, setError] = useState("");
   const readOnly = !editor.isEditable;
   const convert = async () => {
@@ -119,10 +139,16 @@ function PromptBuilder({ node, updateAttributes, editor }: NodeViewProps) {
             {label}
           </button>
         ))}
+        <button type="button" className="prompt-improve" disabled={readOnly || !raw.trim()} onClick={() => setImproving(true)} title="Fix grammar and fill in missing words, same meaning">
+          ✨ Improve
+        </button>
         <button type="button" className="prompt-convert" disabled={readOnly || busy || !raw.trim()} onClick={() => void convert()}>
           {busy ? "Writing…" : "↓ Convert"}
         </button>
       </div>
+      {improving && (
+        <ImproveSheet original={raw} onClose={() => setImproving(false)} onKeep={(text, by) => (keepImproved(props, "raw", text, by.actor), setImproving(false))} />
+      )}
       {error && <p className="hint prompt-error">{error}</p>}
       <div className="prompt-output-box">
         <LazyTextarea
@@ -150,9 +176,11 @@ function PromptBuilder({ node, updateAttributes, editor }: NodeViewProps) {
 }
 
 /** Older prompt blocks: a reusable template with {{fields}}; fill them in and Copy. */
-function PromptTemplateView({ node, updateAttributes, editor }: NodeViewProps) {
+function PromptTemplateView(props: NodeViewProps) {
+  const { node, updateAttributes, editor } = props;
   const { title, template, values } = node.attrs as { title: string; template: string; values: Record<string, string> };
   const [editing, setEditing] = useState(!template);
+  const [improving, setImproving] = useState(false);
   const fields = promptFields(template);
   const finished = fillPrompt(template, values);
   const missing = fields.filter((f) => !values[f]?.trim());
@@ -164,8 +192,12 @@ function PromptTemplateView({ node, updateAttributes, editor }: NodeViewProps) {
         <FoldButton collapsed={!!node.attrs.collapsed} onToggle={() => updateAttributes({ collapsed: !node.attrs.collapsed })} />
         <span aria-hidden>🧩</span>
         <LazyInput className="prompt-title" value={title} placeholder="Prompt name" readOnly={readOnly} onCommit={(v) => updateAttributes({ title: v })} />
+        <button type="button" disabled={readOnly || !template.trim()} onClick={() => setImproving(true)} title="Fix grammar and fill in missing words; {{fields}} stay as they are">✨ Improve</button>
         <button type="button" onClick={() => setEditing(!editing)}>{editing ? "Done" : "Edit template"}</button>
       </div>
+      {improving && (
+        <ImproveSheet original={template} onClose={() => setImproving(false)} onKeep={(text, by) => (keepImproved(props, "template", text, by.actor), setImproving(false))} />
+      )}
       {editing ? (
         <LazyTextarea
           className="prompt-template"
