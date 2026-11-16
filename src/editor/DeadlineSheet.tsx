@@ -8,7 +8,8 @@ import { fx, fxOn, setFxOn } from "../lib/fx";
 import { showError, showToast } from "../lib/toast";
 import { randomLid } from "../sync/lineIds";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
-import { deadlineRows, deleteDeadline, retime, savePlans, setAll } from "./deadlineStore";
+import { barsOf, deadlineRows, deleteDeadline, retime, savePlans, setAll } from "./deadlineStore";
+import { DayPickerButton } from "./DayGridPicker";
 
 const MIN = 60_000;
 
@@ -71,6 +72,7 @@ export function DeadlineSheet({ editor, info, prefs, plans, gaps, now, onClose }
   const set = (attrs: Partial<DeadlineInfo> | Record<string, unknown>) => setAll(editor, tid, attrs);
   const [title, setTitle] = useState(info.title);
   const [due, setDue] = useState(localDT(info.endAt));
+  const firstDay = barsOf(editor, info.tid).map((b) => String(b.attrs.day)).sort()[0];
   const [notes, setNotes] = useState(info.notes);
   const [needText, setNeedText] = useState(info.need ? hm(info.need * MIN) : "");
   const [newStep, setNewStep] = useState("");
@@ -169,7 +171,8 @@ export function DeadlineSheet({ editor, info, prefs, plans, gaps, now, onClose }
         <section className="dls-sec">
           <h4>Due</h4>
           <div className="dls-line">
-            <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} />
+            <DayPickerButton value={due.slice(0, 10)} onPick={(d) => setDue(`${d}${due.slice(10) || "T18:00"}`)} marks={{ from: firstDay, due: due.slice(0, 10), planned: new Set(plans.map((p) => dayKey(new Date(p.start)))) }} />
+            <input type="time" value={due.slice(11, 16)} onChange={(e) => e.target.value && setDue(`${due.slice(0, 10)}T${e.target.value}`)} aria-label="Due time" />
             <button type="button" disabled={due === localDT(info.endAt)} onClick={() => {
               const t = new Date(due).getTime();
               if (!(t > 0)) return fx("warn");

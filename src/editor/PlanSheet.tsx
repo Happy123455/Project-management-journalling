@@ -5,6 +5,7 @@ import { dayKey } from "../lib/timestamp";
 import { fx } from "../lib/fx";
 import { randomLid } from "../sync/lineIds";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
+import { DayPickerButton } from "./DayGridPicker";
 
 const MIN = 60_000;
 const DAY = 86_400_000;
@@ -79,9 +80,11 @@ export function PlanSheet({ plan, plans, days, steps, endAt, nextFree, onSave, o
         <section className="dls-time">
           <label>
             <span>Day</span>
-            <select value={day} onChange={(e) => moveDay(e.target.value)}>
-              {[...new Set([...days, day])].sort().map((k) => <option key={k} value={k}>{dayLabel(k).text}</option>)}
-            </select>
+            <DayPickerButton
+              value={day}
+              onPick={moveDay}
+              marks={{ allowed: new Set([...days, day]), from: [...days].sort()[0], due: dayKey(new Date(endAt)), planned: new Set(others.map((p) => dayKey(new Date(p.start)))) }}
+            />
           </label>
           <label>
             <span>Start</span>

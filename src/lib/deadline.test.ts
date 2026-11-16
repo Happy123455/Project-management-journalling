@@ -30,6 +30,19 @@ describe("deadline bar", () => {
     const free = freeGaps(t0 + 8 * H, t0 + 23.5 * H, busy);
     expect(free.map((f) => [(f.start - t0) / H, (f.end - t0) / H])).toEqual([[8, 9], [9 + 20 / 60, 23.5]]);
   });
+  it("⭐ Ideal day: the ideal start times, usual lengths, usual time where none is set (item 14)", () => {
+    const ideal = { ...DEFAULT_ROUTINE, steps: DEFAULT_ROUTINE.steps.map((s) => (s.id === "breakfast" ? { ...s, ideal: "07:30" } : s.id === "sleep" ? { ...s, ideal: "22:30" } : s.id === "wake" ? { ...s, ideal: "06:30" } : s)) };
+    const t0 = midnight("2026-11-09");
+    const busy = busyOn("2026-11-09", "ideal", ideal, stats, new Map());
+    expect(busy.map((b) => [b.label, (b.start - t0) / H, (b.end - t0) / H])).toEqual([
+      ["Sleep", 0, 6.5],
+      ["Breakfast", 7.5, 7.5 + 20 / 60],
+      ["Sleep", 22.5, 24],
+    ]);
+    // No ideal times set: the same as the usual day.
+    const plain = busyOn("2026-11-09", "ideal", DEFAULT_ROUTINE, stats, new Map()).map((b) => [b.label, b.start, b.end]);
+    expect(plain).toEqual(busyOn("2026-11-09", "avg", DEFAULT_ROUTINE, stats, new Map()).filter((b) => !(b.label === "Sleep" && b.end - b.start === 5 * 60_000)).map((b) => [b.label, b.start, b.end]));
+  });
 });
 
 describe("deadline round 3", () => {

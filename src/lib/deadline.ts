@@ -1,4 +1,4 @@
-import { atDayMinute, habitual, phaseOf, type RoutineConfig, type RoutineDayLog, type StepStats } from "./routine";
+import { atDayMinute, clockMinute, habitual, phaseOf, type RoutineConfig, type RoutineDayLog, type StepStats } from "./routine";
 import { addDays } from "./timestamp";
 import { skyAt } from "./sky";
 
@@ -34,7 +34,8 @@ export function daysBetween(from: string, to: string, max = 62): string[] {
 }
 
 /** Where the routine comes from: off, the phase's usual day, or one real day copied. */
-export type Layer = "off" | "avg" | `day:${string}`;
+/** The routine behind the bars: none, the usual day, the ideal day (item 14), or like one logged day. */
+export type Layer = "off" | "avg" | "ideal" | `day:${string}`;
 
 /**
  * The routine blocks of one routine day (04:00 → 04:00), as times. Work/study steps are left out:
@@ -47,16 +48,25 @@ export function routineBusy(day: string, layer: Layer, config: RoutineConfig, st
   const sleepStep = config.steps.find((s) => s.health === "sleep");
   const wakeStep = config.steps.find((s) => s.health === "wake");
   const usualWake = wakeStep ? stats.get(wakeStep.id)?.start ?? null : null;
-  if (layer === "avg") {
+  if (layer === "avg" || layer === "ideal") {
+    // Ideal day: each step at the ideal start time set for it in the routine (else its usual
+    // time), for its usual length (else the length set for it).
+    const ideal = layer === "ideal";
+    const startOf = (st: StepStats | undefined, step: { ideal?: string }) =>
+      (ideal ? clockMinute(step.ideal) : null) ?? (habitual(st) && st!.start !== null ? st!.start : null);
     for (const s of config.steps) {
       const st = stats.get(s.id);
-      if (!s.span || s.work || !habitual(st) || st!.start === null) continue;
-      const start = atDayMinute(day, st!.start);
-      out.push({ start, end: start + Math.max(5, st!.minutes) * MIN, icon: s.icon, label: s.label });
+      if (!s.span || s.work || (ideal && s.health === "sleep")) continue;
+      const at = startOf(st, s);
+      if (at === null) continue;
+      const mins = habitual(st) ? st!.minutes : s.minutes ?? 15;
+      const start = atDayMinute(day, at);
+      out.push({ start, end: start + Math.max(5, mins) * MIN, icon: s.icon, label: s.label });
     }
-    const sl = sleepStep ? stats.get(sleepStep.id)?.start ?? null : null;
-    if (sleepStep && sl !== null && usualWake !== null) {
-      out.push({ start: atDayMinute(day, sl), end: atDayMinute(addDays(day, 1), usualWake), icon: sleepStep.icon, label: sleepStep.label, sleep: true });
+    const sl = sleepStep ? startOf(stats.get(sleepStep.id), sleepStep) : null;
+    const wake = wakeStep ? startOf(stats.get(wakeStep.id), wakeStep) : usualWake;
+    if (sleepStep && sl !== null && wake !== null) {
+      out.push({ start: atDayMinute(day, sl), end: atDayMinute(addDays(day, 1), wake), icon: sleepStep.icon, label: sleepStep.label, sleep: true });
     }
   } else {
     const from = layer.slice(4);

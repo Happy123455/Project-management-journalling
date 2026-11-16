@@ -7,6 +7,7 @@ import { changeDay } from "../routine/routineData";
 import { showToast } from "../lib/toast";
 import { randomLid } from "../sync/lineIds";
 import { openDayEditor } from "./noteEdit";
+import { editorPrefs } from "../lib/editorPrefs";
 
 /**
  * Deadlines as data: reading every deadline in the notes (for Timelines, the today card, plan
@@ -172,7 +173,7 @@ export function deadlineRows(endAt: number, title: string, extra: Record<string,
   const tid = randomLid();
   const days = daysBetween(from, dayKey(new Date(endAt)));
   return days.flatMap((day, i) => {
-    const bar = { type: "deadlineBar", attrs: { tid, day, endAt, title, layer: "avg", awake: false, comments: [], first: i === 0, show: days.length > 4 ? 4 : 0, ...extra } };
+    const bar = { type: "deadlineBar", attrs: { tid, day, endAt, title, layer: editorPrefs().deadlineLayer, awake: false, comments: [], first: i === 0, show: days.length > 4 ? 4 : 0, ...extra } };
     return i < days.length - 1 ? [bar, { type: "paragraph" }] : [bar];
   });
 }

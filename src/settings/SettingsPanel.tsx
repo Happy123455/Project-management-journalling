@@ -426,6 +426,15 @@ function EditorSettings({ store }: { store: JournalStore | null }) {
           <small>About {Math.round(e.maxCps * 12)} words a minute. 5 is calm handwriting pace, 8 is quick typing.</small>
         </label>
       )}
+      <div className="settings-label">⏳ Routine behind new deadlines</div>
+      <div className="project-status" role="radiogroup" aria-label="Routine behind new deadlines">
+        {([["avg", "Usual day"], ["ideal", "⭐ Ideal day"], ["off", "No routine"]] as const).map(([v, t]) => (
+          <button key={v} type="button" role="radio" aria-checked={e.deadlineLayer === v} className={e.deadlineLayer === v ? "active status-active" : ""} onClick={() => setE(setEditorPrefs({ deadlineLayer: v }))}>
+            {t}
+          </button>
+        ))}
+      </div>
+      <p className="hint">⭐ Ideal day uses the ideal start times set in Routine (the usual time for steps without one). Each deadline can still change it from its bar.</p>
       <div className="settings-label">⏳ Deadlines today in the month view</div>
       <div className="project-status" role="radiogroup" aria-label="Deadlines today in the month view">
         {([["below", "Under Coming up"], ["left", "Left of Coming up"], ["off", "Don't show"]] as const).map(([v, t]) => (

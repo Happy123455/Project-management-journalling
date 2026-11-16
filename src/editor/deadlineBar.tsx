@@ -10,6 +10,7 @@ import { DeadlineStrip } from "./deadlineStrip";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { onlyTextInLines } from "./blocks";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { DayGrid, DayPickerButton, Popover } from "./DayGridPicker";
 import { BUILT_IN_TEMPLATES, busyOn, clock, DAY, dayLabel, firstFit, freeAcross, freeGaps, freeHint, hm, infoOf, midnight, missedPlans, needMins, parseDuration, PLAN_KINDS, progressOf, shownRange, skyGradient, templateDays, type Layer, type Plan, type Progress } from "../lib/deadline";
 import { randomLid } from "../sync/lineIds";
 import { fx } from "../lib/fx";
@@ -101,6 +102,44 @@ function useDeadlinePlans(editor: Editor, tid: string, on: boolean): Plan[] {
   return plans;
 }
 
+const LAYERS: { id: Layer; label: string; hint: string }[] = [
+  { id: "off", label: "No routine", hint: "Bars without your routine behind them" },
+  { id: "avg", label: "Usual day", hint: "Your usual times and lengths, from the logs" },
+  { id: "ideal", label: "⭐ Ideal day", hint: "The ideal start times set in Routine (usual time where none is set), usual lengths" },
+];
+const layerLabel = (layer: string) => LAYERS.find((l) => l.id === layer)?.label ?? (layer.startsWith("day:") ? `Like ${dayLabel(layer.slice(4)).text}` : "Usual day");
+
+/** The routine behind the bars: none, usual, ⭐ ideal, or like a logged day picked on a month grid. */
+function LayerPicker({ layer, likeDays, marks, onPick }: { layer: string; likeDays: string[]; marks: { from?: string; due?: string; planned?: Set<string> }; onPick: (layer: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const like = layer.startsWith("day:") ? layer.slice(4) : likeDays[0];
+  return (
+    <>
+      <button ref={btn} type="button" className="dgp-btn dl-layer" aria-expanded={open} title="Routine behind the bars" onClick={() => (fx(open ? "close" : "open"), setOpen(!open))}>
+        {layerLabel(layer)} <span aria-hidden>▾</span>
+      </button>
+      {open && (
+        <Popover anchor={btn.current} onClose={() => setOpen(false)}>
+          <div className="dgp-layers" role="radiogroup" aria-label="Routine behind the bars">
+            {LAYERS.map((l) => (
+              <button key={l.id} type="button" role="radio" aria-checked={layer === l.id} className={layer === l.id ? "on" : ""} title={l.hint} onClick={() => (onPick(l.id), setOpen(false))}>
+                {l.label}
+              </button>
+            ))}
+          </div>
+          {likeDays.length > 0 && like && (
+            <>
+              <p className="dgp-hint">Or like a day you logged:</p>
+              <DayGrid value={like} marks={{ ...marks, allowed: new Set(likeDays) }} onPick={(d) => (onPick(`day:${d}`), setOpen(false))} />
+            </>
+          )}
+        </Popover>
+      )}
+    </>
+  );
+}
+
 function Setup({ onMake }: { onMake: (title: string, end: number, extra: Record<string, unknown>) => void }) {
   const tomorrow = addDays(dayKey(new Date()), 2);
   const [title, setTitle] = useState("");
@@ -121,7 +160,7 @@ function Setup({ onMake }: { onMake: (title: string, end: number, extra: Record<
     <div className="dl-setup">
       <span className="dl-setup-icon">⏳</span>
       <input placeholder="What's due?" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && end > Date.now() && make()} />
-      <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+      <DayPickerButton value={date} onPick={setDate} marks={{ min: dayKey(new Date()), from: dayKey(new Date()), due: date }} className="dl-setup-day" />
       <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
       <select value={tpl} onChange={(e) => (fx("tick"), setTpl(e.target.value))} aria-label="Template">
         <option value="">Blank</option>
@@ -315,13 +354,7 @@ function DeadlineView({ node, editor, getPos, updateAttributes, selected, decora
           <span className="dl-due">{new Date(a.endAt).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
           {!place.collapsed && (
             <span className="dl-tools">
-              <select value={a.layer} onChange={(e) => (fx("tick"), setAll(editor, a.tid, { layer: e.target.value }))} aria-label="Routine layer" title="Routine behind the bars">
-                <option value="off">No routine</option>
-                <option value="avg">Usual day</option>
-                {opts.map((d) => (
-                  <option key={d} value={`day:${d}`}>Like {dayLabel(d).text}</option>
-                ))}
-              </select>
+              <LayerPicker layer={a.layer} likeDays={opts} marks={{ from: barDays[0], due: dayKey(new Date(a.endAt)), planned: new Set(allPlans.map((p) => dayKey(new Date(p.start)))) }} onPick={(layer) => (fx("tick"), setAll(editor, a.tid, { layer }))} />
               <button type="button" className={a.awake ? "on" : ""} onClick={() => (fx("tick"), setAll(editor, a.tid, { awake: !a.awake }))} title="Waking hours only">🌙</button>
               <button type="button" onClick={() => (fx("open"), window.dispatchEvent(new CustomEvent("journal:timelines", { detail: { tid: a.tid } })))} title="Days side by side">⇆</button>
               <button type="button" onClick={() => (fx("open"), setSheet(true))} title="Settings, steps, AI re-plan">⚙</button>

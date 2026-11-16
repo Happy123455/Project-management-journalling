@@ -4046,3 +4046,28 @@ html.dl-dragging * { overflow-anchor: none !important; touch-action: none !impor
   60% { transform: scale(0.97); box-shadow: 0 0 0 2px var(--wc), 0 0 26px transparent; }
   100% { transform: scale(1); }
 }
+
+/* ───── Item 14: month-grid day picker (DayGridPicker.tsx) ───── */
+.dgp-btn { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.dgp-btn span { font-size: 10px; opacity: 0.7; }
+.dgp-pop { position: fixed; z-index: 4000; width: min(300px, calc(100vw - 16px)); padding: 10px; border-radius: 18px; background: var(--panel, #fff); color: var(--text); border: 1px solid var(--glass-edge, rgba(127, 127, 127, 0.2)); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28); animation: dgp-in 0.18s cubic-bezier(0.2, 1.3, 0.4, 1) both; }
+@keyframes dgp-in { from { opacity: 0; transform: translateY(-4px) scale(0.96); } to { opacity: 1; transform: none; } }
+.dgp-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.dgp-bar b { font-size: 14px; }
+.dgp-bar button { border: none; background: transparent; font-size: 18px; padding: 2px 10px; }
+.dgp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.dgp-wd { text-align: center; font-size: 10px; color: var(--muted); }
+.dgp-day { position: relative; aspect-ratio: 1; padding: 0; border-radius: 8px; border: 1px solid transparent; background: var(--heat-empty, rgba(127, 127, 127, 0.08)); font-size: 12.5px; }
+.dgp-day.weekend { background: color-mix(in srgb, var(--heat-empty, rgba(127, 127, 127, 0.08)) 70%, rgba(90, 140, 255, 0.18)); }
+.dgp-day.range { background: color-mix(in srgb, var(--dl, var(--accent)) 22%, transparent); }
+.dgp-day.today { border-color: rgb(var(--heat-rgb, 140 90 255)); }
+.dgp-day.sel { outline: 2px solid var(--text); outline-offset: 1px; font-weight: 700; }
+.dgp-day.due { border-color: var(--dl, #ff5c5c); font-weight: 700; }
+.dgp-day.off { opacity: 0.3; }
+.dgp-day i { position: absolute; font-style: normal; line-height: 1; pointer-events: none; }
+.dgp-flag, .dgp-fest { right: 1px; bottom: 1px; font-size: 8px; }
+.dgp-dot { left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--dl, var(--accent)); }
+.dgp-layers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.dgp-layers button { flex: 1 1 auto; padding: 6px 10px; border-radius: 999px; font-size: 12.5px; }
+.dgp-layers button.on { background: var(--accent); color: #fff; border-color: transparent; }
+.dgp-hint { margin: 4px 0 6px; font-size: 11.5px; color: var(--muted); }
