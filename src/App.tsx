@@ -19,6 +19,7 @@ import { DaysList, MenuSections, MoneyGlance, ProjectList } from "./panels/Menu"
 import { RestoreButton } from "./panels/Restore";
 import { SyncChip, SyncStatus } from "./sync/SyncStatus";
 import { DropPanel } from "./sync/DropPanel";
+import { DoubleLinesPanel } from "./sync/DoubleLinesPanel";
 import type { DropItem } from "./sync/drop";
 import { appendBlocks, asBlocks, textBlocks } from "./lib/append";
 import { useSync } from "./sync/useSync";
@@ -1385,7 +1386,12 @@ function App() {
           store={store}
           target={nexus}
           tab={nexusTab}
-          sync={<SyncStatus status={sync.status} live={sync.live} direct={sync.direct} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} onConnect={sync.connect} />}
+          sync={
+            <>
+              <SyncStatus status={sync.status} live={sync.live} direct={sync.direct} onSync={() => void sync.syncNow()} onChooseFolder={() => void sync.chooseFolder()} onConnect={sync.connect} />
+              <DoubleLinesPanel store={store} />
+            </>
+          }
           send={<DropPanel linked={!!sync.direct} onConnect={sync.connect ? () => void sync.connect() : undefined} onAddToToday={addDropToToday} />}
           onClose={() => setNexus(null)}
           onRestored={async () => {

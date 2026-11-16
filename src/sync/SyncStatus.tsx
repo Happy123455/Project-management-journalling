@@ -141,6 +141,8 @@ const KIND_ICON: Record<AnomalyKind, string> = {
   unreadable: "⚠︎",
   "stale-save": "💾",
   resolved: "✓",
+  folded: "🧹",
+  link: "📶",
 };
 const PATH_LABEL: Record<Path, string> = { wifi: "Wi-Fi", cloud: "Cloud", "wifi-typing": "Wi-Fi typing", save: "Save", local: "Here" };
 

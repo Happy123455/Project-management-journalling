@@ -137,13 +137,27 @@ async function localDeep(system: string, user: string, signal: AbortSignal, onPr
 
 const para = (text: string): JSONContent => ({ type: "paragraph", content: [{ type: "text", text }] });
 
+const lineText = (n: JSONContent): string => (n.text ?? "") + (n.content ?? []).map(lineText).join("");
+
+/** The lines not already in the note (14 Nov: a 🎲 line written twice on the phone within a minute). */
+export function newLines(text: string, lines: string[]): string[] {
+  const have = new Set(text.split("\n").map((l) => l.trim()));
+  return lines.filter((l, i) => !have.has(l.trim()) && lines.indexOf(l) === i);
+}
+
 async function appendLines(store: JournalStore, day: string, lines: string[]) {
-  const blocks = lines.map(para);
+  const fresh = (text: string) => newLines(text, lines).map(para);
   await changeDay(
     store,
     day,
-    (e) => e.chain().insertContentAt(e.state.doc.content.size, blocks).run(),
-    (doc) => appendBlocks(doc, blocks),
+    (e) => {
+      const blocks = fresh(e.getText({ blockSeparator: "\n" }));
+      return blocks.length ? e.chain().insertContentAt(e.state.doc.content.size, blocks).run() : true;
+    },
+    (doc) => {
+      const blocks = fresh((doc?.content ?? []).map(lineText).join("\n"));
+      return blocks.length ? appendBlocks(doc, blocks) : null;
+    },
     "me",
   );
   // Through the editor the save waits a moment: make it now, so the lines are in the journal.
@@ -490,6 +504,9 @@ export async function lockIn(
   deps: Deps = defaultDeps,
 ): Promise<MoveRec> {
   const at = deps.now();
+  // The same move locked in again within two minutes (a double tap): the first one stands.
+  const again = (await loadEngine(store, title)).moves.find((x) => x.action === m.action.trim() && Math.abs(at.getTime() - Date.parse(x.at)) < 2 * 60_000);
+  if (again) return again;
   const move: MoveRec = {
     kind: "move",
     id: newId(),

@@ -3,12 +3,28 @@ import { Plugin, PluginKey, type EditorState, type Transaction } from "@tiptap/p
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { REMOTE } from "../sync/liveTyping";
 import { contentKey, LID, randomLid, siblingIds } from "../sync/lineIds";
+import { ED } from "../sync/lineStamps";
 
 const key = new PluginKey("lineIds");
 /** Meta on the transaction that only gives an opened note's lines their ids (not saved as an edit). */
 export const LID_INIT = "lidInit";
 
 const hasLid = (n: PMNode) => !n.isInline && n.type.spec.attrs?.[LID] !== undefined;
+
+/** The text of every line with an id in a document (to tell which half of a split line keeps it). */
+const textCache = new WeakMap<PMNode, Map<string, string>>();
+function textById(doc: PMNode): Map<string, string> {
+  let m = textCache.get(doc);
+  if (m) return m;
+  m = new Map();
+  doc.descendants((d) => {
+    const id = d.attrs[LID];
+    if (id && !m!.has(id)) m!.set(id, d.textContent);
+    return !d.isTextblock;
+  });
+  textCache.set(doc, m);
+  return m;
+}
 
 /** Ids the doc is missing (or has twice among siblings): [pos, id] to set. */
 function fixes(state: EditorState, mode: "content" | "local", old?: PMNode): [number, string][] {
@@ -49,12 +65,29 @@ function fixes(state: EditorState, mode: "content" | "local", old?: PMNode): [nu
       parent.forEach((c) => kids.push(c));
       const made = mode === "content" ? siblingIds(kids.map((c) => c.toJSON())) : [];
       const taken = new Set<string>();
+      // A line split in two (Enter): the id stays with the part that still has the line's whole
+      // text (Enter at the start moves all of it down). Before 16 Nov the empty part above kept it,
+      // so the text got a new id and the other device's older copy came back as a second line.
+      const keeper = new Map<string, number>();
+      if (mode === "local" && old) {
+        const was = textById(old);
+        parent.forEach((c, _o, i) => {
+          const id = c.attrs[LID];
+          if (!id || !hasLid(c) || keeper.has(id)) return;
+          const text = was.get(id);
+          if (text && c.textContent === text) keeper.set(id, i);
+        });
+        parent.forEach((c, _o, i) => {
+          const id = c.attrs[LID];
+          if (id && hasLid(c) && !keeper.has(id)) keeper.set(id, i);
+        });
+      }
       parent.forEach((c, offset, i) => {
         if (!hasLid(c)) return;
         const id = c.attrs[LID];
-        if (id && !taken.has(id)) return void taken.add(id);
+        if (id && !taken.has(id) && (!keeper.has(id) || keeper.get(id) === i)) return void taken.add(id);
         let next = mode === "content" ? made[i] : reuse(c) ?? randomLid();
-        while (taken.has(next)) next += "+";
+        while (taken.has(next) || keeper.has(next)) next += "+";
         taken.add(next);
         out.push([start + offset, next]);
       });
@@ -96,6 +129,13 @@ export const LineIds = Extension.create({
             keepOnSplit: false,
             parseHTML: (el) => el.getAttribute("data-clash"),
             renderHTML: (attrs) => (attrs.clash ? { "data-clash": attrs.clash } : {}),
+          },
+          // Who last typed this line and when (sync/lineStamps.ts). Kept, never drawn, never set while typing.
+          [ED]: {
+            default: null,
+            keepOnSplit: false,
+            parseHTML: () => null,
+            renderHTML: () => ({}),
           },
         },
       },

@@ -3,6 +3,8 @@ import type { Editor } from "@tiptap/react";
 import { mergeDocs, takeMergeNotes } from "./merge";
 import { logAnomaly, short } from "./anomalies";
 import { siblingIds } from "./lineIds";
+import { stampDoc, stampNodes } from "./lineStamps";
+import { recordFolded } from "./folded";
 
 /**
  * Letter-by-letter typing over the Wi-Fi link (see direct.ts). While the link is up, each change
@@ -90,14 +92,14 @@ function sendNow(key: string, doc: PMNode) {
   if (!o || now - o.fullAt > FULL_EVERY_MS) {
     const seq = (o?.seq ?? Date.now()) + 1; // from the clock: a restarted app still counts up
     out.set(key, { seq, fullAt: now, prev: doc });
-    return sink({ key, device, seq, at: now, full: doc.toJSON() });
+    return sink({ key, device, seq, at: now, full: stampDoc(key, doc.toJSON()) });
   }
   if (o.prev === doc) return;
   const [from, remove, nodes] = diffChildren(o.prev, doc);
   o.seq++;
   const base = o.prev.childCount;
   o.prev = doc;
-  sink({ key, device, seq: o.seq, at: now, from, remove, base, nodes: nodes.map((n) => n.toJSON()) });
+  sink({ key, device, seq: o.seq, at: now, from, remove, base, nodes: stampNodes(key, nodes.map((n) => n.toJSON())) });
 }
 
 const seen = new Map<string, number>();
@@ -144,7 +146,9 @@ export function applyTyping(editor: Editor, m: TypingMsg): boolean {
     // A sync import (App.tsx, only with nothing unsaved here) is the merged saved note: taken as it is.
     const base = m.device === "sync" ? doc : before;
     takeMergeNotes();
-    const mergedJson = mergeDocs(next.toJSON(), doc.toJSON(), base?.toJSON(), false);
+    // This device's own lines carry the stamps of its typing (sync/lineStamps.ts), so an older copy
+    // of them in the other device's note is seen as older, not as a clash.
+    const mergedJson = mergeDocs(next.toJSON(), stampDoc(m.key, doc.toJSON()), base?.toJSON(), false);
     if (m.device !== "sync") noteTyping(m, doc, mergedJson);
     const merged = schema.nodeFromJSON(mergedJson);
     if (merged.eq(doc)) return true;
@@ -194,7 +198,9 @@ const textOf = (n: { text?: string; content?: unknown[] }): string => (n.text ??
 /** Clashes and lines taken out by the other device's typing, for the anomaly log. */
 function noteTyping(m: TypingMsg, doc: PMNode, merged: ReturnType<typeof mergeDocs>) {
   const timing = { device: m.device, seq: m.seq, sentAt: m.at, lagMs: m.at ? Date.now() - m.at : undefined };
-  for (const n of takeMergeNotes())
+  const found = takeMergeNotes();
+  recordFolded(m.key, found);
+  for (const n of found)
     logAnomaly({ kind: n.kind, path: "wifi-typing", note: m.key, text: Object.entries(n.texts).map(([k, v]) => `${k}: "${short(v, 60)}"`).join(" / "), detail: { ...timing, line: n.line, texts: n.texts } });
   const before = doc.toJSON().content ?? [];
   const kept = new Set(siblingIds(merged.content ?? []));

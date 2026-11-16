@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { JSONContent } from "@tiptap/react";
 import { buildNexus } from "./lib/nexus";
 import { putBack, removedLines, type RemovedLine } from "./lib/removedLines";
+import { foldedLines } from "./sync/folded";
 import { showError, showToast } from "./lib/toast";
 import { docText } from "./lib/words";
 import type { JournalEvent, JournalStore } from "./store";
@@ -86,7 +87,14 @@ function NoteHistory({ store, target, onRestored }: { store: JournalStore; targe
     void got.then((pg) => setCurrent(pg?.content ?? null));
   };
   useEffect(loadCurrent, [store, target]);
-  const removed = useMemo(() => (events && current ? removedLines(events, current) : []), [events, current]);
+  const removed = useMemo(() => {
+    if (!events || !current) return [];
+    // Plus lines a merge left out as echoes of a nearby line (sync/folded.ts).
+    const note = target.kind === "day" ? `day:${target.day}` : `page:${target.title}`;
+    const list = removedLines(events, current);
+    const have = new Set(list.map((r) => r.id));
+    return [...foldedLines(note, current).filter((r) => !have.has(r.id)), ...list];
+  }, [events, current, target]);
   const [showAll, setShowAll] = useState(false);
   const restoreLine = async (line: RemovedLine) => {
     const pg = target.kind === "day" ? await store.getDay(target.day) : await store.getPage(target.title);

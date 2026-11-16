@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/react";
 import type { FileRecord, JournalEvent } from "../store/types";
-import { hash, siblingIds } from "./lineIds";
+import { hash, isDefaultish, siblingIds } from "./lineIds";
+import { lineTime, newerSameAuthor } from "./lineStamps";
 
 /**
  * What a block is, so another device can create it from events alone. Day pages are found by
@@ -188,11 +189,12 @@ function similar(a: JSONContent, b: JSONContent): boolean {
 }
 
 /** Attributes that only say how a block looks (size, placement, folded, preview details), not what it is. */
-const LOOK = new Set(["lid", "clash", "born", "width", "height", "align", "x", "y", "units", "collapsed", "status", "title", "site", "image"]);
+const LOOK = new Set(["lid", "clash", "born", "ed", "width", "height", "align", "x", "y", "units", "collapsed", "status", "title", "site", "image"]);
 const identity = (n: JSONContent) => {
   const a = n.attrs ?? {};
   // A link card's title/site/image come from its url; a prompt's title is part of what it is.
-  const keys = Object.keys(a).filter((k) => !LOOK.has(k) || (n.type === "promptBlock" && k === "title")).sort();
+  // Empty values (indent: 0 the editor adds) say nothing: a line written by code has none.
+  const keys = Object.keys(a).filter((k) => (!LOOK.has(k) || (n.type === "promptBlock" && k === "title")) && !isDefaultish(a[k])).sort();
   return keys.length ? keys.map((k) => [k, a[k]]) : undefined;
 };
 
@@ -227,7 +229,10 @@ export function mergeDocs(newer: JSONContent, older: JSONContent, base?: JSONCon
   const keep = sides;
   sides = newerMine === undefined ? { newer: "Newer", older: "Older" } : newerMine ? { newer: names.me, older: names.other } : { newer: names.other, older: names.me };
   try {
-    return { ...newer, content: mergeLines(newer.content ?? [], older.content ?? [], base?.content) };
+    const content = mergeLines(newer.content ?? [], older.content ?? [], base?.content);
+    // Which side is this device's: lines the merge adds to it get the echo check.
+    const local = newerMine === undefined ? null : newerMine ? newer : older;
+    return { ...newer, content: local ? foldEchoes(content, local.content ?? []) : content };
   } finally {
     sides = keep;
   }
@@ -252,9 +257,52 @@ let sides = { newer: "Newer", older: "Older" };
 
 /** What a merge found, for the anomaly log (sync/anomalies.ts). Read with takeMergeNotes. */
 export interface MergeNote {
-  kind: "clash" | "joined" | "kept-edited";
+  kind: "clash" | "joined" | "kept-edited" | "folded";
   line: string;
   texts: Record<string, string>;
+  /** "folded": the line taken out, and the id of the line it came after (to put it back). */
+  node?: JSONContent;
+  after?: string | null;
+}
+
+/** Echo check: how near (lines) and how recent (ms) a copy must be to be folded. */
+const ECHO_NEAR = 3;
+const ECHO_RECENT_MS = 15 * 60_000;
+const ECHO_MIN_CHARS = 12;
+const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+
+/**
+ * A cheap guard after each merge: a line the merge just added to this device's note that is an
+ * exact copy, or the shorter start, of a line within 3 lines of it typed in the last 15 minutes
+ * is an echo of that line (an old snapshot under another id), not new text: it is left out and
+ * noted ("folded", kept in the sync log and in Nexus › This note with ↩). Only added lines are
+ * looked at, never the whole note.
+ */
+export function foldEchoes(out: JSONContent[], local: JSONContent[], now = Date.now()): JSONContent[] {
+  if (!out.length) return out;
+  const had = new Set(siblingIds(local));
+  const ids = siblingIds(out);
+  const drop = new Set<number>();
+  out.forEach((n, i) => {
+    if (had.has(ids[i]) || n.type !== "paragraph" && n.type !== "heading") return;
+    const t = norm(textOf(n));
+    if (t.length < ECHO_MIN_CHARS) return;
+    for (let j = Math.max(0, i - ECHO_NEAR); j <= Math.min(out.length - 1, i + ECHO_NEAR); j++) {
+      if (j === i || drop.has(j)) continue;
+      const m = out[j];
+      const u = norm(textOf(m));
+      const copy = u === t;
+      if (!copy && !(u.length > t.length && u.startsWith(t))) continue;
+      // An exact copy that is also new: keep the first of the two.
+      if (copy && !had.has(ids[j]) && j > i) continue;
+      const times = [lineTime(n), lineTime(m)].filter((x): x is number => x !== null);
+      if (!times.some((x) => now - x < ECHO_RECENT_MS)) continue;
+      drop.add(i);
+      note({ kind: "folded", line: ids[i], texts: { echo: textOf(n), into: textOf(m) }, node: n, after: i > 0 ? ids[i - 1] : null });
+      return;
+    }
+  });
+  return drop.size ? out.filter((_, i) => !drop.has(i)) : out;
 }
 let notes: MergeNote[] = [];
 export function takeMergeNotes(): MergeNote[] {
@@ -385,6 +433,10 @@ function mergeLine(n: JSONContent, o: JSONContent, b: JSONContent | undefined, i
   if (isBlockList(n.content) && isBlockList(o.content) && n.type === o.type) {
     return [{ ...n, content: mergeLines(n.content!, o.content!, isBlockList(b?.content) ? b!.content : undefined) }];
   }
+  // Two versions of one person's typing (the other device's copy was just older): the newer one.
+  // Before 16 Nov these were called a clash and both kept, the half-typed copy above.
+  const won = newerSameAuthor(n, o);
+  if (won) return [won];
   if (n.type === o.type && looseKey(n) === looseKey(o)) return [n];
   const tn = textOf(n);
   const to = textOf(o);

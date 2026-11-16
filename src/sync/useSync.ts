@@ -27,6 +27,7 @@ import {
 } from "./direct";
 import { receiveClip, setClipSink, startClipWatch } from "./clipboard";
 import { setSideNames } from "./merge";
+import { setStampDevice } from "./lineStamps";
 
 // Clash lines are labelled by device (sync/merge.ts): the Mac hosts the Wi-Fi link, the phone joins it.
 setSideNames(canHost() ? "Mac" : "Phone", canHost() ? "Phone" : "Mac");
@@ -157,6 +158,8 @@ export function useSync(store: JournalStore | null, onImported: () => void) {
   useEffect(() => {
     if (!store) return;
     const me = store.deviceId;
+    // Lines this device types are stamped with its id (sync/lineStamps.ts).
+    setStampDevice(me);
     const known = new Map<string, { stamp: string; p: Presence | null }>();
     let lastRev: string | null = null;
     let stopped = false;

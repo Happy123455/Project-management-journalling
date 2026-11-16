@@ -4,6 +4,7 @@ import { showToast } from "../lib/toast";
 import { plainText } from "../lib/plainText";
 import { DeadlineBar } from "./deadlineBar";
 import { applyTyping, REMOTE, sendTyping, TYPING_EVENT, type TypingMsg } from "../sync/liveTyping";
+import { stampDoc, touchedIds, touchLines } from "../sync/lineStamps";
 import { EditorContent, useEditor, useEditorState, type Editor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
@@ -574,6 +575,8 @@ export function JournalEditor({
   useLayoutEffect(() => leaveCanvasIfOther(noteKey), [noteKey]);
   const liveKeyRef = useRef(liveKey);
   liveKeyRef.current = liveKey;
+  const stampKeyRef = useRef(liveKey ?? noteKey);
+  stampKeyRef.current = liveKey ?? (noteKey || "note");
   const pastDayRef = useRef(pastDay);
   pastDayRef.current = pastDay;
   const touch = useTouchDevice();
@@ -604,7 +607,7 @@ export function JournalEditor({
     pendingEmits.delete(emit.current);
     const e = editorRef.current;
     if (!e || e.isDestroyed) return;
-    changeRef.current(e.getJSON(), e.getText({ blockSeparator: "\n" }));
+    changeRef.current(stampDoc(stampKeyRef.current, e.getJSON()), e.getText({ blockSeparator: "\n" }));
   });
   const editor = useEditor({
     extensions: [
@@ -695,12 +698,14 @@ export function JournalEditor({
       // An opened note's lines only got their hidden ids: saved with the next real edit.
       if (transaction.getMeta(LID_INIT)) return;
       lastLocalEdit = Date.now();
+      // Which lines this device just typed in (stamped when saved or sent: sync/lineStamps.ts).
+      touchLines(stampKeyRef.current, touchedIds(transaction, editor.state.doc));
       if (liveKeyRef.current) sendTyping(liveKeyRef.current, editor.state.doc);
       const actor = transaction.getMeta("aiActor") as string | undefined;
       if (actor) {
         // Anything typed before goes first, then the AI's edit on its own.
         if (pendingEmits.has(emit.current)) emit.current();
-        return changeRef.current(editor.getJSON(), editor.getText({ blockSeparator: "\n" }), actor);
+        return changeRef.current(stampDoc(stampKeyRef.current, editor.getJSON()), editor.getText({ blockSeparator: "\n" }), actor);
       }
       pendingEmits.add(emit.current);
       window.clearTimeout(emitTimer.current);

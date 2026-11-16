@@ -27,13 +27,21 @@ export function hash(s: string): string {
 
 export const randomLid = () => "r" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
+/** null, undefined, 0, false or "": the values an editor fills in for attributes nobody set. */
+export const isDefaultish = (v: unknown) => v === null || v === undefined || v === 0 || v === false || v === "";
+
 /** What a node is, without its id or when it was born: the same line on any device. */
 export function contentKey(n: JSONContent): string {
   const strip = (x: JSONContent): unknown => {
     const a = { ...(x.attrs ?? {}) };
     delete a[LID];
     delete a.born;
-    for (const k of Object.keys(a)) if (a[k] === null || a[k] === undefined) delete a[k];
+    delete a.ed;
+    delete a.clash;
+    // Empty values are what an editor adds as defaults (indent: 0): a line written by code has none,
+    // the same line opened in the editor has them. Before 16 Nov the two got different ids, and a
+    // 🎲 line Hapi had deleted came back from the other device.
+    for (const k of Object.keys(a)) if (isDefaultish(a[k])) delete a[k];
     return [x.type, Object.keys(a).length ? Object.entries(a).sort() : 0, x.text ?? 0, x.marks ?? 0, x.content?.map(strip) ?? 0];
   };
   return JSON.stringify(strip(n));

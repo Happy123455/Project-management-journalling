@@ -3900,3 +3900,10 @@ html.dl-dragging, html.dl-dragging * { user-select: none !important; -webkit-use
 .vg-dot { width: 7px; height: 7px; border-radius: 50%; background: #d9534f; animation: pulse 1.4s ease-in-out infinite; }
 html.at-rest .vg-dot { animation: none; }
 .project-export { border-radius: 999px; font-size: 13px; padding: 4px 14px; margin: 2px 0 6px; }
+
+/* Nexus › Sync › 🧹 Possible double lines */
+.doubles { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.doubles-row .nexus-removed-text s { opacity: 0.75; }
+.doubles-row .nexus-removed-text small { opacity: 0.7; }
+.doubles-row .doubles-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 6px; }
+.doubles-row .doubles-actions button { font-size: 13px; grid-column: auto; grid-row: auto; }

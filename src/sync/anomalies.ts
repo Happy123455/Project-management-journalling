@@ -23,7 +23,11 @@ export type AnomalyKind =
   /** A save from an editor that was behind the stored note was merged instead of written over. */
   | "stale-save"
   /** Hapi chose a side for a clash. */
-  | "resolved";
+  | "resolved"
+  /** A line a merge added was an echo (copy or older start) of a line next to it: left out, ↩ in This note. */
+  | "folded"
+  /** The Wi-Fi link to the other device came up, went down, or couldn't be made (with the reason). */
+  | "link";
 
 export interface Anomaly {
   /** Date.now() when logged. */

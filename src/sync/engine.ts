@@ -2,6 +2,7 @@ import type { FileRecord, JournalStore } from "../store/types";
 import { sha256 } from "../lib/files";
 import { eventDocument, fromLines, idsIn, planMerge, refsIn, sideNames, takeMergeNotes, toLines, type MergePlan, type SyncRecord } from "./merge";
 import { anomalies, logAnomaly, short, stamp, type Path } from "./anomalies";
+import { recordFolded } from "./folded";
 import { hash, siblingIds } from "./lineIds";
 import { onMobileData } from "./network";
 import { showToast } from "../lib/toast";
@@ -372,6 +373,7 @@ function noteImport(state: Awaited<ReturnType<JournalStore["syncState"]>>, plan:
         // Unreadable: nothing to compare.
       }
     }
+    if (b.merged) recordFolded(name, notes);
     if (b.merged) for (const n of notes) logAnomaly({ kind: n.kind, path: via, note: name, text: Object.entries(n.texts).map(([k, v]) => `${k}: "${short(v, 60)}"`).join(" / "), detail: { ...timing, line: n.line, texts: n.texts } });
   }
 }
