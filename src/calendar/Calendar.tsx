@@ -96,7 +96,7 @@ function MonthGridView({ year, month, counts, max, search, selected, today, onPi
             {...hold.bind(d, specials)}
           >
             {Number(d.slice(8))}
-            {fest && !mini && <TileFx s={s} animate />}
+            {fest && !mini && <TileFx s={s} animate school={specials.some((x) => x.school)} />}
           </button>
         );
       })}

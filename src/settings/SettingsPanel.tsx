@@ -15,6 +15,9 @@ import type { AiChange, JournalStore } from "../store";
 import { mcpAvailable, mcpEnabled, setMcpServer } from "../mcp";
 import { isDesktopApp, macBubbleEnabled, setMacBubble } from "../bubble/macBubble";
 import { editorPrefs, setEditorPrefs, type EditorPrefs } from "../lib/editorPrefs";
+import { FEST_GROUPS, parseSpecialPage, setPersonalDates, SPECIAL_DATES_PAGE } from "../lib/specialDates";
+import { docText } from "../lib/words";
+import type { JSONContent } from "@tiptap/react";
 import { THEMES, currentTheme, setTheme } from "../lib/theme";
 import { CANVAS_ACTIONS, loadGestures, saveGestures, type CanvasAction, type Gestures } from "../lib/gestures";
 
@@ -365,7 +368,7 @@ function GestureSettings() {
 }
 
 /** Code blocks, stamps on older days, the time-ago line. */
-function EditorSettings() {
+function EditorSettings({ store }: { store: JournalStore | null }) {
   const [e, setE] = useState(editorPrefs);
   const row = (key: { [K in keyof EditorPrefs]: EditorPrefs[K] extends boolean ? K : never }[keyof EditorPrefs], label: string, hint: string) => (
     <label className="settings-toggle">
@@ -382,7 +385,24 @@ function EditorSettings() {
       {row("codeScroll", "Scroll code blocks sideways", "Off: long code lines wrap onto the next line instead")}
       {row("editStamps", "Stamp edits on older days", "Writing in a past day adds a small “edited” chip with when")}
       {row("relativeTime", "Show how long ago a day is", "Under the date: years, months and days from today")}
-      {row("festiveTiles", "Special Date Tile Animations", "Diwali, Holi, Uttarayan, New Year and the birthdays and anniversaries on your “Special dates” page get a small moving decoration in the month. Off: plain, still tiles. Hold a special day for its card either way")}
+      {row("festiveTiles", "Special Date Tile Animations", "Festivals and the birthdays and anniversaries on your “Special dates” page get their name and a small moving decoration in the month. Off: plain, still tiles. Hold a special day for its card either way")}
+      <div className="settings-label">🎉 Festivals in the calendar</div>
+      <div className="project-status" role="group" aria-label="Festival groups">
+        {FEST_GROUPS.map((g) => (
+          <button
+            key={g.id}
+            type="button"
+            aria-pressed={e.festGroups[g.id]}
+            title={g.hint}
+            className={e.festGroups[g.id] ? "active status-active" : ""}
+            onClick={() => setE(setEditorPrefs({ festGroups: { ...e.festGroups, [g.id]: !e.festGroups[g.id] } }))}
+          >
+            {g.label}
+          </button>
+        ))}
+      </div>
+      <p className="hint">🏫 marks days that are usually a school or college holiday in Gujarat. Moon-sighted days (Eid, Muharram) can be a day off.</p>
+      {store && <OwnFestival store={store} />}
       {row("timeFlash", "Flash the line you jump to", "Tapping a dot on the time rail lights that line for 4 s in its time of day's colour")}
       {row("autoMath", "Solve math as you type", "Type = after a sum and the answer appears: 12+12= becomes 12+12=24 (undo takes it back)")}
       {row("prettyMath", "Draw formulas", "Plain maths like (a+b+c+d)/2 or x^2 shows as a proper formula; the line you're writing in stays plain text")}
@@ -414,6 +434,38 @@ function EditorSettings() {
         ))}
       </div>
     </section>
+  );
+}
+
+/** "Add my own festival": a line on the “Special dates” page, which already drives the tiles. */
+function OwnFestival({ store }: { store: JournalStore }) {
+  const [date, setDate] = useState("");
+  const [name, setName] = useState("");
+  const [emoji, setEmoji] = useState("🎉");
+  const [done, setDone] = useState("");
+  const add = async () => {
+    const m = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m || !name.trim()) return;
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const line = `${Number(m[3])} ${months[Number(m[2]) - 1]} · ${name.trim()} ${emoji.trim() || "🎉"}`;
+    const page = await store.ensurePage(SPECIAL_DATES_PAGE);
+    const content: JSONContent = { type: "doc", content: [...(page.content?.content ?? []), { type: "paragraph", content: [{ type: "text", text: line }] }] };
+    await store.savePage({ id: page.id, content, plainText: docText(content) });
+    setPersonalDates(parseSpecialPage(content));
+    setDone(line);
+    setName("");
+  };
+  return (
+    <div className="own-festival">
+      <div className="settings-label">➕ Add my own festival (every year)</div>
+      <div className="own-festival-row">
+        <input type="date" value={date} onChange={(ev) => setDate(ev.target.value)} aria-label="Day" />
+        <input type="text" value={emoji} onChange={(ev) => setEmoji(ev.target.value)} aria-label="Emoji" className="own-festival-emoji" maxLength={4} />
+        <input type="text" value={name} placeholder="Name, e.g. Ganpati at home" onChange={(ev) => setName(ev.target.value)} onKeyDown={(ev) => ev.key === "Enter" && void add()} aria-label="Festival name" />
+        <button type="button" onClick={() => void add()} disabled={!date || !name.trim()}>Add</button>
+      </div>
+      <small className="hint">{done ? `Added to your “${SPECIAL_DATES_PAGE}” page: ${done}` : `It goes on your “${SPECIAL_DATES_PAGE}” page as a line, where you can change or remove it.`}</small>
+    </div>
   );
 }
 
@@ -612,7 +664,7 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
       )}
       {page === "editor" && (
         <>
-          <EditorSettings />
+          <EditorSettings store={store} />
           <BubbleSettings />
         </>
       )}

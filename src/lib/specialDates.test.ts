@@ -1,13 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { festivalsOn, parseSpecialLine, parseSpecialPage, specialsOn } from "./specialDates";
+import { easter, festivalsOn, parseSpecialLine, parseSpecialPage, specialsOn } from "./specialDates";
 
 describe("special dates", () => {
   it("festivals from the table", () => {
     expect(festivalsOn("2026-11-08").map((f) => f.kind)).toEqual(["diwali"]);
     expect(festivalsOn("2027-03-22").map((f) => f.kind)).toEqual(["holi"]);
-    expect(festivalsOn("2027-01-14").map((f) => f.kind)).toEqual(["uttarayan"]);
+    expect(festivalsOn("2027-01-14").map((f) => f.title)).toEqual(["Uttarayan", "Lohri"]);
     expect(festivalsOn("2030-01-01").map((f) => f.kind)).toEqual(["newyear"]);
     expect(festivalsOn("2026-11-09")).toEqual([]);
+  });
+
+  it("the bigger list: fixed days, moon tables, worked-out days", () => {
+    const titles = (d: string) => festivalsOn(d).map((f) => f.title);
+    expect(titles("2026-12-25")).toEqual(["Christmas"]);
+    expect(festivalsOn("2026-12-25")[0]).toMatchObject({ kind: "christmas", short: "Xmas", school: true, group: "world" });
+    expect(titles("2026-12-24")).toEqual(["Christmas Eve"]);
+    expect(titles("2027-01-26")).toEqual(["Republic Day"]);
+    expect(titles("2026-11-10")).toEqual(["Bestu Varas"]);
+    expect(titles("2026-11-24")).toEqual(["Dev Diwali", "Guru Nanak Jayanti"]);
+    expect(titles("2027-08-15")).toEqual(["Independence Day", "Parsi New Year", "Milad-un-Nabi"]);
+    expect(titles("2027-09-04")).toEqual(["Ganesh Chaturthi"]);
+    expect(titles("2028-01-26")).toEqual(["Republic Day", "Lunar New Year"]);
+    expect(festivalsOn("2026-03-21")[0]).toMatchObject({ title: "Eid ul-Fitr", approx: true, kind: "moon" });
+    // Navratri: every night up to Dussehra.
+    expect(titles("2026-10-11")).toContain("Navratri");
+    expect(titles("2026-10-19")).toContain("Navratri");
+    expect(titles("2026-10-20")).toEqual(["Dussehra"]);
+    // Easter by computus; Good Friday two days before; Thanksgiving, Mother's and Father's Day by weekday.
+    expect([2026, 2027, 2028].map(easter)).toEqual(["04-05", "03-28", "04-16"]);
+    expect(titles("2027-03-26")).toEqual(["Good Friday"]);
+    expect(titles("2026-11-26")).toEqual(["Thanksgiving (US)"]);
+    expect(titles("2027-05-09")).toEqual(["Akshaya Tritiya", "Mother's Day"]);
+    expect(titles("2028-06-18")).toEqual(["Father's Day"]);
+  });
+
+  it("groups switched off leave their festivals out", () => {
+    expect(festivalsOn("2026-12-25", { world: false })).toEqual([]);
+    expect(festivalsOn("2026-10-31", { fun: false })).toEqual([]);
+    expect(festivalsOn("2026-10-31", { india: false }).map((f) => f.title)).toEqual(["Halloween"]);
+  });
+
+  it("an own festival keeps its emoji", () => {
+    const list = parseSpecialPage({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "8 Sep · Ganpati at home 🐘" }] }] });
+    expect(specialsOn("2027-09-08", list)[0]).toMatchObject({ kind: "special", emoji: "🐘", short: "Ganpati" });
   });
 
   it("reads lines in the usual ways of writing a date", () => {

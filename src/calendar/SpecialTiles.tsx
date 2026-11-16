@@ -5,23 +5,27 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 import { createPortal } from "react-dom";
 import { haptic } from "../lib/haptic";
 import { useEditorPrefs } from "../lib/editorPrefs";
-import { personalDates, specialsOn, subscribePersonalDates, type Special } from "../lib/specialDates";
+import { personalDates, specialsOn, subscribePersonalDates, type Special, type SpecialKind } from "../lib/specialDates";
 
 const HOLD_MS = 300;
 const MOVE_PX = 10;
 
-/** Special days, following the "Special dates" page. */
+/** Special days, following the "Special dates" page and the festival groups switched on in Settings. */
 export function useSpecials(): (day: string) => Special[] {
   const list = useSyncExternalStore(subscribePersonalDates, personalDates, personalDates);
-  return (day: string) => specialsOn(day, list);
+  const groups = useEditorPrefs().festGroups;
+  return (day: string) => specialsOn(day, list, groups);
 }
+
+/** Moving pieces per look (snowflakes, sparks…); 0 = a still glow only. */
+const PIECES: Partial<Record<SpecialKind, number>> = { birthday: 4, christmas: 4, diwali: 3, newyear: 3, lamp: 3, garba: 3, heart: 3, lantern: 2, spooky: 2 };
 
 /** Whether tiles animate (Settings → Calendar). */
 export const useFestiveTiles = () => useEditorPrefs().festiveTiles;
 
 /** The little decorations inside a tile. */
-export function TileFx({ s, animate }: { s: Special; animate: boolean }) {
-  const pieces = s.kind === "birthday" ? 4 : s.kind === "diwali" || s.kind === "newyear" ? 3 : 0;
+export function TileFx({ s, animate, school }: { s: Special; animate: boolean; school?: boolean }) {
+  const pieces = PIECES[s.kind] ?? 0;
   return (
     <>
       {animate && pieces > 0 && (
@@ -29,8 +33,39 @@ export function TileFx({ s, animate }: { s: Special; animate: boolean }) {
           {Array.from({ length: pieces }, (_, i) => <i key={i} />)}
         </span>
       )}
+      {s.short && <span className="fest-name" aria-hidden>{s.short}</span>}
+      {school && <span className="fest-school" aria-hidden>🏫</span>}
       <span className="fest-badge" aria-hidden>{s.emoji}</span>
     </>
+  );
+}
+
+const AHEAD_DAYS = 5;
+
+/**
+ * Coming up: festivals and special dates from today to a few days ahead, as small chips
+ * ("🎄 Christmas · in 3 days 🏫"). Tapping one opens that day.
+ */
+export function FestivalsAhead({ today, onPick }: { today: string; onPick: (day: string) => void }) {
+  const specialsOf = useSpecials();
+  const chips: { day: string; n: number; s: Special }[] = [];
+  const [y, m, d] = today.split("-").map(Number);
+  for (let n = 0; n <= AHEAD_DAYS; n++) {
+    const t = new Date(y, m - 1, d + n);
+    const day = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+    for (const s of specialsOf(day)) chips.push({ day, n, s });
+  }
+  if (!chips.length) return null;
+  return (
+    <div className="fest-ahead" aria-label="Festivals and special days coming up">
+      {chips.map(({ day, n, s }) => (
+        <button key={`${day}-${s.title}`} type="button" className={`fest-chip fest-${s.kind}`} onClick={() => onPick(day)} title={s.greeting}>
+          <span aria-hidden>{s.emoji}</span> {s.title}
+          <small>{n === 0 ? " · today" : n === 1 ? " · tomorrow" : ` · in ${n} days`}</small>
+          {s.school && <span className="fest-chip-school" title="Usually a school/college holiday in Gujarat"> 🏫</span>}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -205,8 +240,10 @@ function HoldCard({ held, closing, onClosed }: { held: Held; closing: boolean; o
             {WEEKDAY_LONG[date.getDay()]}, {d} {MONTH_LONG[m - 1]} {y} · {whenText(held.day)}
           </p>
           <p className="fest-card-greeting">{main.greeting}</p>
+          {main.school && <p className="fest-card-more">🏫 Usually a school and college holiday in Gujarat</p>}
+          {main.approx && <p className="fest-card-more">≈ Goes by the moon or a local calendar: it can be a day off</p>}
           {held.specials.slice(1).map((s, i) => (
-            <p key={i} className="fest-card-more">{s.emoji} {s.title}</p>
+            <p key={i} className="fest-card-more">{s.emoji} {s.title}{s.school ? " 🏫" : ""}</p>
           ))}
         </div>
       </div>

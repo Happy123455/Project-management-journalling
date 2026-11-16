@@ -3,6 +3,7 @@ import { closeTopPanel } from "./ui/useEscapeToClose";
 import type { Editor, JSONContent } from "@tiptap/react";
 import { MonthCalendar, YearPanel } from "./calendar/Calendar";
 import { Upcoming, UpcomingPanel, type ReminderAction, type UpcomingPage } from "./calendar/Upcoming";
+import { FestivalsAhead } from "./calendar/SpecialTiles";
 import { DayPickerSheet } from "./calendar/ReminderSheet";
 import { publishReminders, startInAppNudges, upcomingFrom } from "./calendar/reminderBridge";
 import { RoutinePanel } from "./routine/RoutinePanel";
@@ -1244,10 +1245,12 @@ function App() {
                   {prefs.monthDeadlines === "left" ? (
                     <div className="month-side">
                       {store && <TodayDeadlines store={store} day={day} onOpenDay={(d) => void goTo(d)} />}
+                      <FestivalsAhead today={dayKey(new Date())} onPick={goTo} />
                       <Upcoming inMonth pages={upcoming.filter((r) => r.day !== day)} onPick={goTo} onAction={onReminderAction} />
                     </div>
                   ) : (
                     <>
+                      <FestivalsAhead today={dayKey(new Date())} onPick={goTo} />
                       <Upcoming inMonth pages={upcoming.filter((r) => r.day !== day)} onPick={goTo} onAction={onReminderAction} />
                       {store && prefs.monthDeadlines !== "off" && <TodayDeadlines store={store} day={day} onOpenDay={(d) => void goTo(d)} />}
                     </>
