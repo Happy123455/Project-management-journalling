@@ -52,11 +52,12 @@ const SCHEMA = {
 type Ask = typeof askAi;
 
 /** The improved prompt (throws with a plain message when it can't be used). */
-export async function improvePrompt(text: string, opts: { system?: string; model?: string; ask?: Ask } = {}): Promise<Improved> {
+export async function improvePrompt(text: string, opts: { system?: string; model?: string; ask?: Ask; task?: "grammar" | "organise"; provider?: "gemini" } = {}): Promise<Improved> {
   const { masked, fields } = maskFields(text);
   const ask = opts.ask ?? askAi;
   const answer = await ask<{ improved: string; note: string; added: string[] }>({
-    task: "grammar",
+    task: opts.task ?? "grammar",
+    ...(opts.provider ? { provider: opts.provider, cloud: true } : {}),
     system: opts.system ?? IMPROVE_SYSTEM,
     text: masked,
     schema: SCHEMA,

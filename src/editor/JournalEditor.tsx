@@ -25,6 +25,7 @@ import { readAloud } from "../lib/readAloud";
 import { isLoneUrl, LinkCard } from "./linkCard";
 import { PromptBlock } from "./promptBlock";
 import { DoThisBlock } from "./doThisBlock";
+import { TalkBox } from "./talkBox";
 import { MathBlock } from "./mathBlock";
 import { SheetBlock } from "./sheetBlock";
 import { YoutubeEmbed, youtubeEmbedFrom } from "./youtubeEmbed";
@@ -624,6 +625,7 @@ export function JournalEditor({
       YoutubeEmbed,
       PromptBlock,
       DoThisBlock,
+      TalkBox,
       DeadlineBar,
       MathBlock,
       SheetBlock,

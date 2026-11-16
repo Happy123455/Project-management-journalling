@@ -42,6 +42,7 @@ import { entryFor, numberEntries, type ProjectEntry } from "./lib/projectDays";
 import { loadGestures, NO_SWIPE, onPanSurface, type CanvasAction } from "./lib/gestures";
 import { parseSpecialPage, setPersonalDates, SPECIAL_DATES_PAGE } from "./lib/specialDates";
 import { useAiNavigation } from "./ai/useAiRules";
+import { newTalkBox } from "./editor/talkBox";
 import { ASSIST_EVENT, CommandBar, type AssistRequest } from "./assistant/CommandBar";
 import { runAssistant } from "./assistant/runner";
 import { findBlock, recordRun, setScheduled, startScheduler, thisDevice } from "./assistant/scheduler";
@@ -94,6 +95,9 @@ import "./themes.css";
 const SAVE_DELAY_MS = 800;
 /** Numbers the saved copies put into an open note after a sync (see liveTyping). */
 let importSeq = 0;
+
+/** Item 12: where Talk + type sessions started from the menu live. */
+const TALK_PAGE = "Prompt sessions";
 
 function App() {
   const [store, setStore] = useState<JournalStore | null>(null);
@@ -849,7 +853,20 @@ function App() {
   }, []);
   const joyBase = useRef<string | null>(null);
   const joyShown = useRef<string | null>(null);
+  // Item 12: a new 🎙 Talk + type session from the menu, on the "Prompt sessions" page (it syncs).
+  const newTalkSession = async () => {
+    if (!store) return;
+    setDrawerOpen(false);
+    await flush();
+    const page = await store.ensurePage(TALK_PAGE);
+    const title = `Session · ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`;
+    const doc = appendBlocks(page.content, [newTalkBox(title), { type: "paragraph" }]);
+    await store.savePage({ id: page.id, content: doc, plainText: docText(doc) });
+    await handlers.onOpenLink(TALK_PAGE);
+    window.dispatchEvent(new Event("journal:reload-page"));
+  };
   const islandActions: MenuAction[] = [
+    { icon: "🎙", label: "Talk + type", run: () => void newTalkSession() },
     { icon: "☰", label: "Menu", run: () => setDrawerOpen(true) },
     { icon: "🔎", label: "Search text", run: () => setSearchOpen(true) },
     { icon: "🧭", label: "Routine", run: () => setRoutineOpen(true) },
@@ -1202,6 +1219,8 @@ function App() {
       <button type="button" onClick={() => (setDrawerOpen(false), setSearchOpen(true))} title="Search" aria-label="Search">🔍</button>
       <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))} title="Graph view" aria-label="Graph view">🕸</button>
       <button type="button" onClick={() => (setDrawerOpen(false), setMindOpen(true))} title="Mind map" aria-label="Mind map">🧠</button>
+      <button type="button" onClick={() => (setDrawerOpen(false), openAssist({ mode: "type" }))} title="Assistant (Cmd/Ctrl+J)" aria-label="Assistant">✦</button>
+      <button type="button" onClick={() => void newTalkSession()} title="Talk + type: a new prompt session" aria-label="Talk + type">🎙</button>
       <button type="button" onClick={() => (setDrawerOpen(false), openTimelines())} title="Timelines" aria-label="Timelines">⏳</button>
       <button type="button" onClick={() => void openNexus()} title="Nexus: this note's history" aria-label="Nexus">⑂</button>
       <button type="button" onClick={async () => (setDrawerOpen(false), await flush(), setChatOpen(true))} title="Chat view" aria-label="Chat view">💬</button>

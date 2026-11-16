@@ -33,6 +33,7 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: "voice", label: "Voice", icon: "🎙", keywords: ["audio", "record", "voice note", "mic"] },
   { id: "meme", label: "Meme", icon: "😂", keywords: ["gif", "funny", "reaction", "sticker"] },
   { id: "sound", label: "Sound", icon: "🔊", keywords: ["audio", "effect", "clip", "sfx"] },
+  { id: "talk", label: "Talk + type", icon: "🎙", keywords: ["prompt", "speak", "dictate", "voice", "graph", "explain", "session", "make my prompt"] },
   { id: "dothis", label: "Do this", icon: "▶", keywords: ["assistant", "run", "jobs", "steps", "schedule", "every day", "automate", "task list"] },
   { id: "prompt", label: "Prompt", icon: "🧩", keywords: ["template", "ai", "chatgpt", "claude", "fields", "copy"] },
   { id: "logproject", label: "Logging project", icon: "🪵", keywords: ["log", "habit", "streak", "daily", "tracker"] },

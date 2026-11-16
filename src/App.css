@@ -4134,3 +4134,36 @@ html.dl-dragging * { overflow-anchor: none !important; touch-action: none !impor
 .do-this-set input { flex: 1 1 200px; min-width: 0; font: inherit; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: inherit; }
 .do-this-runs { margin: 0; padding: 0 0 0 4px; list-style: none; display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
 .do-this-runs li.fail { color: #dc2626; }
+
+/* Item 12: 🎙 Talk + type. */
+.talk-box { margin: 8px 0; padding: 10px 12px; border-radius: 16px; border: 1px solid color-mix(in srgb, #0ea5e9 35%, var(--border)); background: color-mix(in srgb, #0ea5e9 5%, transparent); display: grid; gap: 8px; }
+.talk-head { display: flex; align-items: center; gap: 8px; }
+.talk-icon { font-size: 18px; }
+.talk-title { flex: 1; min-width: 0; font: inherit; font-weight: 650; border: 0; background: transparent; color: inherit; padding: 2px 0; }
+.talk-when { font-size: 11px; flex: none; }
+.talk-back { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 10px; border-radius: 12px; background: color-mix(in srgb, #f59e0b 18%, transparent); font-size: 13px; }
+.talk-back b { margin-right: 4px; }
+.talk-chip { padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, #f59e0b 26%, transparent); }
+.talk-panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+@media (max-width: 640px) { .talk-panes { grid-template-columns: 1fr; } }
+.talk-write { display: grid; gap: 6px; align-content: start; }
+.talk-text { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; font-size: 15px; line-height: 1.5; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); color: inherit; }
+.talk-note { margin: 0; font-size: 13px; display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.talk-note.live { color: inherit; }
+.talk-left { margin: 0; font-size: 12px; }
+.talk-graph { border-radius: 12px; border: 1px dashed var(--border); min-height: 180px; display: grid; place-items: center; transition: opacity 0.3s; }
+.talk-graph.empty { color: var(--muted); font-size: 13px; padding: 12px; text-align: center; }
+.talk-graph.busy { opacity: 0.75; }
+.talk-graph svg { width: 100%; height: auto; display: block; }
+.talk-edge { stroke: color-mix(in srgb, var(--fg, #333) 30%, transparent); stroke-width: 1.2; }
+.talk-node { animation: talk-pop 0.5s var(--spring, ease-out); transition: transform 0.6s ease; }
+@keyframes talk-pop { from { opacity: 0; } }
+.talk-node rect { fill: var(--bg); stroke: var(--border); }
+.talk-node text { font-size: 10.5px; fill: currentColor; }
+.talk-node.topic rect { fill: color-mix(in srgb, #0ea5e9 22%, var(--bg)); stroke: #0ea5e9; }
+.talk-node.task rect { stroke: #16a34a; }
+.talk-node.question rect { stroke: #f59e0b; }
+.talk-node.decision rect { stroke: #8b5cf6; }
+.talk-node.open.task rect, .talk-node.open.question rect { fill: color-mix(in srgb, #f59e0b 14%, var(--bg)); }
+.talk-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.talk-prompt { margin: 0; white-space: pre-wrap; font: inherit; font-size: 13.5px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, #8b5cf6 7%, transparent); max-height: 240px; overflow: auto; }

@@ -7,7 +7,7 @@ import { improvePrompt, wordDiff, type Improved } from "../ai/improve";
 import { fx } from "../lib/fx";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
 
-export function ImproveSheet({ original, title = "✨ Improve", onKeep, onClose }: { original: string; title?: string; onKeep: (text: string, by: Improved) => void; onClose: () => void }) {
+export function ImproveSheet({ original, title = "✨ Improve", improve = improvePrompt, onKeep, onClose }: { original: string; title?: string; improve?: (text: string) => Promise<Improved>; onKeep: (text: string, by: Improved) => void; onClose: () => void }) {
   const [result, setResult] = useState<Improved | null>(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
@@ -17,7 +17,7 @@ export function ImproveSheet({ original, title = "✨ Improve", onKeep, onClose 
   useEscapeToClose(close);
   useEffect(() => {
     let live = true;
-    improvePrompt(original)
+    improve(original)
       .then((r) => live && (setResult(r), setDraft(r.text), fx("done")))
       .catch((e) => live && setError(e instanceof Error ? e.message : String(e)));
     return () => {
@@ -65,6 +65,11 @@ export function ImproveSheet({ original, title = "✨ Improve", onKeep, onClose 
           {result && <span className="hint">{same ? "Already reads well: nothing to change." : `By ${result.actor}`}</span>}
           <button type="button" onClick={close}>Close</button>
           {result && !editing && !same && <button type="button" onClick={() => (fx("open"), setEditing(true))}>Edit</button>}
+          {result && (
+            <button type="button" onClick={() => (fx("done"), void navigator.clipboard?.writeText(editing ? draft : result.text))}>
+              Copy
+            </button>
+          )}
           <button type="button" className="primary" disabled={!result || same || !draft.trim()} onClick={() => result && onKeep(editing ? draft : result.text, result)}>
             Keep
           </button>

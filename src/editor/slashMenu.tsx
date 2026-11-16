@@ -1,4 +1,5 @@
 import { newDoThis } from "./doThisBlock";
+import { newTalkBox } from "./talkBox";
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { Extension, ReactRenderer, type Editor, type Range } from "@tiptap/react";
 import { PluginKey } from "@tiptap/pm/state";
@@ -100,6 +101,8 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       return chain.insertContent(newSheetContent()).run();
     case "prompt":
       return chain.insertContent({ type: "promptBlock" }).run();
+    case "talk":
+      return chain.insertContent(newTalkBox()).run();
     case "dothis":
       return chain.insertContent(newDoThis()).run();
     case "deadline":
