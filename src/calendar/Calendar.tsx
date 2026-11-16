@@ -361,16 +361,10 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
   };
   // Mac: wheeling on past the end folds the month to its week, the same as the swipe.
   const wheelPast = useRef(0);
-  // Item 5: the month's major events; they play once each time the month opens.
-  const prefs = useEditorPrefs();
+  // Item 5: the month's major events (their marks). The tiles no longer pop and wave in one by one
+  // when the month opens (Hapi, 16 Nov): opening the month is still.
   const events = useMonthEvents(day.slice(0, 7), shading.counts, today, !collapsed && !shading.search && scrub == null);
-  const [play, setPlay] = useState(0);
-  const wasCollapsed = useRef(true);
-  useEffect(() => {
-    if (wasCollapsed.current && !collapsed && prefs.monthWaves) setPlay(Date.now());
-    wasCollapsed.current = collapsed;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collapsed]);
+  const play = 0;
   return (
     <>
       {sheet && <div className="cal-spacer" style={{ height: stripHeight.current }} />}

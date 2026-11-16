@@ -184,6 +184,72 @@ class MainActivity : TauriActivity() {
     }
   }
 
+  /** The phone's gallery for the assistant ("add my latest photo"): asked once, newest first. Page: src/assistant/phonePhotos.ts. */
+  private var photosWaiting: Pair<String, Int>? = null
+  private val askPhotos = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
+    val (id, limit) = photosWaiting ?: return@registerForActivityResult
+    photosWaiting = null
+    if (photosGranted()) recentPhotos(id, limit) else answerPhotos(id, "{\"denied\":true}")
+  }
+  private fun photoPermissions(): Array<String> = when {
+    android.os.Build.VERSION.SDK_INT >= 34 -> arrayOf("android.permission.READ_MEDIA_IMAGES", "android.permission.READ_MEDIA_VIDEO", "android.permission.READ_MEDIA_VISUAL_USER_SELECTED")
+    android.os.Build.VERSION.SDK_INT >= 33 -> arrayOf("android.permission.READ_MEDIA_IMAGES", "android.permission.READ_MEDIA_VIDEO")
+    else -> arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+  }
+  /** Full access, or (Android 14+) the photos the person chose to share. */
+  private fun photosGranted(): Boolean = photoPermissions().any { checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }
+  private fun answerPhotos(id: String, json: String) {
+    val js = "window.__journalPhotos && window.__journalPhotos(${JSONObject.quote(id)}, ${JSONObject.quote(json)})"
+    webView?.post { webView?.evaluateJavascript(js, null) }
+  }
+  /** Newest photos and videos: {items:[{uri,name,mime,size,taken}]}. */
+  private fun recentPhotos(id: String, limit: Int) = Thread {
+    val items = JSONArray()
+    try {
+      val uri = android.provider.MediaStore.Files.getContentUri("external")
+      val cols = arrayOf(android.provider.MediaStore.MediaColumns._ID, android.provider.MediaStore.MediaColumns.DISPLAY_NAME, android.provider.MediaStore.MediaColumns.MIME_TYPE, android.provider.MediaStore.MediaColumns.SIZE, android.provider.MediaStore.MediaColumns.DATE_ADDED, android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE)
+      val sel = "${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+      contentResolver.query(uri, cols, sel, null, "${android.provider.MediaStore.MediaColumns.DATE_ADDED} DESC")?.use { c ->
+        while (c.moveToNext() && items.length() < limit.coerceIn(1, 200)) {
+          val video = c.getInt(5) == android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+          val base = if (video) android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI else android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+          items.put(JSONObject()
+            .put("uri", android.content.ContentUris.withAppendedId(base, c.getLong(0)).toString())
+            .put("name", c.getString(1) ?: "photo")
+            .put("mime", c.getString(2) ?: (if (video) "video/mp4" else "image/jpeg"))
+            .put("size", c.getLong(3))
+            .put("taken", c.getLong(4) * 1000))
+        }
+      }
+      answerPhotos(id, JSONObject().put("items", items).toString())
+    } catch (e: Exception) {
+      answerPhotos(id, JSONObject().put("error", e.message ?: "couldn't read the gallery").toString())
+    }
+  }.start()
+
+  inner class PhotosBridge {
+    @JavascriptInterface fun granted(): Boolean = photosGranted()
+    /** Answers through window.__journalPhotos(id, json); asks for access first when needed. */
+    @JavascriptInterface fun recent(id: String, limit: Int) = runOnUiThread {
+      if (photosGranted()) recentPhotos(id, limit)
+      else try {
+        photosWaiting = Pair(id, limit)
+        askPhotos.launch(photoPermissions())
+      } catch (e: Exception) {
+        photosWaiting = null
+        answerPhotos(id, "{\"denied\":true}")
+      }
+    }
+    /** One gallery item's bytes: {mime, data (base64)} or {error}. */
+    @JavascriptInterface fun read(id: String, uri: String) = Thread {
+      val u = Uri.parse(uri)
+      val size = fileSize(u)
+      val json = if (size != null && size > MAX_SHARED_BYTES) JSONObject().put("error", "too big").toString()
+      else readUri(u)?.let { JSONObject().put("mime", it.first).put("data", it.second).toString() } ?: JSONObject().put("error", "couldn't read it").toString()
+      answerPhotos(id, json)
+    }.start()
+  }
+
   private val askSms = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
     webView?.post { webView?.evaluateJavascript("window.dispatchEvent(new CustomEvent('journal:finance-access', { detail: ${if (granted) "true" else "false"} }))", null) }
   }
@@ -388,6 +454,7 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(WatchBridge(), "JournalWatch")
     webView.addJavascriptInterface(DropBridge(), "JournalDrop")
     webView.addJavascriptInterface(ListenBridge(), "JournalListen")
+    webView.addJavascriptInterface(PhotosBridge(), "JournalPhotos")
     Watch.onInbox = { webView.post { webView.evaluateJavascript("window.dispatchEvent(new Event('journal:watch'))", null) } }
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->

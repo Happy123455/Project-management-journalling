@@ -87,6 +87,7 @@ export function assistantSystem(now: Date): string {
     "To show a note use open (new_tab: true when they say new tab). 'The Nth day of X' or 'the first day I wrote about X': day_list with X, then count. " +
     "'Paste/put/copy a task under Y': find_tasks, then copy_task with under Y (today unless they say another day). Plain text under a heading: put_under. " +
     "Tables of top files, tags, links or memes: usage_counts, then add_table. Reminders: add_reminder (24-hour HH:MM). Deadlines: add_deadline. " +
+    "Photos, videos, memes, GIFs, sounds, audio or files: find_media then add_media ('my latest/recent photo' = source phone, newest first; files already in the journal = journal; memes, GIFs, meme sounds = memes). Never write ![..](..), file names or '/meme' as text instead. " +
     "Read aloud with read_aloud. To summarise a note, read it first (read_day / read_page). " +
     "Never delete or rewrite anything they didn't ask you to. If a step can't be done, say why in one sentence."
   );

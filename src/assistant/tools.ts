@@ -16,6 +16,7 @@ import { docText } from "../lib/words";
 import { emptySheet, setCells } from "../lib/sheet";
 import { deadlineRows } from "../editor/deadlineStore";
 import { loadConfig, writeLog } from "../routine/routineData";
+import { describeHits, findMedia, mediaBlock, storedFile, type MediaHit } from "./media";
 import { insertUnder, linesToBlocks, nodeAt, taskBlock, tasksIn, tickTask, topCounts, type FoundTask } from "./noteOps";
 
 export interface RunCtx {
@@ -30,6 +31,8 @@ export interface RunCtx {
   found: FoundTask[];
   /** Notes opened (to tell the person). */
   opened: string[];
+  /** Photos, memes and files found by find_media, by their number. */
+  media?: MediaHit[];
 }
 
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object" as const, properties, required });
@@ -49,13 +52,15 @@ export const ASSISTANT_TOOLS = [
   { name: "add_deadline", description: "A ⏳ deadline bar in today's note running to the due day (and time).", parameters: obj({ title: { type: "string" }, due: { type: "string", description: "YYYY-MM-DD" }, time: { type: "string", description: "HH:MM (default 23:59)" } }, ["title", "due"]) },
   { name: "start_timer", description: "A countdown timer that rings when done (while the app is open).", parameters: obj({ minutes: { type: "number" }, label: { type: "string" } }, ["minutes"]) },
   { name: "log_routine", description: "Log a routine step or habit now (e.g. 'Gym' start, 'Brush' point) in today's Routine box.", parameters: obj({ item: { type: "string" }, edge: { type: "string", enum: ["start", "end", "point"] }, note: { type: "string" } }, ["item"]) },
+  { name: "find_media", description: "List photos, videos, memes, GIFs, sounds or files that can be added to a note, numbered for add_media. source: 'phone' = the phone's own gallery (camera photos, screenshots), newest first; 'journal' = files already in the journal, newest first; 'memes' = the built-in meme kit (meme pictures, GIFs, sounds, green-screen clips) by best match to query.", parameters: obj({ source: { type: "string", enum: ["phone", "journal", "memes"] }, query: { type: "string", description: "words in the name (memes: what the meme is about)" }, kind: { type: "string", enum: ["any", "photo", "video", "gif", "meme", "sound", "audio", "greenscreen", "pdf", "file"] }, limit: { type: "integer" } }, ["source"]) },
+  { name: "add_media", description: "Add real photos, videos, memes, GIFs, sounds or files to a note (at the end, or under a heading). Pick items by their numbers from find_media (n or ns), or give source (+ query/kind) to add the best match (phone/journal: the newest). The only way to put media in a note: never write ![..](..) or '/meme' text.", parameters: obj({ n: { type: "integer" }, ns: { type: "array", items: { type: "integer" } }, source: { type: "string", enum: ["phone", "journal", "memes"] }, query: { type: "string" }, kind: { type: "string", enum: ["any", "photo", "video", "gif", "meme", "sound", "audio", "greenscreen", "pdf", "file"] }, count: { type: "integer", description: "how many of the best matches (default 1)" }, under: { type: "string", description: "a heading or box line to put it under" }, date: DATE, title: TITLE }) },
   { name: "read_aloud", description: "Read text aloud to the person (a summary you wrote, a note's text).", parameters: obj({ text: { type: "string" } }, ["text"]) },
 ];
 
 /** Every tool the assistant offers: the shared ones (without open_note) and its own. */
 export const assistantToolList = () => [...toolsFor(null).filter((t) => t.name !== "open_note"), ...ASSISTANT_TOOLS];
 
-const WRITES = new Set(["append", "replace_text", "add_to_page", "set_cells", "add_sheet", "add_rule", "save_graph", "replace_block", "insert_after", "delete_block", "copy_task", "put_under", "tick_task", "add_table", "add_reminder", "add_deadline", "log_routine"]);
+const WRITES = new Set(["append", "replace_text", "add_to_page", "set_cells", "add_sheet", "add_rule", "save_graph", "replace_block", "insert_after", "delete_block", "copy_task", "put_under", "tick_task", "add_table", "add_reminder", "add_deadline", "log_routine", "add_media"]);
 
 /** Which note a write lands on, for the "second note" check. */
 function noteOf(name: string, a: Record<string, unknown>, now: Date): string {
@@ -274,6 +279,40 @@ export async function runAssistantTool(call: ToolCall, ctx: RunCtx): Promise<Out
         const edge = a.edge === "start" || a.edge === "end" ? a.edge : "point";
         await writeLog(store, item, edge, now, { note: typeof a.note === "string" ? a.note : undefined, actor: ctx.actor });
         return ok(`Logged ${item.icon} ${item.label}${edge === "point" ? "" : ` ${edge}`}.`);
+      }
+      case "find_media": {
+        const hits = await findMedia(store, { source: String(a.source ?? "journal"), query: a.query as string, kind: a.kind as string, limit: Number(a.limit) || 10 });
+        if (typeof hits === "string") return bad(hits);
+        ctx.media = hits;
+        if (!hits.length) return ok(`Nothing found in ${String(a.source ?? "journal")}${a.query ? ` for "${String(a.query)}"` : ""}.`);
+        return ok(`${describeHits(hits, now.getTime())}\nAdd with add_media n (or ns).`);
+      }
+      case "add_media": {
+        let picks: MediaHit[] = [];
+        const nums = Array.isArray(a.ns) ? (a.ns as unknown[]).map(Number) : a.n != null ? [Number(a.n)] : [];
+        if (nums.length) {
+          if (!ctx.media?.length) return bad("Call find_media first, then add_media with its numbers.");
+          picks = nums.map((k) => ctx.media![k - 1]).filter(Boolean);
+          if (!picks.length) return bad(`No item ${nums.join(", ")} in the last find_media list.`);
+        } else {
+          const hits = await findMedia(store, { source: String(a.source ?? "journal"), query: a.query as string, kind: a.kind as string, limit: Math.max(1, Math.min(10, Number(a.count) || 1)) });
+          if (typeof hits === "string") return bad(hits);
+          if (!hits.length) return bad(`Nothing found in ${String(a.source ?? "journal")}${a.query ? ` for "${String(a.query)}"` : ""}. Try find_media with other words.`);
+          picks = hits;
+        }
+        const note = await noteFor(ctx, a);
+        if (typeof note === "string") return bad(note);
+        const blocks: JSONContent[] = [];
+        const names: string[] = [];
+        for (const hit of picks) {
+          const rec = await storedFile(store, hit);
+          if (typeof rec === "string") return bad(rec);
+          blocks.push(mediaBlock(rec));
+          names.push(rec.name);
+        }
+        const under = typeof a.under === "string" ? a.under.trim() : "";
+        const doc = under ? insertUnder(note.doc, under, blocks).doc : appendBlocks(note.doc, [...blocks, { type: "paragraph" }]);
+        return ok(await saved(note, doc, `Added ${names.join(", ")} to ${note.name}${under ? ` under ${under}` : ""}.`));
       }
       case "read_aloud": {
         const text = String(a.text ?? "").trim();
