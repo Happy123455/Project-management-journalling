@@ -126,23 +126,45 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
     await navigator.clipboard?.writeText(lines.join("\n")).catch(() => {});
   };
 
+  /** Tab-separated text (a copy from a spreadsheet) into the cells from the selection's top-left. */
+  const pasteText = (t: string) => {
+    const rows = t.replace(/\r/g, "").replace(/\n$/, "").split("\n").map((l) => l.split("\t"));
+    const patch: Record<string, string> = {};
+    rows.forEach((row, i) => row.forEach((v, j) => {
+      if (sel.r0 + i < MAX_ROWS && sel.c0 + j < MAX_COLS) patch[refName(sel.r0 + i, sel.c0 + j)] = v;
+    }));
+    const next = setCells(data, patch);
+    if (typeof next !== "string") save(next);
+  };
   const onPaste = (e: React.ClipboardEvent) => {
     if (!editable || editing) return;
     const t = e.clipboardData.getData("text/plain");
     if (!t) return;
     e.preventDefault();
     e.stopPropagation();
-    const rows = t.replace(/\r/g, "").replace(/\n$/, "").split("\n").map((l) => l.split("\t"));
-    const patch: Record<string, string> = {};
-    rows.forEach((row, i) => row.forEach((v, j) => {
-      if (active.r + i < MAX_ROWS && active.c + j < MAX_COLS) patch[refName(active.r + i, active.c + j)] = v;
-    }));
-    const next = setCells(data, patch);
-    if (typeof next !== "string") save(next);
+    pasteText(t);
+  };
+  /** Fill ↓ / → on a touch selection: its first row (or column) repeated or continued over the rest. */
+  const fillWithin = (down: boolean) => {
+    if (down ? sel.r1 === sel.r0 : sel.c1 === sel.c0) return;
+    const source = down ? { ...sel, r1: sel.r0 } : { ...sel, c1: sel.c0 };
+    save(fill(data, source, sel));
   };
 
   // Pointer: press selects (drag selects a range with a mouse); the corner square fills.
-  const drag = useRef<"select" | "fill" | null>(null);
+  // Touch (14 Nov: "i can't able to multi select the cell touch hold drag"): a quick swipe still
+  // scrolls the table, but a hold (350 ms) starts a range that follows the finger without
+  // scrolling; the round handles on the range's corners stretch it afterwards.
+  const drag = useRef<"select" | "fill" | "start" | "end" | null>(null);
+  const press = useRef<{ id: number; x: number; y: number; timer: number; already: boolean; cell: Cell; held: boolean } | null>(null);
+  const [touchSel, setTouchSel] = useState(false);
+  const capture = (id: number) => {
+    try {
+      grid.current?.setPointerCapture(id);
+    } catch {
+      // The finger is already up.
+    }
+  };
   const onCellDown = (e: React.PointerEvent, r: number, c: number) => {
     if (!editable) return;
     if (editing) commit(input.current?.value ?? editing.draft);
@@ -152,17 +174,53 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
       setActive({ r, c });
       setAnchor({ r, c });
     }
-    // A second tap on the same cell edits it (the keyboard comes up on a phone).
-    if (already && e.pointerType !== "mouse") {
-      setEditing({ draft: raw(r, c) });
-      return;
-    }
     if (e.pointerType === "mouse") {
       drag.current = "select";
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      grid.current?.focus({ preventScroll: true });
+      return;
     }
+    if (press.current) window.clearTimeout(press.current.timer);
+    const cell = { r, c };
+    const timer = window.setTimeout(() => {
+      if (!press.current) return;
+      press.current.held = true;
+      drag.current = "select";
+      setAnchor(cell);
+      setActive(cell);
+      setTouchSel(true);
+      navigator.vibrate?.(12);
+      window.JournalHaptics?.play("press", 0.5);
+      capture(press.current.id);
+    }, 350);
+    press.current = { id: e.pointerId, x: e.clientX, y: e.clientY, timer, already, cell, held: false };
     grid.current?.focus({ preventScroll: true });
   };
+  /** A round handle on the range's corner: drag it to stretch the range. */
+  const onHandleDown = (e: React.PointerEvent, which: "start" | "end") => {
+    e.stopPropagation();
+    e.preventDefault();
+    // The other corner stays put.
+    if (which === "start") {
+      setAnchor({ r: sel.r1, c: sel.c1 });
+      setActive({ r: sel.r0, c: sel.c0 });
+    } else {
+      setAnchor({ r: sel.r0, c: sel.c0 });
+      setActive({ r: sel.r1, c: sel.c1 });
+    }
+    drag.current = which;
+    capture(e.pointerId);
+  };
+  // While a touch range is being made, the table and the note don't scroll under the finger.
+  useEffect(() => {
+    const el = grid.current;
+    if (!el) return;
+    const stop = (ev: TouchEvent) => {
+      if (drag.current && ev.cancelable) ev.preventDefault();
+    };
+    el.addEventListener("touchmove", stop, { passive: false });
+    return () => el.removeEventListener("touchmove", stop);
+  }, []);
   const onFillDown = (e: React.PointerEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -171,10 +229,16 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onMove = (e: React.PointerEvent) => {
+    const p = press.current;
+    // Moved before the hold: it's a scroll, not a selection.
+    if (p && !p.held && e.pointerId === p.id && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8) {
+      window.clearTimeout(p.timer);
+      press.current = null;
+    }
     if (!drag.current) return;
     const at = cellAt(e.clientX, e.clientY);
     if (!at) return;
-    if (drag.current === "select") return void setActive(at);
+    if (drag.current === "select" || drag.current === "start" || drag.current === "end") return void setActive(at);
     // Fill grows along the longer way out of the selection: down/up or across.
     const dr = at.r > sel.r1 ? at.r - sel.r1 : at.r < sel.r0 ? at.r - sel.r0 : 0;
     const dc = at.c > sel.c1 ? at.c - sel.c1 : at.c < sel.c0 ? at.c - sel.c0 : 0;
@@ -182,6 +246,14 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
     else setFillTo({ ...sel, c0: Math.min(sel.c0, at.c), c1: Math.max(sel.c1, at.c) });
   };
   const onUp = () => {
+    const p = press.current;
+    if (p) {
+      window.clearTimeout(p.timer);
+      press.current = null;
+      // A second tap on the same cell edits it (the keyboard comes up on a phone).
+      if (!p.held && p.already) setEditing({ draft: raw(p.cell.r, p.cell.c) });
+      if (!p.held && !p.already) setTouchSel(false);
+    }
     if (drag.current === "fill" && fillTo && (fillTo.r0 !== sel.r0 || fillTo.r1 !== sel.r1 || fillTo.c0 !== sel.c0 || fillTo.c1 !== sel.c1)) {
       save(fill(data, sel, fillTo));
       setAnchor({ r: fillTo.r0, c: fillTo.c0 });
@@ -230,6 +302,16 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
           aria-label="Cell contents"
           spellCheck={false}
         />
+        {editable && touchSel && (sel.r0 !== sel.r1 || sel.c0 !== sel.c1) && (
+          <span className="sheet-tools sheet-range-tools">
+            <button type="button" onClick={() => void copy()}>Copy</button>
+            <button type="button" onClick={() => void copy().then(clearSelection)}>Cut</button>
+            <button type="button" onClick={clearSelection}>Clear</button>
+            <button type="button" onClick={() => void navigator.clipboard?.readText().then((t) => t && pasteText(t)).catch(() => {})}>Paste</button>
+            {sel.r1 > sel.r0 && <button type="button" onClick={() => fillWithin(true)} title="Fill down from the first row">Fill ↓</button>}
+            {sel.c1 > sel.c0 && <button type="button" onClick={() => fillWithin(false)} title="Fill right from the first column">Fill →</button>}
+          </span>
+        )}
         {editable && (
           <span className="sheet-tools">
             <button type="button" onClick={addRow} title="Add a row">+ Row</button>
@@ -272,7 +354,9 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
                       ) : (
                         display(v)
                       )}
-                      {editable && !editing && !fillTo && r === fillCorner.r1 && c === fillCorner.c1 && <i className="sheet-fill" onPointerDown={onFillDown} title="Drag to fill" />}
+                      {editable && !editing && !fillTo && r === fillCorner.r1 && c === fillCorner.c1 && !touchSel && <i className="sheet-fill" onPointerDown={onFillDown} title="Drag to fill" />}
+                      {editable && !editing && touchSel && r === sel.r0 && c === sel.c0 && <i className="sheet-handle start" onPointerDown={(e) => onHandleDown(e, "start")} aria-label="Stretch the selection" />}
+                      {editable && !editing && touchSel && r === sel.r1 && c === sel.c1 && <i className="sheet-handle end" onPointerDown={(e) => onHandleDown(e, "end")} aria-label="Stretch the selection" />}
                     </td>
                   );
                 })}

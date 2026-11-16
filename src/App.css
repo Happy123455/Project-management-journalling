@@ -3920,3 +3920,10 @@ html.at-rest .vg-dot { animation: none; }
 .dl-earlier { font-size: 11px; }
 html.dl-dragging, html.dl-dragging body { overscroll-behavior: none; overflow-anchor: none; }
 html.dl-dragging * { overflow-anchor: none !important; touch-action: none !important; }
+
+/* ▦ Sheet: touch range — round handles on its corners and a Copy/Cut/Clear/Paste/Fill strip. */
+.sheet-handle { position: absolute; width: 18px; height: 18px; border-radius: 50%; background: var(--bg); border: 2.5px solid var(--accent); z-index: 3; touch-action: none; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
+.sheet-handle.start { left: -10px; top: -10px; }
+.sheet-handle.end { right: -10px; bottom: -10px; }
+.sheet-grid td:has(.sheet-handle) { overflow: visible; }
+.sheet-range-tools { flex-wrap: wrap; width: 100%; }
