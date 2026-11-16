@@ -49,16 +49,23 @@ export async function geminiAgent(opts: {
   signal?: AbortSignal;
   onStep?: (line: string) => void;
   fetchImpl?: typeof fetch;
+  /** The assistant (item 13): its own tool list and runner, model and number of rounds. */
+  tools?: { name: string; description: string; parameters: { properties: Record<string, unknown>; required?: string[] } }[];
+  runTool?: (call: ToolCall) => Promise<{ out: string; bad: boolean }>;
+  model?: string;
+  maxRounds?: number;
 }): Promise<GeminiAgentResult> {
   const key = await getKey("gemini");
   if (!key) throw new Error("Add a Gemini key in Settings → AI to use the journal's tools from here.");
-  const model0 = modelFor({ ...loadAiSettings(), provider: "gemini" }, "chat");
+  const model0 = opts.model ?? modelFor({ ...loadAiSettings(), provider: "gemini" }, "chat");
   let section = opts.section;
   const contents: Content[] = opts.messages.map((m) => ({ role: m.role === "user" ? "user" : "model", parts: [{ text: m.content }] }));
   const steps: string[] = [];
   let chain = geminiChain(model0);
-  for (let round = 0; round < 8; round++) {
-    const tools = [{ functionDeclarations: declarations(toolsFor(section)) }];
+  const rounds = opts.maxRounds ?? 8;
+  for (let round = 0; round < rounds; round++) {
+    if (opts.signal?.aborted) throw new DOMException("Stopped", "AbortError");
+    const tools = [{ functionDeclarations: declarations(opts.tools ?? toolsFor(section)) }];
     // One path for every Gemini call (ai/gemini.ts): a model that hangs, errors or answers with
     // nothing hands over to the next one.
     const r = await geminiCall({
@@ -89,8 +96,8 @@ export async function geminiAgent(opts: {
     const answers: Part[] = [];
     for (const p of calls) {
       const call: ToolCall = { name: p.functionCall!.name, arguments: p.functionCall!.args ?? {} };
-      const r = await runOneTool(opts.store, call, opts.actor, section);
-      section = r.section;
+      const r = opts.runTool ? await opts.runTool(call) : await runOneTool(opts.store, call, opts.actor, section);
+      if (!opts.runTool) section = (r as { section?: Section | null }).section;
       const line = toolLogLine(call, r.bad);
       steps.push(line);
       opts.onStep?.(line);

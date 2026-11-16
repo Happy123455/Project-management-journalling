@@ -64,7 +64,7 @@ type Gesture = {
   y: number;
   t0: number;
   zone: string;
-  mode: "idle" | "swipe" | "up" | "joy" | "quick" | "previews" | "searchHistory" | "searchPick";
+  mode: "idle" | "swipe" | "up" | "joy" | "quick" | "previews" | "searchHistory" | "searchPick" | "talk";
   timer: number;
   /** The finger moved after a long press opened the picker (else the picker stays for a tap). */
   movedAfter: boolean;
@@ -88,7 +88,7 @@ const QUICK: { key: ViewMode | "outline"; icon: string; label: string }[] = [
  * - swipe up from (or hold) the tabs: tab previews float up, slide onto one and let go to open it;
  * - hold the menu: View / Edit / Source / Outline fan out, slide onto one and let go.
  */
-export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onForward, onHome, onHomeDouble, onShiftDay, onSearchHistory, onPickPast, onSearch, onTabs, onSwitchTab, onNewTab, actions }: {
+export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onForward, onHome, onHomeDouble, onShiftDay, onSearchHistory, onPickPast, onSearch, onTabs, onSwitchTab, onNewTab, actions, onAssist }: {
   /** A panel or sheet covers the page: the island tucks away. */
   away: boolean;
   tabs: TabsState;
@@ -110,6 +110,8 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   onSwitchTab: (id: string) => void;
   onNewTab: () => void;
   actions: MenuAction[];
+  /** Item 13: ✦ the assistant. Tap: type; hold: talk, and let go to run what was said. */
+  onAssist?: (kind: "tap" | "hold" | "release") => void;
 }) {
   const mode = useViewMode();
   const [menu, setMenu] = useState(false);
@@ -285,6 +287,13 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
         haptic("press", 0.8);
         setPicker("searchPick");
       }, 380);
+    if (zone === "assist")
+      gesture.timer = window.setTimeout(() => {
+        if (g.current !== gesture || gesture.mode !== "idle") return;
+        gesture.mode = "talk";
+        haptic("press", 0.9);
+        onAssist?.("hold");
+      }, 380);
     if (zone === "home" || zone === "tabs" || zone === "menu")
       gesture.timer = window.setTimeout(() => {
         if (g.current !== gesture || gesture.mode !== "idle") return;
@@ -333,6 +342,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
       else s.mode = "swipe";
       return;
     }
+    if (s.mode === "talk") return;
     if (s.mode === "joy") {
       const j = joyRun.current;
       if (!j) return;
@@ -361,11 +371,16 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     const dy = s.y - s.y0;
     if (s.mode !== "idle") quietClick.current = Date.now();
     if (cancel) {
+      if (s.mode === "talk") onAssist?.("release");
       stopJoy();
       if (s.movedAfter) closePicker();
       return;
     }
     if (s.mode === "joy") return stopJoy();
+    if (s.mode === "talk") {
+      haptic("edge", 0.7);
+      return onAssist?.("release");
+    }
     if (s.mode === "searchPick") {
       const key = pickAt(e.clientX, e.clientY);
       if (key) return pickSearch(key);
@@ -440,6 +455,11 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
           {joy != null && joyDays !== 0 && <span className="nav-joy-day">{joyDays > 0 ? `+${joyDays}` : joyDays} day{Math.abs(joyDays) === 1 ? "" : "s"}</span>}
         </button>
         <div className="nav-side">
+          {onAssist && (
+            <button type="button" data-zone="assist" className="nav-btn nav-assist" onClick={press(() => onAssist("tap"))} aria-label="Assistant (tap: type, hold: talk)">
+              <span aria-hidden>✦</span>
+            </button>
+          )}
           <button type="button" data-zone="tabs" className="nav-btn nav-tabs" onClick={press(onTabs)} aria-label={`${tabs.tabs.length} tabs`}>
             <span className="nav-tab-count">{tabs.tabs.length}</span>
           </button>

@@ -1,7 +1,7 @@
 export type SlashId =
   | "heading" | "task" | "bullet" | "numbered" | "quote" | "code" | "math" | "sheet"
   | "divider" | "timestamp" | "place" | "link" | "embed" | "tag" | "reminder"
-  | "attach" | "deadline" | "capture" | "project" | "voice" | "meme" | "sound" | "prompt" | "logproject";
+  | "attach" | "deadline" | "capture" | "project" | "voice" | "meme" | "sound" | "prompt" | "logproject" | "dothis" | "talk";
 
 export interface SlashItem {
   id: SlashId;
@@ -33,6 +33,7 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: "voice", label: "Voice", icon: "🎙", keywords: ["audio", "record", "voice note", "mic"] },
   { id: "meme", label: "Meme", icon: "😂", keywords: ["gif", "funny", "reaction", "sticker"] },
   { id: "sound", label: "Sound", icon: "🔊", keywords: ["audio", "effect", "clip", "sfx"] },
+  { id: "dothis", label: "Do this", icon: "▶", keywords: ["assistant", "run", "jobs", "steps", "schedule", "every day", "automate", "task list"] },
   { id: "prompt", label: "Prompt", icon: "🧩", keywords: ["template", "ai", "chatgpt", "claude", "fields", "copy"] },
   { id: "logproject", label: "Logging project", icon: "🪵", keywords: ["log", "habit", "streak", "daily", "tracker"] },
   { id: "project", label: "Project", icon: "📌", keywords: ["tracker", "goal", "plan", "todo"] },

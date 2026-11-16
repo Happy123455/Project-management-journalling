@@ -28,25 +28,26 @@ function saveFired(s: Set<string>) {
  * rules when the app opens or comes back and at their times. Never while you type: it waits.
  * Checks once a minute only while the app is on screen.
  */
-export function useAiNavigation(store: JournalStore | null, open: (target: string) => void) {
+export function useAiNavigation(store: JournalStore | null, open: (target: string, newTab?: boolean) => void) {
   const openRef = useRef(open);
   openRef.current = open;
 
   // The AI's open_note.
   useEffect(() => {
     let wait = 0;
-    const go = (target: string) => {
-      if (isTyping()) {
+    // `now`: asked for this moment (the assistant), so it doesn't wait for typing to pause.
+    const go = (target: string, newTab = false, now = false) => {
+      if (!now && isTyping()) {
         window.clearTimeout(wait);
-        wait = window.setTimeout(() => go(target), 1500);
+        wait = window.setTimeout(() => go(target, newTab), 1500);
         return;
       }
       const day = targetDay(target, new Date());
-      openRef.current(day ?? target);
+      openRef.current(day ?? target, newTab);
     };
     const on = (e: Event) => {
-      const t = (e as CustomEvent<{ target?: string }>).detail?.target;
-      if (t) go(t);
+      const d = (e as CustomEvent<{ target?: string; newTab?: boolean; now?: boolean }>).detail;
+      if (d?.target) go(d.target, !!d.newTab, !!d.now);
     };
     window.addEventListener(AI_OPEN_EVENT, on);
     return () => {

@@ -204,6 +204,82 @@ class MainActivity : TauriActivity() {
     @JavascriptInterface fun clearNotifications(upTo: Long) = try { Finance.clear(this@MainActivity, upTo) } catch (e: Exception) { }
   }
 
+  /**
+   * Items 12/13: Android's own speech recognizer for the assistant (hold to talk) and the talk box.
+   * Words come back as "journal:listen" events (partial while talking, final at a pause, then end);
+   * the page starts it again after each pause until it says stop (src/assistant/listen.ts).
+   */
+  private var recognizer: android.speech.SpeechRecognizer? = null
+  private var listenWaiting: Pair<String, String>? = null
+  private val askMic = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    val (id, lang) = listenWaiting ?: return@registerForActivityResult
+    listenWaiting = null
+    if (granted) startRecognizer(id, lang) else listenEvent(id, "error", null, "permission")
+  }
+  private fun listenEvent(id: String, kind: String, text: String?, error: String?) {
+    val d = JSONObject().put("id", id).put("kind", kind)
+    if (text != null) d.put("text", text)
+    if (error != null) d.put("error", error)
+    val js = "window.dispatchEvent(new CustomEvent('journal:listen', { detail: $d }))"
+    webView?.post { webView?.evaluateJavascript(js, null) }
+  }
+  private fun startRecognizer(id: String, lang: String) {
+    try {
+      recognizer?.destroy()
+      val r = android.speech.SpeechRecognizer.createSpeechRecognizer(this)
+      recognizer = r
+      r.setRecognitionListener(object : android.speech.RecognitionListener {
+        override fun onReadyForSpeech(params: Bundle?) {}
+        override fun onBeginningOfSpeech() {}
+        override fun onRmsChanged(rmsdB: Float) {}
+        override fun onBufferReceived(buffer: ByteArray?) {}
+        override fun onEndOfSpeech() {}
+        override fun onEvent(eventType: Int, params: Bundle?) {}
+        override fun onPartialResults(partial: Bundle?) {
+          val t = partial?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
+          listenEvent(id, "partial", t, null)
+        }
+        override fun onResults(results: Bundle?) {
+          val t = results?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
+          listenEvent(id, "final", t, null)
+          listenEvent(id, "end", null, null)
+        }
+        override fun onError(error: Int) {
+          val name = when (error) {
+            android.speech.SpeechRecognizer.ERROR_NO_MATCH -> "no match"
+            android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "speech timeout"
+            android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "permission"
+            android.speech.SpeechRecognizer.ERROR_NETWORK, android.speech.SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "network"
+            android.speech.SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "busy"
+            android.speech.SpeechRecognizer.ERROR_CLIENT -> "client"
+            else -> "error $error"
+          }
+          listenEvent(id, "error", null, name)
+        }
+      })
+      val intent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, lang)
+        // A long pause before it stops (people think while they talk).
+        putExtra(android.speech.RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
+        putExtra(android.speech.RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
+      }
+      r.startListening(intent)
+    } catch (e: Exception) {
+      listenEvent(id, "error", null, "not available")
+    }
+  }
+  inner class ListenBridge {
+    @JavascriptInterface fun available(): Boolean = try { android.speech.SpeechRecognizer.isRecognitionAvailable(this@MainActivity) } catch (e: Exception) { false }
+    @JavascriptInterface fun start(id: String, lang: String) = runOnUiThread {
+      if (androidx.core.content.ContextCompat.checkSelfPermission(this@MainActivity, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) startRecognizer(id, lang)
+      else { listenWaiting = Pair(id, lang); try { askMic.launch(android.Manifest.permission.RECORD_AUDIO) } catch (e: Exception) { listenEvent(id, "error", null, "permission") } }
+    }
+    @JavascriptInterface fun stop() = runOnUiThread { try { recognizer?.stopListening() } catch (e: Exception) { } }
+    @JavascriptInterface fun cancel() = runOnUiThread { try { recognizer?.cancel(); recognizer?.destroy() } catch (e: Exception) { }; recognizer = null }
+  }
+
   /** What was shared in (or a quick-note request), waiting for the page to take it. */
   @Volatile private var pendingShare: String? = null
 
@@ -311,6 +387,7 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(FinanceBridge(), "JournalFinance")
     webView.addJavascriptInterface(WatchBridge(), "JournalWatch")
     webView.addJavascriptInterface(DropBridge(), "JournalDrop")
+    webView.addJavascriptInterface(ListenBridge(), "JournalListen")
     Watch.onInbox = { webView.post { webView.evaluateJavascript("window.dispatchEvent(new Event('journal:watch'))", null) } }
     // Keyboards that insert images directly (commitContent): hand each item to the page.
     ViewCompat.setOnReceiveContentListener(webView, arrayOf("image/*", "video/*")) { _, payload ->

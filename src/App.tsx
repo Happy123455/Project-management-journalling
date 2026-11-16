@@ -42,6 +42,9 @@ import { entryFor, numberEntries, type ProjectEntry } from "./lib/projectDays";
 import { loadGestures, NO_SWIPE, onPanSurface, type CanvasAction } from "./lib/gestures";
 import { parseSpecialPage, setPersonalDates, SPECIAL_DATES_PAGE } from "./lib/specialDates";
 import { useAiNavigation } from "./ai/useAiRules";
+import { ASSIST_EVENT, CommandBar, type AssistRequest } from "./assistant/CommandBar";
+import { runAssistant } from "./assistant/runner";
+import { findBlock, recordRun, setScheduled, startScheduler, thisDevice } from "./assistant/scheduler";
 import { ChatView } from "./ChatView";
 import { AiBadge } from "./AiBadge";
 import { VoiceBadge } from "./ai/VoicePanel";
@@ -806,6 +809,14 @@ function App() {
     quickNote.current = "note";
     void goTo(today);
   };
+  // The assistant's "today's end" (item 13).
+  const writeAtEndRef = useRef(writeAtEnd);
+  writeAtEndRef.current = writeAtEnd;
+  useEffect(() => {
+    const on = () => writeAtEndRef.current();
+    window.addEventListener("journal:write-at-end", on);
+    return () => window.removeEventListener("journal:write-at-end", on);
+  }, []);
   const goHome = () => {
     if (route.kind === "day" && day === today) return window.scrollTo({ top: 0, behavior: "smooth" });
     setFind(null);
@@ -1052,10 +1063,45 @@ function App() {
     [searching, results, counts],
   );
 
+  // Item 13: ✦ the assistant (the nav island, Cmd/Ctrl+J, ▶ Do this blocks) and its schedules.
+  const [assist, setAssist] = useState<(AssistRequest & { n: number }) | null>(null);
+  const assistN = useRef(0);
+  const openAssist = (r: AssistRequest) => setAssist({ ...r, n: ++assistN.current });
+  // While ✦ is held the island stays (it has the finger); otherwise the open bar covers it.
+  const [talkHeld, setTalkHeld] = useState(false);
+  useEffect(() => {
+    const on = (e: Event) => openAssist((e as CustomEvent<AssistRequest>).detail);
+    window.addEventListener(ASSIST_EVENT, on);
+    return () => window.removeEventListener(ASSIST_EVENT, on);
+  }, []);
+  useEffect(() => {
+    if (!store) return;
+    return startScheduler(async (job) => {
+      const block = await findBlock(store, job.note, job.bid);
+      if (!block || !block.attrs?.schedule || block.attrs.device !== thisDevice()) return setScheduled(job.bid, null);
+      const text = String(block.attrs.text ?? job.text).trim();
+      if (!text) return;
+      const at = Date.now();
+      try {
+        const r = await runAssistant({ store, text });
+        const ok = !r.steps.some((x) => x.status === "fail");
+        recordRun(job.bid, { at, ok, answer: r.answer.slice(0, 400) });
+        showToast(`🕘 ▶ Do this ran${ok ? "" : " (not all steps)"}: ${r.answer.slice(0, 120)}`, ok ? "info" : "error", { label: "Open", run: () => openAssist({ mode: "type" }) }, { background: true });
+      } catch (e) {
+        recordRun(job.bid, { at, ok: false, answer: e instanceof Error ? e.message : String(e) });
+      }
+    });
+  }, [store]);
+
   // Cmd/Ctrl+K or Cmd/Ctrl+Shift+F opens search.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        openAssist({ mode: "type" });
+        return;
+      }
       if (mod && (e.key.toLowerCase() === "k" || (e.shiftKey && e.key.toLowerCase() === "f"))) {
         e.preventDefault();
         setSearchOpen(true);
@@ -1100,7 +1146,11 @@ function App() {
   const openLinkRef = useRef(handlers.onOpenLink);
   openLinkRef.current = handlers.onOpenLink;
   // The AI opening notes (open_note) and the "AI rules" page's rules.
-  useAiNavigation(store, (target) => void openLinkRef.current(target));
+  // Item 13: the assistant may ask for a new tab.
+  useAiNavigation(store, (target, newTab) => {
+    if (newTab) setTabs((t) => openTab(t, /^\d{4}-\d{2}-\d{2}$/.test(target) ? { kind: "day", day: target } : { kind: "page", title: target }));
+    void openLinkRef.current(target);
+  });
   useEffect(() => {
     const on = (e: Event) => void openLinkRef.current(String((e as CustomEvent).detail ?? ""));
     window.addEventListener("journal:open-link", on);
@@ -1457,7 +1507,7 @@ function App() {
       <Toasts />
       {touch && store && (
         <NavIsland
-          away={overlayOpen || routineOpen || moneyOpen || !!dayPicker}
+          away={overlayOpen || routineOpen || moneyOpen || !!dayPicker || (!!assist && !talkHeld)}
           tabs={tabs}
           today={today}
           canBack={activeTab(tabs).index > 0}
@@ -1479,6 +1529,11 @@ function App() {
             // Opens to read, like a swipe to another day: no focus, no keyboard.
             previewNext.current = true;
             void goTo(next);
+          }}
+          onAssist={(kind) => {
+            if (kind === "tap") openAssist({ mode: "type" });
+            else if (kind === "hold") (setTalkHeld(true), openAssist({ mode: "talk" }));
+            else (setTalkHeld(false), window.dispatchEvent(new Event("journal:assist-release")));
           }}
           onSearch={() => setTitleSearchOpen(true)}
           onSearchHistory={() => {
@@ -1542,6 +1597,7 @@ function App() {
           }}
         />
       )}
+      {assist && store && <CommandBar key={assist.n} store={store} request={assist} onClose={() => setAssist(null)} />}
       {tabsOpen && (
         <TabSwitcher
           tabs={tabs}

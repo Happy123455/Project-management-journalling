@@ -19,6 +19,17 @@ export function registerOpenNote(key: string, editor: Editor): () => void {
   };
 }
 
+// Which note each editor shows (a day key or a page title), for blocks that need to know (▶ Do this).
+const names = new WeakMap<Editor, string>();
+export function nameNote(editor: Editor, name: string): () => void {
+  names.set(editor, name);
+  return () => {
+    if (names.get(editor) === name) names.delete(editor);
+  };
+}
+/** The note an editor shows: "2026-11-04" or a page title ("" when unknown). */
+export const noteNameOf = (editor: Editor): string => names.get(editor) ?? noteDayOf(editor);
+
 /** The day ("2026-11-04") an open editor shows, or "" when it isn't a day note. */
 export function noteDayOf(editor: Editor): string {
   for (const [k, e] of open) if (e === editor && k.startsWith("day:")) return k.slice(4);

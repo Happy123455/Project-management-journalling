@@ -33,6 +33,10 @@
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
+        <!-- The assistant's hold-to-talk: Android's speech recognizer (ListenBridge). -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
     </queries>
 
     <!-- AndroidTV support -->

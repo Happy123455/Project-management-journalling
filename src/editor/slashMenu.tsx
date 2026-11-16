@@ -1,3 +1,4 @@
+import { newDoThis } from "./doThisBlock";
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { Extension, ReactRenderer, type Editor, type Range } from "@tiptap/react";
 import { PluginKey } from "@tiptap/pm/state";
@@ -99,6 +100,8 @@ function run(id: SlashId, editor: Editor, range: Range, options: SlashMenuOption
       return chain.insertContent(newSheetContent()).run();
     case "prompt":
       return chain.insertContent({ type: "promptBlock" }).run();
+    case "dothis":
+      return chain.insertContent(newDoThis()).run();
     case "deadline":
       return chain.insertContent({ type: "deadlineBar" }).run();
     case "logproject":

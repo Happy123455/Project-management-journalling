@@ -24,6 +24,7 @@ import { BlockInfoPanel } from "./BlockInfoPanel";
 import { readAloud } from "../lib/readAloud";
 import { isLoneUrl, LinkCard } from "./linkCard";
 import { PromptBlock } from "./promptBlock";
+import { DoThisBlock } from "./doThisBlock";
 import { MathBlock } from "./mathBlock";
 import { SheetBlock } from "./sheetBlock";
 import { YoutubeEmbed, youtubeEmbedFrom } from "./youtubeEmbed";
@@ -44,7 +45,7 @@ import { openVoiceRecorder } from "./VoiceRecorder";
 import { dayKey } from "../lib/timestamp";
 import { jumpTo, OutlinePanel } from "./Outline";
 import { TimeRail, useTimeRail } from "./TimeRail";
-import { registerOpenNote } from "./noteEdit";
+import { nameNote, registerOpenNote } from "./noteEdit";
 import { docToMarkdown, docToSource, sourceMemory, sourceToDoc, type SourceMemory } from "../lib/source";
 import { docText } from "../lib/words";
 import { SmartPaste } from "./SmartPaste";
@@ -622,6 +623,7 @@ export function JournalEditor({
       LinkCard,
       YoutubeEmbed,
       PromptBlock,
+      DoThisBlock,
       DeadlineBar,
       MathBlock,
       SheetBlock,
@@ -722,6 +724,8 @@ export function JournalEditor({
 
   // Routine taps and reminder actions change this note through its editor while it's open.
   useEffect(() => (editor && liveKey ? registerOpenNote(liveKey, editor) : undefined), [editor, liveKey]);
+  const noteName = canvas?.day ?? canvas?.title ?? "";
+  useEffect(() => (editor && noteName ? nameNote(editor, noteName) : undefined), [editor, noteName]);
 
   // The other device's typing in this same note, put in place as it happens.
   useEffect(() => {
