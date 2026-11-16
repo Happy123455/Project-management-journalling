@@ -51,6 +51,18 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [nearHome, setNearHome] = useState(false);
+  // Touches on a bubble or its chat stay there: the page's swipes (day change, pull to today,
+  // calendar pulls) listen on the window and the app, and moving a bubble sideways set them off.
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const has = agents.length > 0;
+  useEffect(() => {
+    const el = hostRef.current;
+    if (!el) return;
+    const stop = (e: Event) => e.stopPropagation();
+    const kinds = ["touchstart", "touchmove", "touchend", "touchcancel"] as const;
+    for (const k of kinds) el.addEventListener(k, stop, { passive: true });
+    return () => kinds.forEach((k) => el.removeEventListener(k, stop));
+  }, [has]);
   const openRef = useRef(open);
   openRef.current = open;
   const agentsRef = useRef(agents);
@@ -110,7 +122,7 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
 
   if (!agents.length) return null;
   return createPortal(
-    <div className="agents">
+    <div className="agents" ref={hostRef}>
       {agents.map((a) => (
         <Bubble
           key={a.id}
