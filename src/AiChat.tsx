@@ -6,6 +6,8 @@ import { LinePicker } from "./ai/LinePicker";
 import { DecidePanel } from "./ai/DecidePanel";
 import { VoicePanel } from "./ai/VoicePanel";
 import { FirewallPanel } from "./firewall/FirewallPanel";
+import { PromptPanel } from "./ai/PromptPanel";
+import { studioBusy } from "./ai/promptStudio";
 import { firewallBusy } from "./firewall/firewall";
 import { recordingVoice, voiceSession } from "./ai/voiceSession";
 import { currentJob, isMac, listChats, loadChat, newChat, saveChat, sendMessage, stopJob, stopWatching, subscribeJob, watchRemote, type Chat, type Msg } from "./ai/chatRunner";
@@ -82,7 +84,10 @@ export function AiChat({ store, onChanged, openId }: { store: JournalStore; onCh
   const [voicing, setVoicing] = useState(() => openId === "voice" || recordingVoice() || voiceSession().phase === "building");
   // 🧯 Rhetoric firewall: open while a check runs, or when asked for ("firewall", e.g. a link card's 🧯).
   const [walling, setWalling] = useState(() => openId === "firewall" || firewallBusy());
+  // ✍️ Prompt studio: open while it works, or when asked for ("prompt").
+  const [prompting, setPrompting] = useState(() => openId === "prompt" || studioBusy());
   useEffect(() => {
+    if (openId === "prompt") setPrompting(true);
     if (openId === "voice") setVoicing(true);
     if (openId === "firewall") setWalling(true);
   }, [openId]);
@@ -90,8 +95,9 @@ export function AiChat({ store, onChanged, openId }: { store: JournalStore; onCh
     // The 🎙️ badge while chat is open on another screen.
     const on = (e: Event) => {
       const d = (e as CustomEvent<string>).detail;
-      if (d === "voice") (setDeciding(false), setPicking(false), setWalling(false), setVoicing(true));
-      if (d === "firewall") (setDeciding(false), setPicking(false), setVoicing(false), setWalling(true));
+      if (d === "voice") (setDeciding(false), setPicking(false), setWalling(false), setPrompting(false), setVoicing(true));
+      if (d === "firewall") (setDeciding(false), setPicking(false), setVoicing(false), setPrompting(false), setWalling(true));
+      if (d === "prompt") (setDeciding(false), setPicking(false), setVoicing(false), setWalling(false), setPrompting(true));
     };
     window.addEventListener("journal:open-ai-chat", on);
     return () => window.removeEventListener("journal:open-ai-chat", on);
@@ -113,7 +119,7 @@ export function AiChat({ store, onChanged, openId }: { store: JournalStore; onCh
     if (c?.pending && !isMac() && !currentJob()) watchRemote(store, c);
   };
   useEffect(() => {
-    void refresh((openId !== "voice" && openId !== "firewall" && openId) || local(LAST_KEY) || "");
+    void refresh((openId !== "voice" && openId !== "firewall" && openId !== "prompt" && openId) || local(LAST_KEY) || "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store, openId]);
   useEffect(() => {
@@ -187,6 +193,7 @@ export function AiChat({ store, onChanged, openId }: { store: JournalStore; onCh
   if (deciding) return <DecidePanel store={store} onClose={() => setDeciding(false)} />;
   if (voicing) return <VoicePanel store={store} onChanged={onChanged} onClose={() => setVoicing(false)} />;
   if (walling) return <FirewallPanel store={store} onClose={() => setWalling(false)} />;
+  if (prompting) return <PromptPanel store={store} onChanged={onChanged} onClose={() => setPrompting(false)} />;
 
   return (
     <>
@@ -228,6 +235,9 @@ export function AiChat({ store, onChanged, openId }: { store: JournalStore; onCh
         </button>
         <button type="button" className="chat-ai" onClick={() => setDeciding(true)} title="Decision models: cheap yes/no, choice and score judgements (they also place voice graph nodes)">
           ⚖️
+        </button>
+        <button type="button" className="chat-ai" onClick={() => setPrompting(true)} title="Prompt studio: describe a project, answer one question at a time, get a final prompt checked by a second AI">
+          ✍️
         </button>
         <button type="button" className="chat-ai" onClick={() => setWalling(true)} title="Rhetoric firewall: strip the delivery off a video, page or talk and see the bare argument">
           🧯

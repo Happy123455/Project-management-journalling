@@ -1,0 +1,70 @@
+/* ✍️ Prompt studio panel (inside AI chat). Interviewer = accent blue, second opinion = owl amber. */
+.ps { --ps-ask: var(--accent); --ps-crit: #c26a12; }
+.ps-title { flex: 1; font-size: 15px; }
+.ps-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 12px 24px; display: flex; flex-direction: column; gap: 10px; }
+.ps-scroll .hint { padding: 0; }
+.ps .ps-brief, .ps-field select, .ps-tweak input {
+  font: inherit; font-size: 14px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 70%, transparent); color: inherit; width: 100%; box-sizing: border-box;
+}
+.ps-brief { resize: vertical; }
+.ps-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.ps-row > * { flex: 1 1 140px; min-width: 0; }
+.ps-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.ps-field select { font-size: 13px; padding: 6px 8px; }
+.ps-check { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.ps-primary { align-self: flex-start; padding: 8px 16px; border-radius: 999px; font-weight: 600; color: #fff; background: rgb(var(--heat-rgb)); border: none; }
+.ps-primary:disabled { opacity: 0.5; }
+
+.ps-progress { display: flex; gap: 10px; align-items: center; padding: 6px 12px 0; font-size: 12px; color: var(--muted); }
+.ps-meter { flex: 1; height: 5px; border-radius: 99px; background: var(--border); overflow: hidden; }
+.ps-meter > span { display: block; height: 100%; background: var(--ps-ask); transition: width 0.4s; }
+.ps-topics { display: flex; gap: 4px; flex-wrap: wrap; padding: 6px 12px 0; }
+.ps-topics span { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px dashed var(--border); color: var(--muted); }
+.ps-topics span.on { border: 1px solid transparent; background: color-mix(in srgb, var(--ps-ask) 16%, transparent); color: var(--ps-ask); }
+
+.ps-list .chat-bubble { flex-direction: column; align-items: stretch; flex-wrap: nowrap; }
+.ps-list .chat-bubble.ai { align-self: flex-start; }
+.ps-brief-shown { opacity: 0.8; max-height: 140px; overflow: auto; }
+.ps-who { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; display: flex; gap: 6px; align-items: center; }
+.ps-who em { font-style: normal; font-weight: 600; text-transform: none; letter-spacing: 0; padding: 0 6px; border-radius: 999px; border: 1px solid currentColor; opacity: 0.8; }
+.ps-ask .ps-who { color: var(--ps-ask); }
+.ps-crit { border-left: 3px solid var(--ps-crit); }
+.ps-crit .ps-who { color: var(--ps-crit); }
+.ps-why { font-size: 12px; color: var(--muted); }
+.ps-sugs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.ps-sugs button, .ps-also button, .ps-h button, .ps-error button { font-size: 12px; padding: 3px 10px; border-radius: 999px; }
+.ps-also { font-size: 12px; color: var(--muted); }
+.ps-error { color: #c62828; }
+.ps-go { font-weight: 700; }
+
+/* Three dots circling while an AI thinks. */
+.ps-dots { display: inline-flex; gap: 4px; padding: 4px 0; }
+.ps-dots i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: ps-b 1s infinite ease-in-out; }
+.ps-dots i:nth-child(2) { animation-delay: 0.15s; }
+.ps-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes ps-b { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .ps-dots i { animation: none; } }
+
+.ps-synth { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.ps-h { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.ps-h b { flex: 1; font-size: 14px; }
+.ps-crit-h b { color: var(--ps-crit); }
+.ps-prompt { margin: 0; font: 12px/1.55 ui-monospace, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: color-mix(in srgb, var(--bg) 70%, transparent); max-height: 50vh; overflow: auto; user-select: text; }
+.ps-summary { margin: 0; font-size: 13px; }
+.ps-scores { display: flex; gap: 6px; flex-wrap: wrap; }
+.ps-scores span { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.ps-fold { font-size: 13px; }
+.ps-fold summary { cursor: pointer; color: var(--muted); }
+.ps-fold ul { margin: 4px 0 0; padding-left: 18px; }
+.ps-points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ps-points label { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--border); }
+.ps .ps-points input, .ps .ps-check input { flex: 0 0 18px; width: 18px; height: 18px; min-width: 18px; margin: 2px 0 0; padding: 0; }
+.ps-points span { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; }
+.ps-points em { font-style: normal; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; align-self: flex-start; padding: 1px 6px; border-radius: 999px; }
+.ps-points em.join { color: var(--ps-ask); background: color-mix(in srgb, var(--ps-ask) 14%, transparent); }
+.ps-points em.dont { color: var(--ps-crit); background: color-mix(in srgb, var(--ps-crit) 14%, transparent); }
+.ps-points small { color: var(--muted); }
+.ps-points code { font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ps-tweak { display: flex; gap: 6px; }
+.ps-tweak button { border-radius: 999px; padding: 4px 12px; }
