@@ -4477,3 +4477,28 @@ html.nav-showing .agent-panel, html.nav-showing .dls-back:has(> .cmd) { opacity:
 .year-fest-switch.on .yfs-track { background: var(--accent); }
 .year-fest-switch.on .yfs-track i { transform: translateX(12px); }
 @media (max-width: 480px) { .year-header { flex-wrap: wrap; } }
+
+/* Item 6: the menu's tools as two labelled rows of tiles. */
+.menu-ribbon.menu-tiles { display: grid; gap: 8px; padding: 0 10px 10px; }
+.menu-tile-group { display: grid; gap: 4px; }
+.menu-tile-head { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding-left: 2px; }
+.menu-tile-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.menu-ribbon.menu-tiles .menu-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; height: auto; min-height: 54px; padding: 6px 2px; border-radius: 14px; font-size: 19px; line-height: 1; }
+.menu-tile-label { font-size: 10.5px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.sidebar .menu-ribbon.menu-tiles { padding: 0 0 10px; }
+.sidebar .menu-ribbon.menu-tiles .menu-tile { height: auto; min-height: 48px; font-size: 16px; }
+.menu-ribbon.menu-tiles .menu-tile { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+
+/* Item 7: Projects as tabs (All / 📌 Active / 🪵 Logged), each with its own colour. */
+.project-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 3px; margin: 0 0 8px; border-radius: 14px; background: color-mix(in srgb, var(--muted) 10%, transparent); }
+.project-list .project-tab { justify-content: center; gap: 4px; padding: 6px 4px; border-radius: 11px; font-size: 12.5px; font-weight: 600; background: transparent; box-shadow: none; border: 0; white-space: nowrap; }
+.project-tab small { font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.project-list .project-tab.active { background: var(--panel, var(--bg)); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14); }
+.project-tab.pt-active.active { color: #16a34a; }
+.project-tab.pt-logged.active { color: #b45309; }
+.project-group.pg-active { color: #16a34a; }
+.project-group.pg-logged { color: #b45309; border-top: 1px dashed color-mix(in srgb, var(--border) 80%, transparent); margin-top: 6px; }
+.project-item > .project-row { position: relative; }
+.project-item > .project-row::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 3px; background: #16a34a; opacity: 0.7; pointer-events: none; }
+.project-item.is-logged > .project-row::before { background: #b45309; opacity: 0.55; }
+.project-item.is-logged .project-name { opacity: 0.85; }

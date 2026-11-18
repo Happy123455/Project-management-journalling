@@ -1295,16 +1295,43 @@ function App() {
   );
 
   // The menu, like Obsidian's: a row of tools on top, lists in the middle, sync and settings pinned at the bottom.
+  // Item 6 (18 Nov): the eight tools as labelled tiles in two groups (find and look / AI and
+  // talk), not a row of bare icons. Same tools, same order of use.
+  const ribbonTools: { group: string; items: { icon: string; label: string; title: string; run: () => void }[] }[] = [
+    {
+      group: "Find & see",
+      items: [
+        { icon: "🔍", label: "Search", title: "Search (Cmd/Ctrl+K)", run: () => (setDrawerOpen(false), setSearchOpen(true)) },
+        { icon: "🕸", label: "Graph", title: "Graph view", run: () => (setDrawerOpen(false), setGraphOpen(true)) },
+        { icon: "🧠", label: "Mind map", title: "Mind map", run: () => (setDrawerOpen(false), setMindOpen(true)) },
+        { icon: "⏳", label: "Timelines", title: "Timelines", run: () => (setDrawerOpen(false), openTimelines()) },
+      ],
+    },
+    {
+      group: "AI & talk",
+      items: [
+        { icon: "✦", label: "Assistant", title: "Assistant (Cmd/Ctrl+J)", run: () => (setDrawerOpen(false), openAssist({ mode: "type" })) },
+        { icon: "🎙", label: "Talk + type", title: "Talk + type: a new prompt session", run: () => void newTalkSession() },
+        { icon: "💬", label: "Chat", title: "Chat view", run: () => void (setDrawerOpen(false), flush().then(() => setChatOpen(true))) },
+        { icon: "⑂", label: "History", title: "Nexus: this note's history", run: () => void openNexus() },
+      ],
+    },
+  ];
   const menuRibbon = (
-    <div className="menu-ribbon" role="toolbar" aria-label="Tools">
-      <button type="button" onClick={() => (setDrawerOpen(false), setSearchOpen(true))} title="Search" aria-label="Search">🔍</button>
-      <button type="button" onClick={() => (setDrawerOpen(false), setGraphOpen(true))} title="Graph view" aria-label="Graph view">🕸</button>
-      <button type="button" onClick={() => (setDrawerOpen(false), setMindOpen(true))} title="Mind map" aria-label="Mind map">🧠</button>
-      <button type="button" onClick={() => (setDrawerOpen(false), openAssist({ mode: "type" }))} title="Assistant (Cmd/Ctrl+J)" aria-label="Assistant">✦</button>
-      <button type="button" onClick={() => void newTalkSession()} title="Talk + type: a new prompt session" aria-label="Talk + type">🎙</button>
-      <button type="button" onClick={() => (setDrawerOpen(false), openTimelines())} title="Timelines" aria-label="Timelines">⏳</button>
-      <button type="button" onClick={() => void openNexus()} title="Nexus: this note's history" aria-label="Nexus">⑂</button>
-      <button type="button" onClick={async () => (setDrawerOpen(false), await flush(), setChatOpen(true))} title="Chat view" aria-label="Chat view">💬</button>
+    <div className="menu-ribbon menu-tiles" role="toolbar" aria-label="Tools">
+      {ribbonTools.map((g) => (
+        <div key={g.group} className="menu-tile-group" role="group" aria-label={g.group}>
+          <span className="menu-tile-head">{g.group}</span>
+          <div className="menu-tile-row">
+            {g.items.map((t) => (
+              <button key={t.label} type="button" className="menu-tile" onClick={t.run} title={t.title} aria-label={t.label}>
+                <span className="menu-tile-icon" aria-hidden>{t.icon}</span>
+                <span className="menu-tile-label">{t.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
   const menuFooter = (

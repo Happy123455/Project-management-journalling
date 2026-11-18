@@ -391,6 +391,24 @@ export function ProjectList({ store, refreshKey, onOpen }: { store: JournalStore
   const [items, setItems] = useState<{ page: NamedPage; tasks: RolledTask[] }[]>([]);
   const [tick, setTick] = useState(0);
   const [openAll, setOpenAll] = useState<string[]>([]);
+  // Item 7 (18 Nov): All / 📌 Active / 🪵 Logged as tabs with their own colours, remembered.
+  const [view, setViewState] = useState<"all" | "active" | "logged">(() => {
+    try {
+      const v = localStorage.getItem("journal.menuProjectsView");
+      return v === "active" || v === "logged" ? v : "all";
+    } catch {
+      return "all";
+    }
+  });
+  const setView = (v: "all" | "active" | "logged") => {
+    setViewState(v);
+    try {
+      localStorage.setItem("journal.menuProjectsView", v);
+    } catch {
+      // This session only.
+    }
+  };
+  const [counts, setCounts] = useState({ active: 0, logged: 0 });
   useEffect(() => {
     let live = true;
     (async () => {
@@ -400,13 +418,17 @@ export function ProjectList({ store, refreshKey, onOpen }: { store: JournalStore
       const logged = projects.filter((p) => !countsTowardsLimit(p));
       logged.sort((a, b) => Number(b.props.project?.status === "active") - Number(a.props.project?.status === "active"));
       const rows = [];
-      for (const page of [...active, ...logged.slice(0, Math.max(0, prefs.projectLimit - active.length))]) rows.push({ page, tasks: await loadProjectTasks(store, page) });
-      if (live) setItems(rows);
+      const pick = view === "active" ? active : view === "logged" ? logged : [...active, ...logged.slice(0, Math.max(0, prefs.projectLimit - active.length))];
+      for (const page of pick) rows.push({ page, tasks: await loadProjectTasks(store, page) });
+      if (live) {
+        setItems(rows);
+        setCounts({ active: active.length, logged: logged.length });
+      }
     })().catch(() => {});
     return () => {
       live = false;
     };
-  }, [store, refreshKey, tick, prefs.projectLimit, prefs.hiddenProjects.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [store, refreshKey, tick, view, prefs.projectLimit, prefs.hiddenProjects.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle = async (item: RolledTask) => {
     try {
@@ -419,9 +441,31 @@ export function ProjectList({ store, refreshKey, onOpen }: { store: JournalStore
       showError("Couldn't change the task", e);
     }
   };
-  if (!items.length) return <p className="hint">No projects yet: “📌 Project” on a page makes one.</p>;
+  const tabs = (
+    <div className="project-tabs" role="tablist" aria-label="Projects">
+      {(
+        [
+          ["all", "All", counts.active + counts.logged],
+          ["active", "📌 Active", `${counts.active}/${MAX_ACTIVE_PROJECTS}`],
+          ["logged", "🪵 Logged", counts.logged],
+        ] as const
+      ).map(([k, label, n]) => (
+        <button key={k} type="button" role="tab" aria-selected={view === k} className={`project-tab pt-${k}${view === k ? " active" : ""}`} onClick={() => setView(k)}>
+          {label} <small>{n}</small>
+        </button>
+      ))}
+    </div>
+  );
+  if (!items.length)
+    return (
+      <div className="project-list">
+        {counts.active + counts.logged > 0 && tabs}
+        <p className="hint">{counts.active + counts.logged ? (view === "active" ? "No active project. Move one here from 🪵 Logged in its ⚡ setup." : "Nothing logged.") : "No projects yet: “📌 Project” on a page makes one."}</p>
+      </div>
+    );
   return (
-    <div className="project-list">
+    <div className={`project-list pv-${view}`}>
+      {tabs}
       <ul>
         {items.map(({ page, tasks }, i) => {
           const open = tasks.filter((t) => !t.task.checked);
@@ -431,8 +475,8 @@ export function ProjectList({ store, refreshKey, onOpen }: { store: JournalStore
           const all = openAll.includes(page.id);
           const shown = all ? open : open.slice(0, 4);
           return (
-            <li key={page.id} className="project-item">
-              {head && <div className="project-group">{isActive ? `📌 Active · ${nActive}/${MAX_ACTIVE_PROJECTS}` : "🪵 Logged"}</div>}
+            <li key={page.id} className={`project-item ${isActive ? "is-active" : "is-logged"}`}>
+              {head && view === "all" && <div className={`project-group ${isActive ? "pg-active" : "pg-logged"}`}>{isActive ? `📌 Active · ${nActive}/${MAX_ACTIVE_PROJECTS}` : "🪵 Logged"}</div>}
               <div className="project-row">
                 <button type="button" onClick={() => onOpen(page.title)}>
                   <span className={`project-dot status-${page.props.project?.status}`} />
