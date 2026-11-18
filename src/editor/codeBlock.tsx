@@ -31,6 +31,24 @@ export async function copyText(text: string) {
   }
 }
 
+/** Is the caret (or the selection) inside a code block? */
+export const inCode = (editor: Editor) => {
+  const { $from, $to } = editor.state.selection;
+  return $from.parent.type.name === "codeBlock" && $from.sameParent($to);
+};
+
+/**
+ * Text into the code block at the caret, exactly as it is (line breaks kept), as one step. Pasting
+ * through the usual paths there could lose it: a multi-line paste became paragraphs, which a code
+ * block can't hold, so the block was split around them or left empty.
+ */
+export function pasteIntoCode(editor: Editor, text: string) {
+  const clean = text.replace(/\r\n?/g, "\n");
+  const { from, to } = editor.state.selection;
+  editor.view.dispatch(editor.state.tr.insertText(clean, from, to).scrollIntoView());
+  editor.view.focus();
+}
+
 /** ▾ / ▸ in a block's header: folds the block to its header line (kept in the note as `collapsed`). */
 export function FoldButton({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   return (

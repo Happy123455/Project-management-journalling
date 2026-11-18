@@ -10,6 +10,11 @@ import { loadAiSettings, modelFor } from "../ai/settings";
 import { dayKey, formatTimestamp } from "../lib/timestamp";
 import { fastPath } from "./fastPath";
 import { assistantToolList, runAssistantTool, type RunCtx } from "./tools";
+import type { FoundFormula } from "../lib/mathFind";
+import { pocketFromSentence } from "../lib/pocket";
+import { addPocket, loadPocket, pocketSummary } from "../finance/pocket";
+import { pocketState } from "../lib/pocket";
+import { cursorFx } from "./AgentCursors";
 
 export const ASSISTANT_ACTOR = "Assistant";
 
@@ -45,6 +50,8 @@ export interface RunResult {
   steps: Step[];
   /** No AI was used. */
   fast: boolean;
+  /** Formulas to show as cards (math_find / math_recalc). */
+  cards?: FoundFormula[];
 }
 
 /** Strips "1.", "-", "•", "[ ]" from the start of a line of steps. */
@@ -89,6 +96,9 @@ export function assistantSystem(now: Date): string {
     "Tables of top files, tags, links or memes: usage_counts, then add_table. Reminders: add_reminder (24-hour HH:MM). Deadlines: add_deadline. " +
     "Photos, videos, memes, GIFs, sounds, audio or files: find_media then add_media ('my latest/recent photo' = source phone, newest first; files already in the journal = journal; memes, GIFs, meme sounds = memes). Never write ![..](..), file names or '/meme' as text instead. " +
     "Read aloud with read_aloud. To summarise a note, read it first (read_day / read_page). " +
+    "Cash: whenever they mention paying in cash, from their pocket or wallet ('haircut 350 from my pocket', 'spent 370 on food from pocket'), call pocket (spend/add/count) as well as anything else asked; ATM cash = pocket add. " +
+    "Maths: new calculations or formulas go in math blocks (math_add with plain maths lines, or math_solve for a problem in words); 'my formulas', 'the formula I starred' = math_find (the person sees them as cards); 'change r to 5 / drop the price to 300' = math_set, or math_recalc to only see the answer. " +
+    "Planning: a deadline = add_deadline (+ add_reminder lines the day before and on the day); work/break blocks or 'plan my day/evening for X' = plan_blocks, which fits blocks around their routine duties. " +
     "Never delete or rewrite anything they didn't ask you to. If a step can't be done, say why in one sentence."
   );
 }
@@ -113,6 +123,16 @@ async function openFast(store: JournalStore, f: Extract<ReturnType<typeof fastPa
 async function runStep(step: Step, opts: RunOpts, ctx: RunCtx, model: string, before: string): Promise<{ answer: string; fast: boolean }> {
   const fast = fastPath(step.text, ctx.now);
   if (fast?.kind === "answer") return { answer: fast.text, fast: true };
+  // "Haircut 350 from my pocket": straight into today's [[pocket]] box, no AI needed (and it
+  // works when Gemini is busy). A longer message (more to write) goes to the AI, which calls pocket.
+  const cash = step.text.length < 160 && !/\b(?:and|then|also|write|note)\b.*\b(?:about|that|how)\b/i.test(step.text) ? pocketFromSentence(step.text) : null;
+  if (cash) {
+    await window.__journalFlush?.();
+    cursorFx({ key: ctx.actor, phase: "act", tool: "pocket", text: cash.what });
+    const r = await addPocket(opts.store, cash, { actor: ctx.actor });
+    step.lines.push(`✓ pocket “${r.line}”`);
+    return { answer: `👛 Added “${r.line}” under [[pocket]] in today's note. ${pocketSummary(pocketState(await loadPocket(opts.store)))}.`, fast: true };
+  }
   if (fast?.kind === "open") {
     const said = await openFast(opts.store, fast);
     if (said) return { answer: said, fast: true };
@@ -186,5 +206,5 @@ export async function runAssistant(opts: RunOpts): Promise<RunResult> {
       : finished.length
         ? (finished[finished.length - 1].answer ?? "") + (steps.some((s) => s.status === "fail") ? `\n(${steps.filter((s) => s.status === "fail").length} step(s) didn't work: see the list.)` : "")
         : "Stopped.";
-  return { answer, steps, fast: allFast };
+  return { answer, steps, fast: allFast, ...(ctx.cards?.length ? { cards: ctx.cards } : {}) };
 }

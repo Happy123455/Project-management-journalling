@@ -18,6 +18,9 @@ import { deadlineRows } from "../editor/deadlineStore";
 import { loadConfig, writeLog } from "../routine/routineData";
 import { describeHits, findMedia, mediaBlock, storedFile, type MediaHit } from "./media";
 import { insertUnder, linesToBlocks, nodeAt, taskBlock, tasksIn, tickTask, topCounts, type FoundTask } from "./noteOps";
+import { cursorFx } from "./AgentCursors";
+import { MORE_TOOLS, MORE_WRITES, moreNoteOf, runMoreTool } from "./moreTools";
+import type { FoundFormula } from "../lib/mathFind";
 
 export interface RunCtx {
   store: JournalStore;
@@ -33,6 +36,10 @@ export interface RunCtx {
   opened: string[];
   /** Photos, memes and files found by find_media, by their number. */
   media?: MediaHit[];
+  /** Math formulas found by math_find, by their number. */
+  formulas?: FoundFormula[];
+  /** Formula cards to show under the answer. */
+  cards?: FoundFormula[];
 }
 
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object" as const, properties, required });
@@ -58,7 +65,7 @@ export const ASSISTANT_TOOLS = [
 ];
 
 /** Every tool the assistant offers: the shared ones (without open_note) and its own. */
-export const assistantToolList = () => [...toolsFor(null).filter((t) => t.name !== "open_note"), ...ASSISTANT_TOOLS];
+export const assistantToolList = () => [...toolsFor(null).filter((t) => t.name !== "open_note"), ...ASSISTANT_TOOLS, ...MORE_TOOLS];
 
 const WRITES = new Set(["append", "replace_text", "add_to_page", "set_cells", "add_sheet", "add_rule", "save_graph", "replace_block", "insert_after", "delete_block", "copy_task", "put_under", "tick_task", "add_table", "add_reminder", "add_deadline", "log_routine", "add_media"]);
 
@@ -67,6 +74,8 @@ function noteOf(name: string, a: Record<string, unknown>, now: Date): string {
   if (name === "add_to_page" || name === "add_rule") return `page:${String(name === "add_rule" ? "AI rules" : a.title ?? "").toLowerCase()}`;
   if (typeof a.title === "string" && a.title.trim()) return `page:${a.title.trim().toLowerCase()}`;
   if (name === "add_deadline" || name === "log_routine") return `day:${dayKey(now)}`;
+  // Cash into the pocket is a line in the day's [[pocket]] box: it never needs a second OK.
+  if (name === "pocket") return `pocket:${typeof a.date === "string" && a.date ? a.date : dayKey(now)}`;
   return `day:${typeof a.date === "string" && a.date ? a.date : dayKey(now)}`;
 }
 
@@ -108,15 +117,17 @@ let timers = 0;
 export async function runAssistantTool(call: ToolCall, ctx: RunCtx): Promise<Out> {
   const a = call.arguments ?? {};
   const { store, now } = ctx;
-  if (WRITES.has(call.name)) {
-    const note = noteOf(call.name, a, now);
-    const second = ctx.touched.size > 0 && !ctx.touched.has(note);
+  const words = [a.text, a.what, a.lines, a.question, a.task, a.title, a.target, a.query].find((v) => typeof v === "string" && v.trim());
+  cursorFx({ key: ctx.actor, phase: "act", tool: call.name, text: typeof words === "string" ? words.split("\n")[0] : "" });
+  if (WRITES.has(call.name) || MORE_WRITES.has(call.name)) {
+    const note = moreNoteOf(call.name, a, ctx) ?? noteOf(call.name, a, now);
+    const second = !note.startsWith("pocket:") && ctx.touched.size > 0 && !ctx.touched.has(note);
     if (isDelete(call.name, a) || second) {
       const q = isDelete(call.name, a) ? `Delete from ${note.slice(note.indexOf(":") + 1)}?` : `Also change ${note.slice(note.indexOf(":") + 1)}?`;
       if (!ctx.confirm) return bad(`Not done: "${q}" needs the person's OK, and this run can't ask. Tell them.`);
       if (!(await ctx.confirm(q))) return bad("The person said no. Don't do it; carry on with the rest if it makes sense.");
     }
-    ctx.touched.add(note);
+    if (!note.startsWith("pocket:")) ctx.touched.add(note);
   }
   try {
     switch (call.name) {
@@ -321,6 +332,8 @@ export async function runAssistantTool(call: ToolCall, ctx: RunCtx): Promise<Out
         return ok("Reading it aloud now.");
       }
       default: {
+        const more = await runMoreTool(call, ctx);
+        if (more) return more;
         const r = await runOneTool(store, call, ctx.actor, null, now);
         return { out: r.out, bad: r.bad };
       }

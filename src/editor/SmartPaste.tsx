@@ -7,6 +7,7 @@ import { sha256 } from "../lib/files";
 import { classifyClip, clipKey, clipPreview, type Clip } from "../lib/smartPaste";
 import { hasEmbeds } from "../lib/embeds";
 import { insertFiles, pasteEmbeds } from "./attachments";
+import { inCode, pasteIntoCode } from "./codeBlock";
 
 const HANDLED_KEY = "dynamic-journal.clipboard-handled";
 const RETRY_MS = 300;
@@ -94,6 +95,8 @@ const paragraphs = (text: string): JSONContent[] =>
   text.split("\n").map((line) => ({ type: "paragraph", content: line ? [{ type: "text", text: line }] : [] }));
 
 function insertClip(editor: Editor, clip: Clip, asCode: boolean) {
+  // Already in a code block: the text goes into it as it is.
+  if (inCode(editor)) return pasteIntoCode(editor, clip.kind === "url" ? clip.url : clip.text);
   const chain = editor.chain().focus();
   if (asCode) {
     const text = clip.kind === "url" ? clip.url : clip.text;

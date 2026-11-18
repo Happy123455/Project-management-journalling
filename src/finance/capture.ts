@@ -5,6 +5,8 @@ import { alreadyHave, FINANCE_BOX, IGNORED, parseMessage, txnLine, txnsIn, type 
 import { withLogLine } from "../lib/routine";
 import { insertLogLinePM, openDayEditor } from "../editor/noteEdit";
 import { changeDay, currentDoc } from "../routine/routineData";
+import { pocketTxns } from "../lib/pocket";
+import { loadPocket } from "./pocket";
 
 /**
  * The phone's side of the money tracker: bank SMS alerts and payment-app notifications (Google Pay,
@@ -215,6 +217,8 @@ export async function loadTxns(store: JournalStore, today = dayKey(new Date())):
     if (stamp) parsed.set(day, { stamp, txns });
     out.push(...txns);
   }
+  // Cash from the 👛 pocket counts too (an ATM withdrawal is then money moved, not spent).
+  out.push(...pocketTxns(await loadPocket(store, today)));
   // "Not a payment" lines stay in the notes (so they aren't brought in again) but don't count.
   return out.filter((t) => t.category !== IGNORED).sort((a, b) => a.at - b.at);
 }

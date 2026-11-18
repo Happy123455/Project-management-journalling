@@ -52,6 +52,9 @@ export function DayPreview({ store, day, refreshKey }: { store: JournalStore; da
             </ul>
           )}
           {yt.rising.length > 0 && <p className="dp-rising">Rising: {yt.rising.join(", ")}</p>}
+          <button type="button" className="link dp-chart" onClick={(e) => (e.stopPropagation(), window.dispatchEvent(new CustomEvent("journal:youtube-chart", { detail: day })))}>
+            📊 What kind of videos (pie charts)
+          </button>
         </div>
       )}
       {open && snippet && <small className="dp-by">Preview by {snippet.by}</small>}

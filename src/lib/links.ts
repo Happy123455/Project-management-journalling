@@ -10,6 +10,24 @@ export const TAG_RE = /(^|[^\w#&])#([\p{L}\p{N}_\-/]*[\p{L}_\-/][\p{L}\p{N}_\-/]
 
 const unique = (items: string[]) => [...new Set(items)];
 
+/**
+ * Is the text between [[ and ]] a note name? A long prompt, a JSON array ("[[1, 2], [3, 4]]") or
+ * a sentence that happens to sit between double brackets isn't: those made junk notes in the graph
+ * (Hapi, 17 Nov: the graph journaling prompt). A name is short, has a few words and no code marks.
+ */
+export const LINK_MAX = 80;
+export function isLinkTarget(target: string): boolean {
+  const t = target.trim();
+  if (!t || t.length > LINK_MAX) return false;
+  if (t.split(/\s+/).length > 12) return false;
+  if (/[{}<>`"\\;=]|\s{3,}/.test(t)) return false;
+  // Numbers and commas only: an array, not a name.
+  if (/^[\d\s,.+-]+$/.test(t) && /,/.test(t)) return false;
+  // A sentence: several full stops or question marks inside it.
+  if ((t.match(/[.?!]\s/g)?.length ?? 0) >= 2) return false;
+  return true;
+}
+
 /** Names without repeats (ignoring letter case, first spelling wins), sorted. */
 export function uniqueNames(names: string[]): string[] {
   const seen = new Map<string, string>();
@@ -28,7 +46,7 @@ export function linesMentioning(text: string, kind: "wikilink" | "tag", target: 
 
 export function extractLinks(text: string): ExtractedLinks {
   // [[Note#Part]] links to Note (a backlink of the whole note); "C#" stays as it is.
-  const wikilinks = [...text.matchAll(WIKILINK_RE)].map((m) => m[1].trim().replace(/^([^#]+?)\s*#.+$/, "$1")).filter(Boolean);
+  const wikilinks = [...text.matchAll(WIKILINK_RE)].filter((m) => isLinkTarget(m[1])).map((m) => m[1].trim().replace(/^([^#]+?)\s*#.+$/, "$1")).filter(Boolean);
   const tags = [...text.matchAll(TAG_RE)].map((m) => m[2].replace(/\/+$/, "")).filter(Boolean);
   return { wikilinks: unique(wikilinks), tags: unique(tags) };
 }

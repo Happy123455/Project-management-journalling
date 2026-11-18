@@ -183,6 +183,7 @@ function Bubble({ agent, open, unseen, onTap, onMove, onNear, onDrop }: {
       type="button"
       className={`agent-bubble s-${agent.status}${open ? " open" : ""}${unseen ? " unseen" : ""}${agent.merging ? " merging" : ""}${drag.current?.near ? " near" : ""}${pos ? " dragging" : ""}`}
       style={{ left: x, top: y }}
+      data-agent-key={agent.id}
       aria-label={`Agent ${agent.n}${agent.last ? `: ${agent.last}` : ""} (tap: open or fold; drag onto Home: close)`}
       title={agent.last || `Agent ${agent.n}`}
       onPointerDown={(e) => {

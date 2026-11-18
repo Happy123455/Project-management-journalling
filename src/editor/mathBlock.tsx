@@ -6,6 +6,7 @@ import katex from "katex";
 import "katex/dist/katex.min.css";
 import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { askAi, AiUnavailableError } from "../ai/client";
+import { solveMath } from "../ai/mathSolve";
 import { blockLines, cleanLatex } from "../lib/latex";
 import { conflictsIn, definitionsIn, formatAnswer, namesIn, type Definition, type Vars } from "../lib/mathEval";
 
@@ -31,25 +32,6 @@ const SYSTEM =
   "You read handwritten mathematics from an image. Reply with the LaTeX for exactly what is written, nothing else: " +
   "no $ signs, no code fences, no explanation. Keep variable names as written (single letters stay single letters). " +
   "Use \\frac, \\sqrt, ^{}, _{}, \\cdot and \\times as appropriate. If several lines are written, join them with \\\\.";
-
-const SOLVE_SYSTEM =
-  "You are a careful maths tutor inside a journal app. The user describes a problem or asks for a formula in plain words. " +
-  "Work it out exactly and check the arithmetic. Reply in JSON. " +
-  "'variables': each known quantity as a short name (one letter, or letter_subscript like v_0), its number and what it means (with unit). " +
-  "'formula': the formula that gives the answer in PLAIN calculator syntax using only those names, numbers, + - * / ^ ( ) and sqrt(), sin(), cos(), tan(), ln(), log(), abs(), pi; " +
-  "written as 'name = expression' (e.g. 's = u*t + 1/2*a*t^2'); empty if the problem has no single formula. " +
-  "'steps': the working, one short line per step, plain text maths (no LaTeX). 'answer': the final answer with its unit, one line.";
-
-const SOLVE_SCHEMA = {
-  type: "object",
-  properties: {
-    variables: { type: "array", items: { type: "object", properties: { name: { type: "string" }, value: { type: "number" }, meaning: { type: "string" } }, required: ["name", "value", "meaning"] } },
-    formula: { type: "string" },
-    steps: { type: "array", items: { type: "string" } },
-    answer: { type: "string" },
-  },
-  required: ["variables", "formula", "steps", "answer"],
-};
 
 interface Solution {
   prompt: string;
@@ -256,21 +238,8 @@ function AskMath({ start, onAnswer, onClose }: { start: string; onAnswer: (sourc
     if (!q.trim()) return;
     setBusy(true);
     try {
-      const a = await askAi<{ variables: { name: string; value: number; meaning: string }[]; formula: string; steps: string[]; answer: string }>({
-        task: "organise",
-        cloud: true,
-        system: SOLVE_SYSTEM,
-        text: q.trim(),
-        schema: SOLVE_SCHEMA,
-        maxTokens: 3000,
-      });
-      const j = a.json;
-      const clean = (s: string) => s.replace(/[\u00d7\u00b7]/g, "*").replace(/[\u2212]/g, "-").replace(/\$/g, "").trim();
-      const vars = (j.variables ?? []).filter((v) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(v.name) && Number.isFinite(v.value));
-      const lines = vars.map((v) => `${v.name} = ${formatAnswer(v.value)}`);
-      const formula = clean(j.formula ?? "");
-      if (formula) lines.push(formula);
-      onAnswer(lines.join("\n"), { prompt: q.trim(), steps: [...vars.map((v) => `${v.name} = ${formatAnswer(v.value)}: ${v.meaning}`), ...(j.steps ?? [])], answer: j.answer ?? "" });
+      const r = await solveMath(q.trim());
+      onAnswer(r.source, r.solution);
     } catch (e) {
       if (e instanceof AiUnavailableError) showToast("The math assistant needs AI: turn it on in Settings → AI (Gemini key).");
       else showError("The math assistant couldn't answer", e);

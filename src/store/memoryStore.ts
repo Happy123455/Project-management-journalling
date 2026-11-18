@@ -1,6 +1,6 @@
 import { idFromRef } from "../lib/embeds";
 import { safeFileName } from "../lib/files";
-import { extractLinks, uniqueNames } from "../lib/links";
+import { extractLinks, isLinkTarget, uniqueNames } from "../lib/links";
 import { docMatches, docNames, hasFileScope, matchText, searchTerms } from "../lib/search";
 import { dayKey } from "../lib/timestamp";
 import { countWords, docText } from "../lib/words";
@@ -256,12 +256,12 @@ export class MemoryStore implements JournalStore {
     for (const p of Object.values(this.named)) byId.set(p.id, { day: null, title: p.title });
     return this.data.links.flatMap((l) => {
       const where = byId.get(l.from);
-      return where ? [{ ...where, target: l.target, kind: l.kind }] : [];
+      return where && (l.kind !== "wikilink" || isLinkTarget(l.target)) ? [{ ...where, target: l.target, kind: l.kind }] : [];
     });
   }
 
   async pageNames() {
-    const names = [...Object.values(this.named).map((p) => p.title), ...this.data.links.filter((l) => l.kind === "wikilink").map((l) => l.target)];
+    const names = [...Object.values(this.named).map((p) => p.title), ...this.data.links.filter((l) => l.kind === "wikilink" && isLinkTarget(l.target)).map((l) => l.target)];
     return uniqueNames(names);
   }
 

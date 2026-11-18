@@ -4240,3 +4240,88 @@ html.agent-merged .nav-home { animation: agent-gulp 0.5s var(--spring); }
 /* Canvas sits on a wider ring of the held menu, between Edit and Source, so those four stay put. */
 .nav-quick button.outer { --a: 132deg; transform: translate(calc(cos(var(--a)) * 214px), calc(sin(var(--a)) * -214px)); }
 .nav-quick button.outer.hover { transform: translate(calc(cos(var(--a)) * 222px), calc(sin(var(--a)) * -222px)) scale(1.14); }
+
+/* ── 👛 Pocket (finance/PocketTab.tsx) ── */
+.pocket-wallet { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: color-mix(in srgb, var(--accent) 9%, var(--panel)); margin-bottom: 10px; }
+.pocket-icon { font-size: 30px; }
+.pocket-wallet strong { display: block; font-size: 26px; font-variant-numeric: tabular-nums; }
+.pocket-wallet small { color: var(--muted); font-size: 12px; }
+.pocket-warn { color: var(--reminder); }
+.pocket-add { display: grid; grid-template-columns: 1fr 96px auto; gap: 6px; margin: 10px 0 4px; }
+.pocket-add .fl-edit-dir { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+.pocket-add input { min-width: 0; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; }
+.pocket-add input:only-of-type { grid-column: 1 / 3; }
+.pocket-tab .fc-bar i { background: var(--accent); }
+.pocket-atm { display: flex; gap: 8px; align-items: center; font-size: 13px; margin: 12px 0 6px; }
+.pocket-ideas { font-size: 13px; color: var(--muted); }
+.pocket-ideas ul { padding-left: 18px; line-height: 1.5; }
+
+/* ── ✦ Agent at work: three arrow cursors (assistant/AgentCursors.tsx) ── */
+.agent-cursors { position: fixed; inset: 0; pointer-events: none; z-index: 10050; overflow: hidden; }
+.ac-arrow { position: absolute; left: -4px; top: -2px; transform: translate3d(var(--ax), var(--ay), 0); transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.5s ease; will-change: transform; }
+.ac-arrow svg { display: block; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35)); }
+.ac-arrow path { fill: var(--accent); stroke: #fff; stroke-width: 1.4; stroke-linejoin: round; }
+.ac-1 path { fill: color-mix(in srgb, var(--accent) 70%, #22c55e); }
+.ac-2 path { fill: color-mix(in srgb, var(--accent) 65%, #f59e0b); }
+.ac-orbit { display: block; }
+/* Thinking: they circle the bubble, a third of a turn apart. */
+.ac-arrow:not(.away) .ac-orbit { animation: ac-orbit 1.5s linear infinite; }
+@keyframes ac-orbit {
+  from { transform: rotate(calc(var(--i) * 120deg)) translateX(30px) rotate(calc(var(--i) * -120deg + 40deg)); }
+  to { transform: rotate(calc(var(--i) * 120deg + 360deg)) translateX(30px) rotate(calc(var(--i) * -120deg - 320deg)); }
+}
+/* Doing: one clicks (a ring), the others type (a small shake) or sweep over what they read. */
+.ac-ring { position: absolute; left: 0; top: 0; width: 26px; height: 26px; margin: -11px 0 0 -11px; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; }
+.do-click .ac-ring { animation: ac-ring 0.7s ease-out 0.55s 2; }
+@keyframes ac-ring { 0% { transform: scale(0.3); opacity: 0.9; } 100% { transform: scale(1.6); opacity: 0; } }
+.do-click .ac-orbit { animation: ac-press 0.7s ease-in-out 0.55s 2; }
+@keyframes ac-press { 0%, 100% { transform: scale(1); } 40% { transform: scale(0.78) translateY(2px); } }
+.do-type .ac-orbit { animation: ac-type 0.32s steps(2) 0.6s infinite; }
+@keyframes ac-type { 0% { transform: translate(0, 0); } 50% { transform: translate(3px, 1px); } }
+.do-scan .ac-orbit { animation: ac-scan 1.6s ease-in-out 0.5s infinite alternate; }
+@keyframes ac-scan { from { transform: translate(0, 0); } to { transform: translate(60px, 28px); } }
+/* Done: off they go. */
+.ac-done .ac-arrow { opacity: 0; transition-duration: 0.8s; }
+@media (prefers-reduced-motion: reduce) { .agent-cursors { display: none; } }
+
+/* ── ✦ Formula cards under the assistant's answer (assistant/FormulaCards.tsx) ── */
+.cmd-formulas { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.cmd-formula { border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; background: color-mix(in srgb, var(--panel) 70%, transparent); }
+.cf-head { display: flex; align-items: center; gap: 6px; }
+.cf-head code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: 13px; }
+.cf-n { font-size: 11px; color: var(--muted); }
+.cf-q { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.cf-vars { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 6px; }
+.cf-vars label { display: flex; align-items: center; gap: 4px; font-size: 13px; font-family: ui-monospace, monospace; }
+.cf-vars input { width: 72px; padding: 3px 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; }
+.cf-a { margin: 6px 0 2px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cf-a small { font-weight: 400; color: var(--muted); }
+
+/* ── 📺 YouTube pie charts (editor/YoutubeChart.tsx) ── */
+.yt-sheet { top: 6vh; max-width: 560px; max-height: 86vh; overflow-y: auto; }
+.yt-sheet-head { display: flex; align-items: center; justify-content: space-between; }
+.yt-sheet-head h2 { margin: 0; }
+.yt-page-charts { margin: 8px 0 16px; padding: 10px 12px; border-radius: 16px; background: color-mix(in srgb, var(--panel) 80%, transparent); }
+.yt-pie { margin: 12px 0; }
+.yt-pie figcaption { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.yt-pie-row { display: grid; grid-template-columns: 120px 1fr; gap: 12px; align-items: center; }
+.yt-pie svg { width: 120px; height: 120px; }
+.yt-pie-big { font-size: 17px; font-weight: 700; fill: var(--text); }
+.yt-pie-small { font-size: 10px; fill: var(--muted); }
+.yt-pie ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 13px; }
+.yt-pie li { display: grid; grid-template-columns: 10px 1fr auto 34px; gap: 6px; align-items: center; border-radius: 6px; padding: 1px 4px; }
+.yt-pie li.on { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.yt-pie li i { width: 10px; height: 10px; border-radius: 3px; }
+.yt-pie li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: capitalize; }
+.yt-pie li small { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.yt-pie li b { font-variant-numeric: tabular-nums; }
+.yt-topics-h { margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
+.yt-topics { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.yt-topics li > button { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; font-size: 12px; }
+.yt-topics li > button i { width: 8px; height: 8px; border-radius: 50%; }
+.yt-topics small { color: var(--muted); }
+.yt-kinds { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.yt-kinds button { font-size: 11px; padding: 2px 6px; border-radius: 999px; }
+.yt-kinds button.active { outline: 2px solid var(--accent); }
+.dp-chart { margin-top: 6px; }
+@media (max-width: 420px) { .yt-pie-row { grid-template-columns: 100px 1fr; } .yt-pie svg { width: 100px; height: 100px; } }

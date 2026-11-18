@@ -17,6 +17,9 @@ import { canListen, startListening, type Listening } from "./listen";
 import { ASSISTANT_ACTOR, runAssistant, type Step, type Turn } from "./runner";
 import { describeSchedule, splitSchedule, type Schedule } from "./schedule";
 import { recordRun, setScheduled, thisDevice } from "./scheduler";
+import { cursorFx } from "./AgentCursors";
+import { FormulaCards } from "./FormulaCards";
+import type { FoundFormula } from "../lib/mathFind";
 
 interface ViewTurn {
   q: string;
@@ -26,6 +29,8 @@ interface ViewTurn {
   startedAt: number;
   undo?: number;
   voice?: boolean;
+  /** Formulas it found, as cards. */
+  cards?: FoundFormula[];
 }
 
 // The conversation outlives the bar for 10 minutes (follow-ups keep their context). Each floating
@@ -60,6 +65,9 @@ const EXAMPLES = [
   ["Read and sum up", "open the 3rd day of my college in a new tab, summarise it in one paragraph and read it"],
   ["Long jobs", "Write one job per line (or paste a block): each line runs in turn, however many."],
   ["Schedules", "every day at 9 pm summarise today and read it · weekdays 7:30 open Work log · today at 6 pm …"],
+  ["👛 Pocket", "haircut 350 from my pocket · took 2000 from ATM · counted my wallet, 1240 left · how much is in my pocket?"],
+  ["🧮 Maths", "EMI of 5 lakh at 9% for 3 years in a math block · show my starred formulas · change r to 5 in the circle formula"],
+  ["🗓 Plan", "essay due 24 nov: set the deadline, remind me the day before, and plan 3 hours of work blocks with breaks this evening"],
 ];
 
 /** A ▶ Do this block at the end of today's note, scheduled on this device. */
@@ -169,6 +177,8 @@ export function CommandBar({ store, request, onClose, agent }: { store: JournalS
       return;
     }
     setRunning(true);
+    // Three arrows circle the bubble while it thinks, and fly out to what it changes.
+    cursorFx({ key: actor, phase: "think", anchor: agent ? `.agent-bubble[data-agent-key="${agent.key}"]` : ".cmd-title" });
     const ctl = new AbortController();
     abort.current = ctl;
     const history: Turn[] = cur().turns
@@ -194,7 +204,7 @@ export function CommandBar({ store, request, onClose, agent }: { store: JournalS
       });
       const changes = (await store.aiChanges(60)).filter((c) => c.event.actor === actor && Date.parse(c.event.createdAt) >= startedAt - 1000);
       const stopped = ctl.signal.aborted;
-      put({ steps: r.steps, answer: r.answer, status: stopped ? "stopped" : r.steps.some((s) => s.status === "fail") ? "fail" : "done", undo: changes.length || undefined });
+      put({ steps: r.steps, answer: r.answer, status: stopped ? "stopped" : r.steps.some((s) => s.status === "fail") ? "fail" : "done", undo: changes.length || undefined, cards: r.cards });
       fx(stopped ? "stop" : "done");
       if (opts.bid) recordRun(opts.bid, { at: startedAt, ok: !r.steps.some((s) => s.status === "fail"), answer: r.answer.slice(0, 400) });
       if (opts.voice && r.answer.length < 600 && !/read_aloud/.test(JSON.stringify(r.steps))) readAloud(r.answer);
@@ -204,6 +214,7 @@ export function CommandBar({ store, request, onClose, agent }: { store: JournalS
     } finally {
       setRunning(false);
       abort.current = null;
+      cursorFx({ key: actor, phase: "done" });
     }
   };
 
@@ -340,6 +351,7 @@ export function CommandBar({ store, request, onClose, agent }: { store: JournalS
               )}
               {t.status === "run" && t.steps.length <= 1 && <p className="cmd-wait">Working…</p>}
               {t.answer && <p className="cmd-a">{t.answer}</p>}
+              {t.cards && t.cards.length > 0 && <FormulaCards store={store} cards={t.cards} actor={actor} />}
               {t.status !== "run" && t.answer && (
                 <div className="cmd-actions">
                   <button type="button" className="link" onClick={() => readAloud(t.answer)}>🔊 Read</button>

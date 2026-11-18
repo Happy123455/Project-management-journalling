@@ -13,7 +13,7 @@ import { cleanPastedHTML } from "../lib/smartPaste";
 import { LinkHighlight } from "./linkHighlight";
 import { hasEmbeds } from "../lib/embeds";
 import { AttachmentFile, AttachmentImage, AttachmentMedia, insertFiles, mediaLeafText, pasteEmbeds, upgradeOldMedia } from "./attachments";
-import { codeBlockFromSelection, JournalCodeBlock } from "./codeBlock";
+import { codeBlockFromSelection, inCode, JournalCodeBlock, pasteIntoCode } from "./codeBlock";
 import { BlockInfoExtension } from "./blockInfo";
 import { BlockHandle } from "./BlockHandle";
 import { blockIndexAt, blockPos, Blocks, foldRange, indentBlock, moveBlock } from "./blocks";
@@ -307,7 +307,8 @@ function ToolbarButtons({ editor, onInfo, phone }: { editor: Editor; onInfo: () 
       label: "📋",
       title: "Paste",
       run: () => {
-        void navigator.clipboard?.readText().then((t) => t && editor.chain().focus().insertContent(t).run(), () => showToast("Couldn't read the clipboard", "error"));
+        // As text: insertContent(string) reads it as HTML, which dropped <tags> and joined lines.
+        void navigator.clipboard?.readText().then((t) => t && (inCode(editor) ? pasteIntoCode(editor, t) : editor.chain().focus().insertContent(t.includes("\n") ? t.split("\n").map((l) => ({ type: "paragraph", content: l ? [{ type: "text", text: l }] : [] })) : { type: "text", text: t }).run()), () => showToast("Couldn't read the clipboard", "error"));
       },
     },
     { key: "date", label: "📅", title: "Link today's date", run: () => editor.chain().focus().insertContent(`[[${dayKey(new Date())}]] `).run() },
@@ -662,6 +663,14 @@ export function JournalEditor({
         const files = [...data.files];
         if (files.length) {
           void insertFiles(editor, files);
+          return true;
+        }
+        // In a code block the clipboard goes in exactly as it is, as text, however long: no cards,
+        // embeds or paragraphs (17 Nov: a long prompt pasted into a code block came out blank).
+        if (inCode(editor)) {
+          const plain = data.getData("text/plain");
+          if (!plain) return false;
+          pasteIntoCode(editor, plain);
           return true;
         }
         // Copied from this app: the HTML already carries the media, let the normal paste handle it.

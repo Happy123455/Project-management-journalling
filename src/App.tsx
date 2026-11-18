@@ -46,6 +46,9 @@ import { newTalkBox } from "./editor/talkBox";
 import { ASSIST_EVENT, CommandBar, type AssistRequest } from "./assistant/CommandBar";
 import { runAssistant } from "./assistant/runner";
 import { AgentBubbles, spawnAgent } from "./assistant/AgentBubbles";
+import { AgentCursors } from "./assistant/AgentCursors";
+import { YoutubeCharts, YoutubeChartSheet, YT_CHART_EVENT } from "./editor/YoutubeChart";
+import { YOUTUBE_PREFIX } from "./lib/youtubeDigest";
 import { findBlock, recordRun, setScheduled, startScheduler, thisDevice } from "./assistant/scheduler";
 import { ChatView } from "./ChatView";
 import { AiBadge } from "./AiBadge";
@@ -69,6 +72,7 @@ import { PanelResizer, SidebarEdge, usePanelWidths, useSidebarToggle } from "./n
 import { activeTab, closeTab, currentLoc, go, loadTabs, locKey, openTab, saveTabs, switchTab, visit, type Loc, type TabsState } from "./nav/tabs";
 import { receiveTyping } from "./sync/liveTyping";
 import { editorSaw, guardSave } from "./sync/saveGuard";
+import { openDayEditor } from "./editor/noteEdit";
 import { openTimelines, TimelinesHost } from "./editor/TimelinesView";
 import { deadlineAlarms, useAllDeadlines, watchDeadlines } from "./editor/deadlineStore";
 import { FocusHost } from "./editor/focus";
@@ -151,6 +155,16 @@ function App() {
   const [syncTick, setSyncTick] = useState(0);
   // Bumped to reopen the current page in the editor with what arrived (only when not typing).
   const [pageVersion, setPageVersion] = useState(0);
+  // The editor is remade only once the new copy is in, so the page never goes blank in between
+  // (an agent saving many times in a row made the note flash "Loading…" or vanish).
+  const [editorVersion, setEditorVersion] = useState(0);
+  // 📺 pie charts of the YouTube tracker's days, opened from a day's preview card.
+  const [ytChart, setYtChart] = useState<string | null>(null);
+  useEffect(() => {
+    const on = (e: Event) => setYtChart(String((e as CustomEvent).detail ?? dayKey(new Date())));
+    window.addEventListener(YT_CHART_EVENT, on);
+    return () => window.removeEventListener(YT_CHART_EVENT, on);
+  }, []);
   // Search: the query stays active (calendars in yellow) after closing the panel, until cleared.
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -303,16 +317,22 @@ function App() {
     }
   }, [store]);
 
+  const shownDay = useRef("");
   useEffect(() => {
     if (!store) return;
     let cancelled = false;
-    setPage(undefined);
+    // Another day: "Loading…". The same day again (sync, an agent's edit, an undo): the note stays
+    // on screen until its new copy is read.
+    if (shownDay.current !== day) setPage(undefined);
+    const version = pageVersion;
     store.getDay(day).then((p) => {
       if (cancelled) return;
+      shownDay.current = day;
       setPage(p);
       setContent(p?.content ?? null);
       editorSaw(`day:${day}`, p?.content);
       setLoadedDay(day);
+      setEditorVersion(version);
     });
     return () => {
       cancelled = true;
@@ -499,14 +519,35 @@ function App() {
   }, [store]);
 
   // After an AI edit is undone (Settings → AI changes), show the note as it is now.
+  // An agent's edit to the open day goes into the editor in place (no remount, scroll kept); only
+  // when that can't be done (typing right now, another note) is the note reopened.
+  const dayNow = useRef(day);
+  dayNow.current = day;
   useEffect(() => {
     const reload = () => {
-      setPageVersion((n) => n + 1);
       setSyncTick((n) => n + 1);
+      const open = dayNow.current;
+      const editor = openDayEditor(open);
+      if (!store || !editor || pending.current || hasPendingEdits()) {
+        setPageVersion((n) => n + 1);
+        return;
+      }
+      void store.getDay(open).then((p) => {
+        if (dayNow.current !== open) return;
+        if (!p || pending.current || hasPendingEdits() || editor.isDestroyed) {
+          setPageVersion((n) => n + 1);
+          return;
+        }
+        setContent(p.content);
+        editorSaw(`day:${open}`, p.content);
+        receiveTyping({ key: `day:${open}`, device: "sync", seq: ++importSeq, full: p.content });
+        // Not taken (fresh letters typed here a moment ago): reopen it the calm way.
+        if (!editor.isDestroyed && docText(editor.getJSON()) !== docText(p.content)) setPageVersion((n) => n + 1);
+      });
     };
     window.addEventListener("journal:reload-page", reload);
     return () => window.removeEventListener("journal:reload-page", reload);
-  }, []);
+  }, [store]);
 
   const dayYear = Number(day.slice(0, 4));
   useEffect(() => {
@@ -1254,6 +1295,16 @@ function App() {
 
       <main className="page" inert={overlayOpen || undefined}>
         {route.kind === "page" && store ? (
+          <>
+          {route.page.title.startsWith(YOUTUBE_PREFIX) && (
+            <section className="yt-page-charts">
+              <YoutubeCharts store={store} day={(() => {
+                const m = route.page.title.slice(YOUTUBE_PREFIX.length);
+                const t = dayKey(new Date());
+                return t.startsWith(m) ? t : `${m}-${String(new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0).getDate()).padStart(2, "0")}`;
+              })()} initialRange={30} />
+            </section>
+          )}
           <PageView
             key={route.page.id}
             store={store}
@@ -1265,6 +1316,7 @@ function App() {
             onPageChanged={(page) => setRoute({ kind: "page", page })}
             onFindCount={(count) => setFind((f) => (f && f.count !== count ? { ...f, count, index: Math.min(f.index, Math.max(0, count - 1)) } : f))}
           />
+          </>
         ) : route.kind === "tag" && store ? (
           <TagView store={store} tag={route.tag} onBack={() => setRoute({ kind: "day" })} handlers={handlers} />
         ) : (
@@ -1353,7 +1405,7 @@ function App() {
               <div onClick={() => setCalendarCollapsed(true)}>
                 {store && <DayPreview store={store} day={day} refreshKey={syncTick} />}
                 <JournalEditor
-                  key={`${day}:${pageVersion}`}
+                  key={`${day}:${editorVersion}`}
                   // The latest text, not the copy loaded when the day opened: coming back from a
                   // linked page (or search, tags…) remounts the editor and must show what was typed.
                   initialContent={content}
@@ -1614,6 +1666,8 @@ function App() {
       )}
       {assist && store && <CommandBar key={assist.n} store={store} request={assist} onClose={() => setAssist(null)} />}
       {store && <AgentBubbles store={store} />}
+      <AgentCursors />
+      {ytChart && store && <YoutubeChartSheet store={store} day={ytChart} onClose={() => setYtChart(null)} />}
       {tabsOpen && (
         <TabSwitcher
           tabs={tabs}

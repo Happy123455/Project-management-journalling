@@ -5,7 +5,7 @@ import { AudioPill } from "../editor/MediaBits";
 import { EDIT_MARK } from "../editor/timestampChip";
 import { skyForStamp } from "../lib/sky";
 import { TIMESTAMP_RE } from "../lib/timestamp";
-import { TAG_RE, WIKILINK_RE } from "../lib/links";
+import { isLinkTarget, TAG_RE, WIKILINK_RE } from "../lib/links";
 
 /**
  * A note drawn read-only, the way it looks in the editor (headings, lists, tasks, quotes, code,
@@ -137,6 +137,7 @@ function textPieces(text: string, ctx: Ctx, raw: boolean): ReactNode {
   type Hit = { at: number; len: number; node: ReactNode };
   const hits: Hit[] = [];
   for (const m of text.matchAll(WIKILINK_RE)) {
+    if (!isLinkTarget(m[1])) continue;
     const target = m[1].trim();
     const alias = /\|([^\]]*)\]\]$/.exec(m[0])?.[1]?.trim();
     hits.push({

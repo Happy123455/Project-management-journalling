@@ -80,7 +80,7 @@ const CATEGORIES: [string, RegExp][] = [
 
 export const CATEGORY_ICONS: Record<string, string> = {
   food: "🍽️", groceries: "🛒", travel: "🚕", fuel: "⛽", shopping: "🛍️", bills: "🧾", health: "🩺", fun: "🎬", education: "📚",
-  rent: "🏠", cash: "🏧", investments: "📈", transfer: "🔁", income: "💰", refund: "↩️", other: "💸",
+  rent: "🏠", cash: "🏧", personal: "💇", gifts: "🎁", investments: "📈", transfer: "🔁", income: "💰", refund: "↩️", other: "💸",
 };
 
 const num = (s: string) => Number(s.replace(/,/g, ""));
@@ -305,8 +305,11 @@ const monthOf = (t: number) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 
-/** Money moved between your own accounts or into savings isn't spending. */
-export const notSpending = (cat: string) => cat === "investments" || cat === "self";
+/**
+ * Money moved between your own accounts or into savings isn't spending. Nor is cash taken out at
+ * an ATM: it moves into the 👛 pocket, and what's spent from there counts (src/lib/pocket.ts).
+ */
+export const notSpending = (cat: string) => cat === "investments" || cat === "self" || cat === "cash";
 
 export function monthly(txns: Txn[]): MonthSummary[] {
   const by = new Map<string, MonthSummary>();
@@ -314,7 +317,8 @@ export function monthly(txns: Txn[]): MonthSummary[] {
     const k = monthOf(t.at);
     let s = by.get(k);
     if (!s) by.set(k, (s = { month: k, spent: 0, received: 0, byCategory: new Map() }));
-    if (t.direction === "credit") s.received += t.amount;
+    // Cash put into the pocket (from the ATM) isn't money received.
+    if (t.direction === "credit") s.received += t.category === "cash" ? 0 : t.amount;
     else {
       if (!notSpending(t.category)) s.spent += t.amount;
       s.byCategory.set(t.category, (s.byCategory.get(t.category) ?? 0) + t.amount);

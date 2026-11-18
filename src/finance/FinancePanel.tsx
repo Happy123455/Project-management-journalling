@@ -11,8 +11,10 @@ import {
   FINANCE_EVENT, importMoney, loadTxns, moneySettings, notificationsReady, onPhone, setMoneySettings, smsReady,
 } from "./capture";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
+import { PocketTab } from "./PocketTab";
+import { POCKET } from "../lib/pocket";
 
-type Tab = "overview" | "list" | "insights" | "setup";
+type Tab = "overview" | "pocket" | "list" | "insights" | "setup";
 const r0 = (n: number) => rupees(n, 0);
 const monthName = (m: string) => new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 1, 1).toLocaleDateString(undefined, { month: "short" });
 const thisMonth = () => dayKey(new Date()).slice(0, 7);
@@ -87,9 +89,9 @@ export function FinancePanel({ store, onClose, onOpenDay }: { store: JournalStor
         <header>
           <strong>💰 Money</strong>
           <nav>
-            {(["overview", "list", "insights", "setup"] as Tab[]).map((t) => (
+            {(["overview", "pocket", "list", "insights", "setup"] as Tab[]).map((t) => (
               <button key={t} type="button" className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
-                {{ overview: "Overview", list: "Payments", insights: "Insights", setup: "Setup" }[t]}
+                {{ overview: "Overview", pocket: "👛 Pocket", list: "Payments", insights: "Insights", setup: "Setup" }[t]}
               </button>
             ))}
           </nav>
@@ -100,6 +102,8 @@ export function FinancePanel({ store, onClose, onOpenDay }: { store: JournalStor
             <p className="loading">Loading…</p>
           ) : tab === "overview" ? (
             <Overview txns={txns} onSetup={() => setTab("setup")} />
+          ) : tab === "pocket" ? (
+            <PocketTab store={store} txns={txns} onOpenDay={(d) => (onOpenDay(d), onClose())} />
           ) : tab === "list" ? (
             <Payments store={store} txns={txns} onOpenDay={(d) => (onOpenDay(d), onClose())} />
           ) : tab === "insights" ? (
@@ -286,6 +290,7 @@ function EditPayment({ store, t, cats, onDone }: { store: JournalStore; t: Txn; 
   const [busy, setBusy] = useState(false);
   const write = async (patch: Parameters<typeof rewriteLine>[2], done: string) => {
     if (!t.line || !t.day) return showToast("This payment isn't in a note, so it can't be changed here", "error");
+    if (t.bank === POCKET) return showToast("Cash from your pocket: change its line in that day's [[pocket]] box (tap the row to open the day)", "info");
     const next = rewriteLine(t.line, t.day, patch);
     if (!next) return showToast("Couldn't read that payment's line", "error");
     setBusy(true);

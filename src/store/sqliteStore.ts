@@ -1,7 +1,7 @@
 import Database from "@tauri-apps/plugin-sql";
 import { idFromRef } from "../lib/embeds";
 import { safeFileName } from "../lib/files";
-import { extractLinks, uniqueNames } from "../lib/links";
+import { extractLinks, isLinkTarget, uniqueNames } from "../lib/links";
 import { docMatches, docNames, hasFileScope, matchText, searchTerms } from "../lib/search";
 import { dayKey } from "../lib/timestamp";
 import { countWords, docText } from "../lib/words";
@@ -316,7 +316,8 @@ export class SqliteStore implements JournalStore {
     const rows = await this.db.select<{ type: string; day: string | null; props: string; target: string; kind: "wikilink" | "tag" }[]>(
       "SELECT b.type, b.day, b.props, l.target, l.kind FROM links l JOIN blocks b ON b.id = l.from_block",
     );
-    return rows.map((r) => ({
+    // Links saved before isLinkTarget (a long prompt between [[ ]]) are left out until that note is saved again.
+    return rows.filter((r) => r.kind !== "wikilink" || isLinkTarget(r.target)).map((r) => ({
       day: r.type === "day" ? r.day : null,
       title: r.type === "page" ? JSON.parse(r.props).title : null,
       target: r.target,
@@ -329,7 +330,7 @@ export class SqliteStore implements JournalStore {
       `SELECT json_extract(props, '$.title') AS name FROM blocks WHERE type = 'page'
        UNION SELECT target AS name FROM links WHERE kind = 'wikilink'`,
     );
-    return uniqueNames(rows.map((r) => r.name).filter(Boolean));
+    return uniqueNames(rows.map((r) => r.name).filter((n) => n && (n.length <= 80 || isLinkTarget(n))));
   }
 
   private async saveFileNow(input: SaveFileInput) {

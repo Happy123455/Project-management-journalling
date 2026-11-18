@@ -3,7 +3,7 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { Decoration, type DecorationSet } from "@tiptap/pm/view";
 import { decorateAll, redecorate } from "./textblockDecos";
-import { TAG_RE, WIKILINK_RE } from "../lib/links";
+import { isLinkTarget, TAG_RE, WIKILINK_RE } from "../lib/links";
 import { isDayTarget, isNoteEmbed, splitTarget } from "../lib/noteLinks";
 import { mountNoteEmbed } from "./noteEmbed";
 
@@ -43,10 +43,14 @@ const BRACKET = { wlBracket: true };
  */
 export function linksIn(node: PMNode, start: number, decorations: Decoration[]) {
   let embeds = 0;
+  // Code is code: no links or tags in a code block or `inline code`.
+  if (node.type.spec.code) return;
   node.descendants((child, pos) => {
     if (!child.isText || !child.text) return;
+    if (child.marks.some((mk) => mk.type.name === "code")) return;
     const at = start + pos;
     for (const m of child.text.matchAll(WIKILINK_RE)) {
+      if (!isLinkTarget(m[1])) continue;
       const from = at + m.index;
       const to = from + m[0].length;
       const target = m[1].trim();
