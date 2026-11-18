@@ -3899,7 +3899,12 @@ html.dl-dragging, html.dl-dragging * { user-select: none !important; -webkit-use
 .sheet-formula { flex: 1; min-width: 120px; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
 .sheet-tools { display: flex; gap: 4px; }
 .sheet-tools button { font-size: 12px; padding: 3px 8px; border-radius: 8px; }
-.sheet-grid { overflow: auto; max-height: 60vh; outline: none; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+/* Sideways swipes scroll the table (and stay in it); up/down swipes hand over to the note when the
+   table's own end is reached. "contain" on both ways held the page still over a tall table. */
+.sheet-grid { overflow: auto; max-height: 60vh; outline: none; overscroll-behavior-x: contain; overscroll-behavior-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
+/* Phone: no second up/down scroller inside the note (the finger got caught in it); the table is
+   as tall as its rows and the page scrolls past it, sideways stays inside the table. */
+@media (pointer: coarse) { .sheet-grid { max-height: none; overflow-y: hidden; } }
 .sheet-grid table { border-collapse: separate; border-spacing: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
 .sheet-grid th { position: sticky; top: 0; z-index: 1; background: color-mix(in srgb, var(--panel) 80%, var(--muted) 12%); color: var(--muted); font-weight: 600; font-size: 11px; padding: 3px 6px; min-width: 88px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); -webkit-user-select: none; user-select: none; }
 .sheet-grid tbody th { left: 0; min-width: 32px; width: 32px; text-align: right; z-index: 1; }
@@ -4343,3 +4348,15 @@ html.agent-merged .nav-home { animation: agent-gulp 0.5s var(--spring); }
 .swarm-tag b { margin-right: 4px; font-weight: 700; }
 .swarm-ripple { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; border: 2px solid hsl(var(--h) 80% 58%); opacity: 0; will-change: transform, opacity; }
 @media (prefers-reduced-motion: reduce) { .swarm { display: none; } }
+
+/* 18 Nov: Active (up to 4) and Logged projects, in the menu and in ⚡ setup. */
+.project-group { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: var(--muted); padding: 8px 4px 2px; }
+.quick-log-head { font-size: 13px; margin: 14px 0 2px; }
+.quick-log-move { flex: none; min-height: 0; height: 32px; padding: 0 8px; border-radius: 10px; font-size: 13px; }
+
+/* 18 Nov: the "15 days ago" conveyor under the date runs a little longer on the phone: it may reach
+   past the title (centred, over the edge of the buttons beside it) up to the wider of the title + 32px
+   or 42% of the screen. Same look and animation; text that fits stays its own size. */
+@media (max-width: 760px) {
+  .relative-time { max-width: max(calc(100% + 32px), 42vw); flex: none; position: relative; z-index: 1; }
+}

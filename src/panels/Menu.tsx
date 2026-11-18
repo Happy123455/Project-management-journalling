@@ -4,6 +4,7 @@ import { dayTitle } from "../lib/timestamp";
 import { notSpending, rupees } from "../lib/finance";
 import { loadTxns } from "../finance/capture";
 import { loadProjectTasks, setRolledTask, type RolledTask } from "../projects/rollup";
+import { countsTowardsLimit, MAX_ACTIVE_PROJECTS } from "../lib/projects";
 import { showError } from "../lib/toast";
 import type { JournalStore, NamedPage } from "../store";
 
@@ -394,9 +395,12 @@ export function ProjectList({ store, refreshKey, onOpen }: { store: JournalStore
     let live = true;
     (async () => {
       const projects = (await store.projects()).filter((p) => p.props.project?.status !== "done" && !prefs.hiddenProjects.includes(p.id));
-      projects.sort((a, b) => Number(b.props.project?.status === "active") - Number(a.props.project?.status === "active"));
+      // Active projects (up to 4) first, all of them; then Logged projects up to the menu's count.
+      const active = projects.filter(countsTowardsLimit);
+      const logged = projects.filter((p) => !countsTowardsLimit(p));
+      logged.sort((a, b) => Number(b.props.project?.status === "active") - Number(a.props.project?.status === "active"));
       const rows = [];
-      for (const page of projects.slice(0, prefs.projectLimit)) rows.push({ page, tasks: await loadProjectTasks(store, page) });
+      for (const page of [...active, ...logged.slice(0, Math.max(0, prefs.projectLimit - active.length))]) rows.push({ page, tasks: await loadProjectTasks(store, page) });
       if (live) setItems(rows);
     })().catch(() => {});
     return () => {
@@ -419,12 +423,16 @@ export function ProjectList({ store, refreshKey, onOpen }: { store: JournalStore
   return (
     <div className="project-list">
       <ul>
-        {items.map(({ page, tasks }) => {
+        {items.map(({ page, tasks }, i) => {
           const open = tasks.filter((t) => !t.task.checked);
+          const isActive = countsTowardsLimit(page);
+          const head = i === 0 || isActive !== countsTowardsLimit(items[i - 1].page);
+          const nActive = items.filter((x) => countsTowardsLimit(x.page)).length;
           const all = openAll.includes(page.id);
           const shown = all ? open : open.slice(0, 4);
           return (
             <li key={page.id} className="project-item">
+              {head && <div className="project-group">{isActive ? `📌 Active · ${nActive}/${MAX_ACTIVE_PROJECTS}` : "🪵 Logged"}</div>}
               <div className="project-row">
                 <button type="button" onClick={() => onOpen(page.title)}>
                   <span className={`project-dot status-${page.props.project?.status}`} />

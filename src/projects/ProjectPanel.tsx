@@ -1,7 +1,7 @@
 import { showError, showToast } from "../lib/toast";
 import { exportProjectForAi } from "./exportProject";
 import { MediaPeek, mediaItemsIn } from "../editor/MediaPeek";
-import { countsTowardsLimit, MAX_ACTIVE_PROJECTS } from "../lib/projects";
+import { countsTowardsLimit, MAX_ACTIVE_PROJECTS, projectWith } from "../lib/projects";
 import { useEffect, useState } from "react";
 import type { ProjectStatus } from "../lib/projects";
 import { projectTag } from "../lib/projects";
@@ -102,7 +102,14 @@ export function ProjectPanel({ store, page, refreshKey, onChanged, onOpenDay }: 
         <input
           type="checkbox"
           checked={page.props.project?.kind === "logging"}
-          onChange={async (e) => onChanged(await store.setPageProps(page.id, { project: { status, ...(e.target.checked ? { kind: "logging" as const } : {}) } }))}
+          onChange={async (e) => {
+            // Out of logging while 4 are active would be a fifth: say so instead.
+            if (!e.target.checked && status === "active") {
+              const active = (await store.projects()).filter((p) => p.id !== page.id && countsTowardsLimit(p));
+              if (active.length >= MAX_ACTIVE_PROJECTS) return showToast(`${MAX_ACTIVE_PROJECTS} projects are already active (${active.map((p) => p.title).join(", ")}). Make one a logged project first.`, "error");
+            }
+            onChanged(await store.setPageProps(page.id, { project: projectWith(page, { status, kind: e.target.checked ? "logging" : undefined }) }));
+          }}
         />
         🪵 Logging project (not counted in the {MAX_ACTIVE_PROJECTS} active)
       </label>
@@ -121,7 +128,7 @@ export function ProjectPanel({ store, page, refreshKey, onChanged, onOpenDay }: 
                   return showToast(`${MAX_ACTIVE_PROJECTS} projects are already active (${active.map((p) => p.title).join(", ")}). Pause one first.`, "error");
                 }
               }
-              onChanged(await store.setPageProps(page.id, { project: { status: s.value } }));
+              onChanged(await store.setPageProps(page.id, { project: projectWith(page, { status: s.value }) }));
             }}
           >
             {s.label}

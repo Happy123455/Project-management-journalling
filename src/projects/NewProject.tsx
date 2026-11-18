@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { showError, showToast } from "../lib/toast";
-import { countsTowardsLimit, MAX_ACTIVE_PROJECTS } from "../lib/projects";
+import { countsTowardsLimit, MAX_ACTIVE_PROJECTS, projectWith } from "../lib/projects";
 import type { JournalStore, NamedPage } from "../store";
 
 /**
@@ -82,9 +82,13 @@ export function NewProject({ store }: { store: JournalStore | null }) {
     if (!title) return;
     try {
       const page = await store.ensurePage(title);
-      await store.setPageProps(page.id, { project: logging ? { status: "active", kind: "logging" } : { status: "active" } });
+      // Four already active: the new one goes to Logged projects (no limit there) instead of a fifth.
+      const already = page.props.project && countsTowardsLimit(page);
+      const active = (await store.projects()).filter((p) => p.id !== page.id && countsTowardsLimit(p));
+      const toLogged = logging || (!already && active.length >= MAX_ACTIVE_PROJECTS);
+      await store.setPageProps(page.id, { project: projectWith(page, { status: "active", kind: toLogged ? "logging" : undefined }) });
       insertProjectBlock(editor, title);
-      showToast(`Project “${title}” created`);
+      showToast(toLogged && !logging ? `“${title}” is in Logged projects: ${MAX_ACTIVE_PROJECTS} are already active` : `Project “${title}” created`);
       setEditor(null);
     } catch (e) {
       showError("Couldn't create the project", e);
@@ -137,7 +141,7 @@ export function NewProject({ store }: { store: JournalStore | null }) {
                 key={p.id}
                 type="button"
                 onClick={async () => {
-                  await store.setPageProps(p.id, { project: { status: "paused" } });
+                  await store.setPageProps(p.id, { project: projectWith(p, { status: "paused" }) });
                   showToast(`“${p.title}” paused`);
                   setFull([]);
                 }}

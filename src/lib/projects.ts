@@ -11,6 +11,21 @@ export const MAX_ACTIVE_PROJECTS = 4;
 export const countsTowardsLimit = (p: { props: { project?: ProjectInfo } }) =>
   (p.props.project?.status ?? "active") === "active" && p.props.project?.kind !== "logging";
 
+/** Active projects: up to MAX_ACTIVE_PROJECTS. Logged projects: every other open one (logging or paused). */
+export const isActiveProject = countsTowardsLimit;
+export const isLoggedProject = (p: { props: { project?: ProjectInfo } }) => !!p.props.project && p.props.project.status !== "done" && !countsTowardsLimit(p);
+
+/**
+ * The page's project info with a change made, everything else kept. Setting { status } alone used
+ * to replace the whole info, so pausing a project or making it a logging one dropped its tool bar
+ * shortcut and icon.
+ */
+export function projectWith(page: { props: { project?: ProjectInfo } }, patch: Partial<ProjectInfo>): ProjectInfo {
+  const next: ProjectInfo = { status: "active", ...page.props.project, ...patch };
+  for (const k of Object.keys(next) as (keyof ProjectInfo)[]) if (next[k] === undefined) delete next[k];
+  return next;
+}
+
 /** What makes a named page a project. Kept in the page's props. */
 export interface ProjectInfo {
   status: ProjectStatus;

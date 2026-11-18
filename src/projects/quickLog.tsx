@@ -8,6 +8,7 @@ import { isDesktopApp } from "../bubble/macBubble";
 import { journalStore, useFileUrl } from "../editor/attachments";
 import { showError, showToast } from "../lib/toast";
 import type { FileRecord, JournalStore, NamedPage } from "../store";
+import { countsTowardsLimit, MAX_ACTIVE_PROJECTS } from "../lib/projects";
 
 /** A quick-log button: the project it logs into and its icon. */
 export interface QuickLog {
@@ -215,15 +216,20 @@ export function QuickLogSetup() {
     await save(p, { icon, iconAuto: true, quickLog: true });
   };
 
-  return createPortal(
-    <>
-      <div className="search-backdrop" onClick={() => setOpen(false)} />
-      <div className="confirm-card quick-log-setup" role="dialog" aria-label="Quick log buttons">
-        <h2>⚡ Quick log buttons</h2>
-        <p className="hint">A button on the tool bar adds the project's box with one tap, ready to write in.</p>
-        {projects.length === 0 && <p className="hint">No projects yet: make one from the “/” menu (Project or Log).</p>}
+  // 18 Nov: up to four Active projects; every other open one is a Logged project (no limit).
+  // Both kinds can have a tool bar button, as many as wanted.
+  const active = projects.filter(countsTowardsLimit);
+  const logged = projects.filter((p) => !countsTowardsLimit(p));
+  const move = (p: NamedPage, toActive: boolean) => {
+    if (toActive && active.length >= MAX_ACTIVE_PROJECTS) {
+      showToast(`${MAX_ACTIVE_PROJECTS} projects are already active. Move one to Logged first.`, "error");
+      return;
+    }
+    void save(p, toActive ? { status: "active", kind: undefined } : { kind: "logging" });
+  };
+  const rows = (list: NamedPage[], isActive: boolean) => (
         <ul className="quick-log-list">
-          {projects.map((p) => {
+          {list.map((p) => {
             const info = p.props.project!;
             return (
               <li key={p.id}>
@@ -234,8 +240,17 @@ export function QuickLogSetup() {
                   {p.title}
                   {info.iconAuto && !info.icon && <small>Icon: the Mac's AI picks it</small>}
                 </span>
-                <label className="settings-toggle quick-log-toggle">
-                  <input type="checkbox" checked={!!info.quickLog} onChange={(e) => void save(p, { quickLog: e.target.checked })} />
+                <button
+                  type="button"
+                  className="quick-log-move"
+                  disabled={!isActive && active.length >= MAX_ACTIVE_PROJECTS}
+                  onClick={() => move(p, !isActive)}
+                  title={isActive ? "Move to Logged projects (not counted)" : `Make active (up to ${MAX_ACTIVE_PROJECTS})`}
+                >
+                  {isActive ? "→ 🪵" : "→ 📌"}
+                </button>
+                <label className="settings-toggle quick-log-toggle" title="Button on the tool bar">
+                  <input type="checkbox" checked={!!info.quickLog} onChange={(e) => void save(p, { quickLog: e.target.checked })} aria-label={`Tool bar button for ${p.title}`} />
                 </label>
                 {picking === p.id && (
                   <div className="quick-log-emoji">
@@ -273,6 +288,24 @@ export function QuickLogSetup() {
             );
           })}
         </ul>
+  );
+
+  return createPortal(
+    <>
+      <div className="search-backdrop" onClick={() => setOpen(false)} />
+      <div className="confirm-card quick-log-setup" role="dialog" aria-label="Projects and quick log buttons">
+        <h2>⚡ Projects and tool bar buttons</h2>
+        <p className="hint">The switch puts a button on the tool bar that adds the project's box with one tap. Any project can have one, active or logged.</p>
+        {projects.length === 0 && <p className="hint">No projects yet: make one from the “/” menu (Project or Log).</p>}
+        {projects.length > 0 && (
+          <>
+            <h3 className="quick-log-head">📌 Active projects · {active.length}/{MAX_ACTIVE_PROJECTS}</h3>
+            {active.length ? rows(active, true) : <p className="hint">None active. → 📌 on a logged project makes it active.</p>}
+            <h3 className="quick-log-head">🪵 Logged projects · {logged.length}</h3>
+            <p className="hint">Not counted in the {MAX_ACTIVE_PROJECTS}.</p>
+            {logged.length ? rows(logged, false) : <p className="hint">None yet.</p>}
+          </>
+        )}
         <div className="confirm-actions">
           <button type="button" onClick={() => setOpen(false)}>Done</button>
         </div>

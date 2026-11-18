@@ -5,6 +5,8 @@ import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from "@
 import { dayOptions, headingsIn, isDayTarget, splitTarget } from "../lib/noteLinks";
 import { journalStore } from "./attachments";
 import { extractLinks } from "../lib/links";
+import { insideMatches, linkBefore, searchQuery } from "../lib/linkSearch";
+import type { FileRecord } from "../store";
 
 export interface LinkSuggestOptions {
   /** Names of existing pages and everything linked so far. */
@@ -41,6 +43,16 @@ async function knownDays(): Promise<string[]> {
   return days;
 }
 
+/** Files kept in the journal that a [[link]] can name: documents and PDFs (not photos, clips or memes). */
+let filesCache: { at: number; files: FileRecord[] } | null = null;
+const isDocFile = (f: FileRecord) => !/^(image|video|audio)\//.test(f.mime) && !/^(gif|meme|greenscreen|sound|voice)-/.test(f.name);
+export async function knownFiles(): Promise<FileRecord[]> {
+  if (filesCache && Date.now() - filesCache.at < 60_000) return filesCache.files;
+  const files = ((await journalStore()?.listFiles().catch(() => [])) ?? []).filter(isDocFile);
+  filesCache = { at: Date.now(), files };
+  return files;
+}
+
 /** The note a link names: a day's page or a named page. */
 export async function noteDoc(note: string) {
   const store = journalStore();
@@ -70,7 +82,19 @@ export async function noteOptions(names: string[], query: string): Promise<Optio
   const dayish = /^(\d|to|ye|tom|mon|tue|wed|thu|fri|sat|sun|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(query.trim());
   const isNew = pages.filter((p) => p.isNew);
   const known = pages.filter((p) => !p.isNew);
-  return dayish ? [...days, ...known, ...isNew] : [...known, ...days, ...isNew];
+  // 18 Nov: files in the journal (PDFs, documents) by name too; the link opens the file.
+  const q = query.trim().toLowerCase();
+  const taken = new Set(known.map((k) => k.name.toLowerCase()));
+  const files: Option[] = q
+    ? (await knownFiles())
+        .filter((f) => f.name.toLowerCase().includes(q) && !taken.has(f.name.toLowerCase()))
+        .sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)))
+        .slice(0, 3)
+        .map((f) => ({ name: f.name, icon: "📎", isNew: false }))
+    : [];
+  // A file named exactly as typed isn't "new".
+  const fresh = isNew.filter((n) => !files.some((f) => f.name.toLowerCase() === n.name.toLowerCase()));
+  return dayish ? [...days, ...known, ...files, ...fresh] : [...known, ...files, ...days, ...fresh];
 }
 
 interface ListProps {
@@ -81,19 +105,26 @@ interface ListProps {
   empty?: string;
   /** Nothing to suggest: show nothing (instead of the "Type a name" line). */
   hideEmpty?: boolean;
+  /** Enter picks only after ↓/↑ (Tab or a tap always): for a list that comes up while writing on. */
+  enterAfterArrow?: boolean;
 }
 interface ListHandle {
   onKeyDown: (event: KeyboardEvent) => boolean;
 }
 
-const SuggestList = forwardRef<ListHandle, ListProps>(function SuggestList({ items, command, hint, empty, hideEmpty }, ref) {
+const SuggestList = forwardRef<ListHandle, ListProps>(function SuggestList({ items, command, hint, empty, hideEmpty, enterAfterArrow }, ref) {
   const [selected, setSelected] = useState(0);
-  useEffect(() => setSelected(0), [items]);
+  const [arrowed, setArrowed] = useState(false);
+  useEffect(() => {
+    setSelected(0);
+    setArrowed(false);
+  }, [items]);
   useImperativeHandle(ref, () => ({
     onKeyDown: (event) => {
       if (!items.length) return false;
-      if (event.key === "ArrowDown") return setSelected((s) => Math.min(items.length - 1, s + 1)), true;
-      if (event.key === "ArrowUp") return setSelected((s) => Math.max(0, s - 1)), true;
+      if (event.key === "ArrowDown") return setArrowed(true), setSelected((s) => Math.min(items.length - 1, s + 1)), true;
+      if (event.key === "ArrowUp") return setArrowed(true), setSelected((s) => Math.max(0, s - 1)), true;
+      if (event.key === "Enter" && enterAfterArrow && !arrowed) return false;
       if (event.key === "Enter" || event.key === "Tab") return command(items[selected]), true;
       return false;
     },
@@ -201,6 +232,50 @@ export const LinkSuggest = Extension.create<LinkSuggestOptions>({
           editor.chain().focus().insertContentAt({ from: range.from, to }, `[[${props.name}]] `).run();
         },
         render: popup({ hint: "Type # after a name for one part of it · ! before [[ shows it here" }),
+      }),
+      // 18 Nov: text right after a finished [[link]] searches inside the linked note; picking a
+      // line makes it [[Note#that spot]], which opens the note with it lit up.
+      Suggestion<Option, Option>({
+        editor: this.editor,
+        pluginKey: new PluginKey("linkInsideSearch"),
+        char: "]]",
+        allowSpaces: true,
+        allowedPrefixes: null,
+        // From the LAST "]]" before the cursor (the stock match starts at the first one in the line).
+        findSuggestionMatch: ({ $position }) => {
+          const text = $position.nodeBefore?.isText ? $position.nodeBefore.text ?? "" : "";
+          const i = text.lastIndexOf("]]");
+          if (i < 0) return null;
+          const from = $position.pos - text.length + i;
+          return { range: { from, to: $position.pos }, query: text.slice(i + 2), text: text.slice(i) };
+        },
+        allow: ({ state, range }) => {
+          const $from = state.doc.resolve(range.from);
+          if ($from.parent.type.spec.code) return false;
+          const before = state.doc.textBetween($from.start(), range.from);
+          const after = state.doc.textBetween(range.from + 2, range.to);
+          return !!linkBefore(before) && !!searchQuery(after);
+        },
+        items: async ({ query, editor }) => {
+          const q = searchQuery(query);
+          const { state } = editor;
+          const { $from } = state.selection;
+          const text = $from.parent.textBetween(0, $from.parentOffset);
+          const end = text.lastIndexOf("]]");
+          const target = end > 0 ? linkBefore(text.slice(0, end)) : null;
+          if (!q || !target) return [];
+          const hits = insideMatches(await noteDoc(target), q);
+          return hits.map((h) => ({ name: `${target}#${h.section}`, label: h.line, icon: "🔎", isNew: false }));
+        },
+        command: ({ editor, range, props }) => {
+          const $from = editor.state.doc.resolve(range.from);
+          const before = editor.state.doc.textBetween($from.start(), range.from);
+          const start = before.lastIndexOf("[[");
+          if (start < 0 || !linkBefore(before)) return;
+          // "[[Note]]query" becomes "[[Note#spot]] ".
+          editor.chain().focus().insertContentAt({ from: $from.start() + start, to: range.to }, `[[${props.name}]] `).run();
+        },
+        render: popup({ hideEmpty: true, enterAfterArrow: true, hint: "Inside the linked note · Tab or tap to link to that spot" }),
       }),
       // "#": the tags already in the journal.
       Suggestion<Option, Option>({

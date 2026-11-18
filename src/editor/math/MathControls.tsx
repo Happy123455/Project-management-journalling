@@ -1,6 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { formatAnswer } from "../../lib/mathEval";
 import { niceRange, niceStep } from "../../lib/mathSmart";
+import { haptic } from "../../lib/haptic";
+
+/**
+ * A light tick as a control passes a value (the phone's glass ticks, a tiny vibration on other
+ * phones, nothing on a Mac or where it isn't allowed). At most one per 35 ms, so a fast spin
+ * doesn't buzz.
+ */
+let lastTick = 0;
+export function tick(kind: "tick" | "edge" = "tick") {
+  const now = Date.now();
+  if (now - lastTick < 35) return;
+  lastTick = now;
+  haptic(kind, kind === "edge" ? 0.6 : 0.35);
+}
 
 /** How a variable is changed by hand in a math block. */
 export type ControlKind = "slider" | "wheel" | "dial" | "tumbler";
@@ -37,7 +51,11 @@ function Slider({ value, base, onChange }: Props) {
       max={max}
       step={step}
       value={value}
-      onChange={(e) => onChange(round(Number(e.target.value), step))}
+      onChange={(e) => {
+        const v = round(Number(e.target.value), step);
+        if (v !== value) tick(v <= min || v >= max ? "edge" : "tick");
+        onChange(v);
+      }}
       style={{ "--fill": `${((value - min) / (max - min || 1)) * 100}%` } as React.CSSProperties}
     />
   );
@@ -54,9 +72,11 @@ function Wheel({ value, base, onChange }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const settle = useRef(0);
   const [top, setTop] = useState(N * ITEM);
+  const passing = useRef(N);
   useEffect(() => {
     if (box.current) box.current.scrollTop = N * ITEM;
     setTop(N * ITEM);
+    passing.current = N;
   }, [centre]);
   const values = Array.from({ length: 2 * N + 1 }, (_, i) => round(centre + (i - N) * step, step));
   return (
@@ -66,6 +86,11 @@ function Wheel({ value, base, onChange }: Props) {
       onScroll={(e) => {
         const t = e.currentTarget.scrollTop;
         setTop(t);
+        const at = Math.round(t / ITEM);
+        if (at !== passing.current) {
+          passing.current = at;
+          tick();
+        }
         window.clearTimeout(settle.current);
         settle.current = window.setTimeout(() => {
           const i = Math.max(0, Math.min(values.length - 1, Math.round(t / ITEM)));
@@ -106,14 +131,16 @@ function Dial({ value, base, onChange }: Props) {
       onPointerMove={(e) => {
         if (!drag.current) return;
         const ticks = Math.round((e.clientX - drag.current.x) / 6);
-        onChange(round(drag.current.v + ticks * step, step));
+        const v = round(drag.current.v + ticks * step, step);
+        if (v !== value) tick();
+        onChange(v);
       }}
       onPointerUp={() => (drag.current = null)}
       onPointerCancel={() => (drag.current = null)}
-      onWheel={(e) => onChange(round(value + (e.deltaY < 0 || e.deltaX > 0 ? step : -step), step))}
+      onWheel={(e) => (tick(), onChange(round(value + (e.deltaY < 0 || e.deltaX > 0 ? step : -step), step)))}
       onKeyDown={(e) => {
-        if (e.key === "ArrowRight" || e.key === "ArrowUp") onChange(round(value + step, step));
-        if (e.key === "ArrowLeft" || e.key === "ArrowDown") onChange(round(value - step, step));
+        if (e.key === "ArrowRight" || e.key === "ArrowUp") (tick(), onChange(round(value + step, step)));
+        if (e.key === "ArrowLeft" || e.key === "ArrowDown") (tick(), onChange(round(value - step, step)));
       }}
     >
       <span className="mc-dial-ridges" />
@@ -131,7 +158,10 @@ function Tumbler({ value, base, onChange }: Props) {
   const digits = whole.padStart(width, "0") + frac;
   const placeOf = (i: number) => Math.pow(10, width - 1 - i);
   const swipe = useRef<{ y: number; i: number } | null>(null);
-  const bump = (i: number, dir: number) => onChange(round(value + dir * placeOf(i), placeOf(digits.length - 1)));
+  const bump = (i: number, dir: number) => {
+    tick();
+    onChange(round(value + dir * placeOf(i), placeOf(digits.length - 1)));
+  };
   return (
     <div className="mc-tumbler">
       {value < 0 && <span className="mc-sign">−</span>}
@@ -182,7 +212,7 @@ export function VariableControl(props: Props & { kind: ControlKind; label?: stri
         step={niceStep(base)}
         onChange={(e) => e.target.value !== "" && Number.isFinite(Number(e.target.value)) && onChange(Number(e.target.value))}
       />
-      <button type="button" className="mc-reset" disabled={value === base} title={`Back to ${formatAnswer(base)}`} onClick={() => onChange(base)}>↺</button>
+      <button type="button" className="mc-reset" disabled={value === base} title={`Back to ${formatAnswer(base)}`} onClick={() => (tick("edge"), onChange(base))}>↺</button>
     </div>
   );
 }

@@ -44,6 +44,14 @@ export function openDayEditor(day: string): Editor | null {
   return e;
 }
 
+/** The open editor of a named page (any case), or null. Not in Source mode, like openDayEditor. */
+export function openPageEditor(title: string): Editor | null {
+  const e = open.get(`page:${title.toLowerCase()}`);
+  if (!e || e.isDestroyed) return null;
+  if (document.querySelector(".editor.mode-source")) return null;
+  return e;
+}
+
 /** A line's text as reminders see it: its text pieces joined (media and breaks left out). */
 const jsonLine = (n: JSONContent) => (n.content ?? []).map((c) => c.text ?? "").join("");
 

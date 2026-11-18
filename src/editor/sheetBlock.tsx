@@ -15,6 +15,12 @@ interface Cell {
   c: number;
 }
 
+/**
+ * How long a finger rests on a cell before it starts a range (and the table stops scrolling under
+ * it). 350 ms caught fingers that paused before a swipe, so the note seemed stuck on the table.
+ */
+const HOLD_MS = 500;
+
 const inRange = (g: Range, r: number, c: number) => r >= g.r0 && r <= g.r1 && c >= g.c0 && c <= g.c1;
 const cellAt = (x: number, y: number): Cell | null => {
   const el = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-r][data-c]");
@@ -24,7 +30,19 @@ const cellAt = (x: number, y: number): Cell | null => {
 function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) {
   const data = useMemo(() => parseSheet(node.attrs.data), [node.attrs.data]);
   const values = useMemo(() => evaluate(data), [data]);
-  const editable = editor.isEditable;
+  // Live: the editor can turn editable after the table was drawn (Reading → Edit, a note opened
+  // while loading). Reading it once at render left those tables stuck read-only.
+  const [editable, setEditable] = useState(editor.isEditable);
+  useEffect(() => {
+    const sync = () => setEditable(editor.isEditable);
+    sync();
+    editor.on("update", sync);
+    editor.on("transaction", sync);
+    return () => {
+      editor.off("update", sync);
+      editor.off("transaction", sync);
+    };
+  }, [editor]);
   const [active, setActive] = useState<Cell>({ r: 0, c: 0 });
   const [anchor, setAnchor] = useState<Cell>({ r: 0, c: 0 });
   const [editing, setEditing] = useState<{ draft: string; bar?: boolean } | null>(null);
@@ -157,6 +175,8 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
   // scrolling; the round handles on the range's corners stretch it afterwards.
   const drag = useRef<"select" | "fill" | "start" | "end" | null>(null);
   const press = useRef<{ id: number; x: number; y: number; timer: number; already: boolean; cell: Cell; held: boolean } | null>(null);
+  // Mouse: a click on the cell that's already picked opens it for typing (like a second tap).
+  const mouseAgain = useRef<Cell | null>(null);
   const [touchSel, setTouchSel] = useState(false);
   const capture = (id: number) => {
     try {
@@ -175,6 +195,7 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
       setAnchor({ r, c });
     }
     if (e.pointerType === "mouse") {
+      mouseAgain.current = already && !e.shiftKey ? { r, c } : null;
       drag.current = "select";
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       grid.current?.focus({ preventScroll: true });
@@ -192,7 +213,7 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
       navigator.vibrate?.(12);
       window.JournalHaptics?.play("press", 0.5);
       capture(press.current.id);
-    }, 350);
+    }, HOLD_MS);
     press.current = { id: e.pointerId, x: e.clientX, y: e.clientY, timer, already, cell, held: false };
     grid.current?.focus({ preventScroll: true });
   };
@@ -238,6 +259,7 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
     if (!drag.current) return;
     const at = cellAt(e.clientX, e.clientY);
     if (!at) return;
+    if (mouseAgain.current && (at.r !== mouseAgain.current.r || at.c !== mouseAgain.current.c)) mouseAgain.current = null;
     if (drag.current === "select" || drag.current === "start" || drag.current === "end") return void setActive(at);
     // Fill grows along the longer way out of the selection: down/up or across.
     const dr = at.r > sel.r1 ? at.r - sel.r1 : at.r < sel.r0 ? at.r - sel.r0 : 0;
@@ -250,15 +272,30 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
     if (p) {
       window.clearTimeout(p.timer);
       press.current = null;
-      // A second tap on the same cell edits it (the keyboard comes up on a phone).
-      if (!p.held && p.already) setEditing({ draft: raw(p.cell.r, p.cell.c) });
-      if (!p.held && !p.already) setTouchSel(false);
+      // 18 Nov ("click any cell in a table made by an agent and edit it"): one tap on a cell
+      // opens it for typing (it took two, so a tap looked like it did nothing). A hold still
+      // selects a range.
+      if (!p.held && editable) {
+        setTouchSel(false);
+        setEditing({ draft: raw(p.cell.r, p.cell.c) });
+      }
     }
+    const again = mouseAgain.current;
+    mouseAgain.current = null;
+    if (again && drag.current === "select" && sel.r0 === sel.r1 && sel.c0 === sel.c1 && active.r === again.r && active.c === again.c) setEditing({ draft: raw(again.r, again.c) });
     if (drag.current === "fill" && fillTo && (fillTo.r0 !== sel.r0 || fillTo.r1 !== sel.r1 || fillTo.c0 !== sel.c0 || fillTo.c1 !== sel.c1)) {
       save(fill(data, sel, fillTo));
       setAnchor({ r: fillTo.r0, c: fillTo.c0 });
       setActive({ r: fillTo.r1, c: fillTo.c1 });
     }
+    drag.current = null;
+    setFillTo(null);
+  };
+  /** The browser took the touch over to scroll: nothing was tapped, so nothing opens. */
+  const onCancel = () => {
+    if (press.current) window.clearTimeout(press.current.timer);
+    press.current = null;
+    mouseAgain.current = null;
     drag.current = null;
     setFillTo(null);
   };
@@ -321,7 +358,7 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
           </span>
         )}
       </div>
-      <div className="sheet-grid" ref={grid} tabIndex={0} onKeyDown={onKeyDown} onPaste={onPaste} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} role="grid" aria-label="Spreadsheet">
+      <div className="sheet-grid" ref={grid} tabIndex={0} onKeyDown={onKeyDown} onPaste={onPaste} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onCancel} role="grid" aria-label="Spreadsheet">
         <table>
           <thead>
             <tr>

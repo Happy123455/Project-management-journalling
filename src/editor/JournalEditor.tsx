@@ -737,6 +737,9 @@ export function JournalEditor({
   useEffect(() => (editor && liveKey ? registerOpenNote(liveKey, editor) : undefined), [editor, liveKey]);
   const noteName = canvas?.day ?? canvas?.title ?? "";
   useEffect(() => (editor && noteName ? nameNote(editor, noteName) : undefined), [editor, noteName]);
+  // A named page's editor, so a change made from a menu goes into the open page (see openPageEditor).
+  const pageTitle = !canvas?.day && canvas?.title ? canvas.title.toLowerCase() : "";
+  useEffect(() => (editor && pageTitle && !liveKey ? registerOpenNote(`page:${pageTitle}`, editor) : undefined), [editor, pageTitle, liveKey]);
 
   // The other device's typing in this same note, put in place as it happens.
   useEffect(() => {

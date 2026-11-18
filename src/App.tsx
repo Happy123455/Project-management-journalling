@@ -72,7 +72,7 @@ import { PanelResizer, SidebarEdge, usePanelWidths, useSidebarToggle } from "./n
 import { activeTab, closeTab, currentLoc, go, loadTabs, locKey, openTab, saveTabs, switchTab, visit, type Loc, type TabsState } from "./nav/tabs";
 import { receiveTyping } from "./sync/liveTyping";
 import { editorSaw, guardSave } from "./sync/saveGuard";
-import { openDayEditor } from "./editor/noteEdit";
+import { openDayEditor, openPageEditor } from "./editor/noteEdit";
 import { openTimelines, TimelinesHost } from "./editor/TimelinesView";
 import { deadlineAlarms, useAllDeadlines, watchDeadlines } from "./editor/deadlineStore";
 import { FocusHost } from "./editor/focus";
@@ -103,6 +103,16 @@ let importSeq = 0;
 
 /** Item 12: where Talk + type sessions started from the menu live. */
 const TALK_PAGE = "Prompt sessions";
+
+/** A new Talk + type box at the end of an open note, through its editor (saved like typing). */
+function addTalkBoxTo(editor: Editor, title: string) {
+  const end = editor.state.doc.content.size;
+  editor.chain().insertContentAt(end, [newTalkBox(title), { type: "paragraph" }]).run();
+  window.setTimeout(() => {
+    const boxes = editor.view.dom.querySelectorAll(".talk-box");
+    boxes[boxes.length - 1]?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, 60);
+}
 
 function App() {
   const [store, setStore] = useState<JournalStore | null>(null);
@@ -721,6 +731,12 @@ function App() {
         light(note);
         return void goTo(note, !!section);
       }
+      // 18 Nov: [[report.pdf]] names a file kept in the journal (no page by that name): open the file.
+      if (!(await store.getPage(note).catch(() => null))) {
+        const want = note.toLowerCase();
+        const file = (await store.listFiles().catch(() => [])).find((f) => f.name.toLowerCase() === want);
+        if (file) return void (file.mime === "application/pdf" ? showPdf(file.id) : openFile(file.id));
+      }
       const page = await store.ensurePage(note);
       setRoute({ kind: "page", page });
       light(`page:${page.title}`);
@@ -896,16 +912,29 @@ function App() {
   const joyBase = useRef<string | null>(null);
   const joyShown = useRef<string | null>(null);
   // Item 12: a new 🎙 Talk + type session from the menu, on the "Prompt sessions" page (it syncs).
+  // 18 Nov (Talk + type made extra boxes): with "Prompt sessions" already open, the new box was
+  // saved behind the open editor, which never showed it, so it looked like nothing happened and
+  // the next tap saved another (all of them showed up on the next visit). Now an open page gets
+  // the box through its editor, and a tap while one is being made is ignored.
+  const talkBusy = useRef(false);
   const newTalkSession = async () => {
-    if (!store) return;
-    setDrawerOpen(false);
-    await flush();
-    const page = await store.ensurePage(TALK_PAGE);
-    const title = `Session · ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`;
-    const doc = appendBlocks(page.content, [newTalkBox(title), { type: "paragraph" }]);
-    await store.savePage({ id: page.id, content: doc, plainText: docText(doc) });
-    await handlers.onOpenLink(TALK_PAGE);
-    window.dispatchEvent(new Event("journal:reload-page"));
+    if (!store || talkBusy.current) return;
+    talkBusy.current = true;
+    try {
+      setDrawerOpen(false);
+      const title = `Session · ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`;
+      const openEd = openPageEditor(TALK_PAGE);
+      if (openEd) return void addTalkBoxTo(openEd, title);
+      await flush();
+      const page = await store.ensurePage(TALK_PAGE);
+      const doc = appendBlocks(page.content, [newTalkBox(title), { type: "paragraph" }]);
+      await store.savePage({ id: page.id, content: doc, plainText: docText(doc) });
+      await handlers.onOpenLink(TALK_PAGE);
+      // The page just opened from the store with the box in it; scroll down to it.
+      window.setTimeout(() => document.querySelector(".page-notes .talk-box:last-of-type")?.scrollIntoView({ block: "center", behavior: "smooth" }), 400);
+    } finally {
+      window.setTimeout(() => (talkBusy.current = false), 600);
+    }
   };
   const islandActions: MenuAction[] = [
     { icon: "🎙", label: "Talk + type", run: () => void newTalkSession() },
