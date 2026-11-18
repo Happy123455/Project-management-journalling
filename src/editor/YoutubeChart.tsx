@@ -193,6 +193,7 @@ export function YoutubeChartSheet({ store, day, onClose }: { store: JournalStore
       <div className="confirm-card yt-sheet" role="dialog" aria-label="What I watched on YouTube">
         <header className="yt-sheet-head">
           <h2>📺 What I watched</h2>
+          <button type="button" onClick={() => (onClose(), window.dispatchEvent(new CustomEvent("journal:youtube-history")))} title="Whole history: kinds, channels, ❤ likes">History ›</button>
           <button type="button" onClick={onClose} aria-label="Close">✕</button>
         </header>
         <YoutubeCharts store={store} day={day} initialRange={day === dayKey(new Date()) ? 7 : 1} />

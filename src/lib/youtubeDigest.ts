@@ -92,11 +92,11 @@ export function youtubeLine(d: YoutubeDay): string {
 
 /** Purpose groups for the tracker's topics, by words in the topic. First match wins. */
 export const YT_PURPOSES: [string, string, RegExp][] = [
-  ["learning", "🎓 Learning", /\b(ai|ml|machine learning|coding|programming|code|python|javascript|react|tech|technology|science|physics|chemistry|math|maths|engineering|civil|transport|study|exam|lecture|tutorial|how to|education|history|economics|finance|investing|stock|business|startup|productivity|design|language|english|research|space|astronomy|biology|medicine|health|psychology|philosophy)\b/i],
+  ["learning", "🎓 Learning", /\b(ai|ml|llm|gpt|chatgpt|claude|gemini|nvidia|engineers?|factory|manufacturing|explained|explainer|documentary|learn|learning|course|guide|machine learning|coding|programming|code|python|javascript|react|tech|technology|science|physics|chemistry|math|maths|engineering|civil|transport|study|exam|lecture|tutorial|how to|education|history|economics|finance|investing|stock|business|startup|productivity|design|language|english|research|space|astronomy|biology|medicine|health|psychology|philosophy)\b/i],
   ["news", "📰 News & talk", /\b(news|politics|election|podcast|interview|debate|current affairs|geopolitics|world|india|government|war)\b/i],
   ["motivation", "🔥 Motivation", /\b(motivation|motivational|self[- ]?improvement|discipline|mindset|success|habits?|stoic|stoicism|gym|fitness|workout|bodybuilding)\b/i],
   ["music", "🎵 Music", /\b(music|song|songs|lyrics|lofi|lo-fi|rap|bollywood music|cover|singing|concert|remix|beats?)\b/i],
-  ["entertainment", "🎬 Entertainment", /\b(comedy|funny|meme|memes|prank|gaming|game|games|minecraft|gta|bgmi|pubg|anime|movie|movies|film|series|tv|reaction|vlog|celebrity|bollywood|hollywood|cartoon|kitten|kittens|cat|cats|dog|dogs|puppy|animals?|pets?|satisfying|asmr|dance|trend|trending|shorts|viral|drama|roast|magic|cricket|football|sports?|ipl|fails?)\b/i],
+  ["entertainment", "🎬 Entertainment", /\b(comedy|funny|meme|memes|prank|gaming|game|games|minecraft|gta|bgmi|pubg|anime|movie|movies|film|series|tv|reaction|vlog|celebrity|bollywood|hollywood|cartoon|kitten|kittens|cat|cats|dog|dogs|puppy|animals?|pets?|satisfying|asmr|dance|trend|trending|shorts|viral|drama|roast|magic|cricket|football|sports?|ipl|fails?|clips?|lol|skit|sketch|standup|stand-up|joke|jokes|troll|edit|edits|genshin|honkai|valorant|fortnite|roblox|podcast clips?|reels?|wwe|ufc|boxing)\b/i],
   ["lifestyle", "🍲 Lifestyle", /\b(food|cooking|recipe|travel|fashion|beauty|cars?|bikes?|diy|craft|home|vlog|shopping|unboxing|review)\b/i],
 ];
 

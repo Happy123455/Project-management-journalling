@@ -8,6 +8,7 @@ import { FestivalsAhead } from "./calendar/SpecialTiles";
 import { DayPickerSheet } from "./calendar/ReminderSheet";
 import { publishReminders, startInAppNudges, upcomingFrom } from "./calendar/reminderBridge";
 import { RoutinePanel } from "./routine/RoutinePanel";
+import { YoutubeHistory, YT_HISTORY_EVENT } from "./youtube/YoutubeHistory";
 import { TodayAgenda } from "./routine/TodayAgenda";
 import { editDayLine, ROUTINE_EVENT, useRoutine } from "./routine/routineData";
 import { startHealthSync } from "./routine/health";
@@ -129,6 +130,12 @@ function App() {
   const [yearOpen, setYearOpen] = useState(false);
   const [upcomingOpen, setUpcomingOpen] = useState(false);
   const [routineOpen, setRoutineOpen] = useState(false);
+  const [ytHistOpen, setYtHistOpen] = useState(false);
+  useEffect(() => {
+    const on = () => setYtHistOpen(true);
+    window.addEventListener(YT_HISTORY_EVENT, on);
+    return () => window.removeEventListener(YT_HISTORY_EVENT, on);
+  }, []);
   const [moneyOpen, setMoneyOpen] = useState(false);
   const [yearShown, setYearShown] = useState(() => new Date().getFullYear());
   // What the main area shows: today's/any day's page, a named page, or a tag.
@@ -895,7 +902,7 @@ function App() {
       [!!dayPicker, () => setDayPicker(null)],
       [tabsOpen, setTabsOpen], [titleSearchOpen, setTitleSearchOpen], [searchOpen, setSearchOpen],
       [settingsOpen, setSettingsOpen], [chatOpen, setChatOpen], [mindOpen, setMindOpen], [graphOpen, setGraphOpen],
-      [!!nexus, () => setNexus(null)], [moneyOpen, setMoneyOpen], [routineOpen, setRoutineOpen],
+      [!!nexus, () => setNexus(null)], [moneyOpen, setMoneyOpen], [routineOpen, setRoutineOpen], [ytHistOpen, setYtHistOpen],
       [upcomingOpen, setUpcomingOpen], [yearOpen, setYearOpen], [drawerOpen, setDrawerOpen],
     ];
     const top = open.find(([on]) => on);
@@ -946,6 +953,7 @@ function App() {
     { icon: "📅", label: "Year", run: () => openYear() },
     { icon: "🔔", label: "Coming up", run: () => setUpcomingOpen(true) },
     { icon: "💰", label: "Money", run: () => setMoneyOpen(true) },
+    { icon: "📺", label: "YouTube", run: () => setYtHistOpen(true) },
     { icon: "🕸", label: "Graph", run: () => setGraphOpen(true) },
     { icon: "🧠", label: "Mind map", run: () => setMindOpen(true) },
     { icon: "⏳", label: "Timelines", run: () => openTimelines() },
@@ -1434,7 +1442,7 @@ function App() {
               }}
               onPick={goTo}
               onOpenYear={openYear}
-              covered={overlayOpen || routineOpen || moneyOpen || !!dayPicker}
+              covered={overlayOpen || routineOpen || ytHistOpen || moneyOpen || !!dayPicker}
               below={
                 <>
                   {store && <TodayAgenda store={store} view={routine} onOpenRoutine={() => setRoutineOpen(true)} />}
@@ -1646,7 +1654,7 @@ function App() {
       <Toasts />
       {touch && store && (
         <NavIsland
-          away={overlayOpen || routineOpen || moneyOpen || !!dayPicker || !!assist}
+          away={overlayOpen || routineOpen || ytHistOpen || moneyOpen || !!dayPicker || !!assist}
           tabs={tabs}
           today={today}
           canBack={activeTab(tabs).index > 0}
@@ -1783,6 +1791,7 @@ function App() {
       />
       {dayPicker && <DayPickerSheet title={dayPicker.title} from={dayPicker.from} withTime={dayPicker.withTime} onPick={dayPicker.onPick} onClose={() => setDayPicker(null)} />}
       {routineOpen && store && <RoutinePanel store={store} onClose={() => setRoutineOpen(false)} />}
+      {ytHistOpen && store && <YoutubeHistory store={store} onClose={() => setYtHistOpen(false)} />}
       {moneyOpen && store && <FinancePanel store={store} onClose={() => setMoneyOpen(false)} onOpenDay={(d) => void goTo(d)} />}
       <UpcomingPanel
         open={upcomingOpen}
