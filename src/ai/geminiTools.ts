@@ -5,6 +5,7 @@ import type { JournalStore } from "../store";
 import type { Section } from "./blocks";
 import { runOneTool, toolLogLine, toolsFor, type ToolCall } from "./agent";
 import { geminiChain } from "./client";
+import { canSetThinking } from "./gemini";
 import { geminiCall } from "./gemini";
 import { getKey } from "./secrets";
 import { loadAiSettings, modelFor, recordUsage } from "./settings";
@@ -54,6 +55,8 @@ export async function geminiAgent(opts: {
   runTool?: (call: ToolCall) => Promise<{ out: string; bad: boolean }>;
   model?: string;
   maxRounds?: number;
+  /** How hard the model thinks ("low" unless said; "default" leaves it to the model). */
+  think?: "minimal" | "low" | "high" | "default";
 }): Promise<GeminiAgentResult> {
   const key = await getKey("gemini");
   if (!key) throw new Error("Add a Gemini key in Settings → AI to use the journal's tools from here.");
@@ -75,7 +78,9 @@ export async function geminiAgent(opts: {
       signal: opts.signal,
       fastTimeoutMs: 45_000,
       fetchImpl: opts.fetchImpl,
-      body: () => ({ systemInstruction: { parts: [{ text: opts.system }] }, contents, tools, generationConfig: { maxOutputTokens: 6000 } }),
+      // Low thinking: simple jobs (a math block, a table) don't need long thought (Hapi, 18 Nov:
+      // "even simple tasks take too long"). A model that refuses the setting is asked without it.
+      body: (m: string) => ({ systemInstruction: { parts: [{ text: opts.system }] }, contents, tools, generationConfig: { maxOutputTokens: 6000, ...(opts.think === "default" || !canSetThinking(m) ? {} : { thinkingConfig: { thinkingLevel: opts.think ?? "low" } }) } }),
     });
     const json = r.json as { candidates?: { content?: Content; finishReason?: string }[]; usageMetadata?: Record<string, number> };
     const used = r.model;

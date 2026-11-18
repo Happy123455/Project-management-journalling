@@ -8,7 +8,9 @@ export type Fast =
   /** Open a day (YYYY-MM-DD) or a page (the runner checks the page exists). */
   | { kind: "open"; day?: string; page?: string; newTab: boolean; end?: boolean; label: string }
   /** An answer to show (and read aloud when asked by voice). */
-  | { kind: "answer"; text: string };
+  | { kind: "answer"; text: string }
+  /** A math block to add to today's note (math_add), e.g. an average of the numbers said. */
+  | { kind: "math"; lines: string; label: string };
 
 const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 const MON = MONTHS.map((m) => m.toLowerCase());
@@ -238,10 +240,39 @@ function openCommand(text: string, now: Date): Fast | null {
   return null;
 }
 
+const LIST_WORDS: [RegExp, string, string][] = [
+  [/\b(?:averag\w*|avg|mean)\b/i, "avg", "average"],
+  [/\bmedian\b/i, "median", "median"],
+  [/\b(?:sum|summing|total\w*|add(?:ing)? up)\b/i, "sum", "total"],
+  [/\b(?:max|maximum|highest|biggest)\b/i, "max", "highest"],
+  [/\b(?:min|minimum|lowest|smallest)\b/i, "min", "lowest"],
+];
+
+/**
+ * "Make a math block averaging 80, 90 and 70", "math block: average of 12 15 18", "add a block with
+ * the total of 350, 120, 80": a math block at once, no AI (Hapi, 18 Nov: the agent couldn't make a
+ * basic averaging block, and simple blocks took too long).
+ */
+export function mathBlockCommand(text: string): Extract<Fast, { kind: "math" }> | null {
+  const t = text.trim();
+  if (!/\b(?:math|maths|calc|calculation|block)\b/i.test(t)) return null;
+  if (/\b(?:table|sheet|chart|graph|plot|formula for|explain|why)\b/i.test(t)) return null;
+  const hit = LIST_WORDS.find(([re]) => re.test(t));
+  if (!hit) return null;
+  // The numbers after the function word ("average of 80, 90 and 70"); thousands commas kept together.
+  const after = t.slice(t.search(hit[0]));
+  const nums = [...after.matchAll(/-?(?:\d{1,3}(?:,\d{3})+(?![\d])|\d+)(?:\.\d+)?/g)].map((m) => m[0].replace(/,/g, ""));
+  if (nums.length < 2 || nums.length > 60) return null;
+  const name = /\b(?:called|named)\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(t)?.[1] ?? hit[2];
+  return { kind: "math", lines: `values = ${nums.join(", ")}\n${name} = ${hit[1]}(values)`, label: `${hit[2]} of ${nums.join(", ")}` };
+}
+
 /** The fast answer for a command, or null when it needs the AI. */
 export function fastPath(text: string, now = new Date()): Fast | null {
   const t = text.trim();
   if (!t || t.includes("\n")) return null;
+  const math = mathBlockCommand(t);
+  if (math) return math;
   const open = openCommand(t, now);
   if (open) return open;
   const d = dateAnswer(t, now);

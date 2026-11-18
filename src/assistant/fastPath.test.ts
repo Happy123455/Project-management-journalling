@@ -56,3 +56,13 @@ describe("fastPath", () => {
     expect(dateAnswer("what day is 3 nov 2027", now)).toBe("Wednesday 3 November 2027");
   });
 });
+
+import { mathBlockCommand } from "./fastPath";
+describe("math block fast path (18 Nov)", () => {
+  it("makes an averaging block without AI", () => {
+    expect(mathBlockCommand("make a math block averaging 80, 90 and 70")?.lines).toBe("values = 80, 90, 70\naverage = avg(values)");
+    expect(mathBlockCommand("math block: total of 1,200 and 350")?.lines).toBe("values = 1200, 350\ntotal = sum(values)");
+    expect(mathBlockCommand("add a table with the average of 1 2 3")).toBeNull();
+    expect(mathBlockCommand("what is the average of 3 and 4")).toBeNull();
+  });
+});

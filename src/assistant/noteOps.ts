@@ -117,3 +117,32 @@ export function topCounts(items: string[], limit = 10): [string, number][] {
   for (const i of items) if (i) m.set(i, (m.get(i) ?? 0) + 1);
   return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, limit);
 }
+
+const nodeText = (n: JSONContent): string => (n.text ?? "") + (n.content ?? []).map(nodeText).join(n.type === "doc" ? "\n" : "");
+
+/**
+ * Deletes the top-level blocks whose text starts with (or holds) each wanted line, in one change,
+ * and with `withEmpty` the empty paragraphs next to them (one deletion asked once, 18 Nov).
+ */
+export function deleteLines(doc: JSONContent | null, want: string[], withEmpty = true): { doc: JSONContent; removed: number; missing: string[] } {
+  const blocks = [...(doc?.content ?? [])];
+  const kill = new Set<number>();
+  const missing: string[] = [];
+  const text = blocks.map((b) => nodeText(b).trim().toLowerCase());
+  for (const w of want) {
+    let i = text.findIndex((t, k) => !kill.has(k) && t.startsWith(w));
+    if (i < 0) i = text.findIndex((t, k) => !kill.has(k) && t.includes(w));
+    if (i < 0) missing.push(w);
+    else kill.add(i);
+  }
+  const empty = (k: number) => blocks[k]?.type === "paragraph" && !text[k];
+  if (withEmpty && kill.size) {
+    for (const k of [...kill]) {
+      for (let j = k + 1; empty(j); j++) kill.add(j);
+      for (let j = k - 1; empty(j); j--) kill.add(j);
+    }
+  }
+  const removed = [...kill].filter((k) => text[k]).length;
+  const content = blocks.filter((_, k) => !kill.has(k));
+  return { doc: { ...(doc ?? { type: "doc" }), type: "doc", content: content.length ? content : [{ type: "paragraph" }] }, removed, missing };
+}

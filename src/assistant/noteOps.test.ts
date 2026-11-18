@@ -48,3 +48,19 @@ describe("assistant note edits", () => {
     expect(topCounts(["a", "b", "a", "c", "a", "b"], 2)).toEqual([["a", 3], ["b", 2]]);
   });
 });
+
+import { deleteLines } from "./noteOps";
+describe("deleteLines (one deletion, asked once)", () => {
+  const p = (t?: string) => ({ type: "paragraph", ...(t ? { content: [{ type: "text", text: t }] } : {}) });
+  it("removes the lines and the empty lines around them", () => {
+    const doc = { type: "doc", content: [p("Keep me"), p(), p("Old plan one"), p(), p("Old plan two"), p(), p("Keep too")] };
+    const r = deleteLines(doc, ["old plan one", "old plan two"]);
+    expect(r.removed).toBe(2);
+    expect(r.doc.content!.map((b) => b.content?.[0]?.text ?? "")).toEqual(["Keep me", "Keep too"]);
+  });
+  it("tells what it didn't find", () => {
+    const r = deleteLines({ type: "doc", content: [p("a line")] }, ["nope"]);
+    expect(r.removed).toBe(0);
+    expect(r.missing).toEqual(["nope"]);
+  });
+});

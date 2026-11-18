@@ -137,6 +137,11 @@ function showNote(text: string) {
   void import("../lib/toast").then(({ showToast }) => showToast(`🤖 ${text}`, "info", undefined, { background: true })).catch(() => {});
 }
 
+/** Models that answered 400 to a thinkingConfig: asked without it from then on. */
+const noThinking = new Set<string>();
+/** Gemini 3 models take thinkingLevel; older ones (and any that refused it) don't. */
+export const canSetThinking = (m: string) => !noThinking.has(m) && /gemini-(?:[3-9]|flash|pro)/.test(m);
+
 /** One Gemini generateContent request, falling back along the chain. */
 export async function geminiCall(c: GeminiCall): Promise<GeminiResult> {
   const { order, waitS } = fallbackPrefs();
@@ -147,7 +152,8 @@ export async function geminiCall(c: GeminiCall): Promise<GeminiResult> {
   let lastError: Error | null = null;
   // The model asked for failed a few minutes ago: it's tried last (fallbackChain), and the note says so.
   const firstResting = resting.has(first) && Date.now() - resting.get(first)! < REST_MS;
-  for (const m of chain) {
+  for (let k = 0; k < chain.length; k++) {
+    const m = chain[k];
     if (c.signal?.aborted) throw new DOMException("Stopped", "AbortError");
     const limit = c.timeoutMs ?? (tierOf(m) === "pro" ? waitS * 1000 : (c.fastTimeoutMs ?? 30_000));
     const ctl = new AbortController();
@@ -179,6 +185,12 @@ export async function geminiCall(c: GeminiCall): Promise<GeminiResult> {
         const message = await errorText(res);
         // A bad key or a refused request won't change with another model.
         if (res.status === 401 || res.status === 403 || (res.status === 400 && /API key/i.test(message))) throw new Error(message);
+        // The model doesn't take thinkingConfig: the same model again, without it.
+        if (res.status === 400 && /thinking/i.test(message) && !noThinking.has(m)) {
+          noThinking.add(m);
+          k--;
+          continue;
+        }
         resting.set(m, Date.now());
         skipped.push({ model: m, why: `error ${res.status}` });
         lastError = new Error(message);

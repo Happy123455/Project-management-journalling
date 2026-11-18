@@ -10,7 +10,7 @@ const TAIL = new RegExp(`[\\d.,\\s()${OPS}]+$`);
 /** The same, with names and functions in it (when variables are defined). */
 const TAIL_NAMES = new RegExp(`[\\w.,\\s()π${OPS}]+$`);
 
-type Tok = { k: "n"; v: number; named?: boolean } | { k: "op"; v: string } | { k: "f"; v: (x: number) => number };
+type Tok = { k: "n"; v: number; named?: boolean } | { k: "op"; v: string } | { k: "f"; v: (x: number) => number } | { k: "lf"; v: (xs: number[]) => number };
 
 /** Variables defined in the note so far ("x = 5"), by name. */
 export type Vars = Map<string, number>;
@@ -18,11 +18,30 @@ export type Vars = Map<string, number>;
 const FUNCS: Record<string, (x: number) => number> = {
   sqrt: Math.sqrt, sin: Math.sin, cos: Math.cos, tan: Math.tan, ln: Math.log, log: Math.log10, abs: Math.abs, exp: Math.exp,
 };
+/** Functions of a list ("avg(80, 90, 70)"): inside their brackets a comma separates values. */
+const median = (xs: number[]) => {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+const LIST_FUNCS: Record<string, (xs: number[]) => number> = {
+  avg: (xs) => xs.reduce((a, b) => a + b, 0) / xs.length,
+  average: (xs) => xs.reduce((a, b) => a + b, 0) / xs.length,
+  mean: (xs) => xs.reduce((a, b) => a + b, 0) / xs.length,
+  sum: (xs) => xs.reduce((a, b) => a + b, 0),
+  total: (xs) => xs.reduce((a, b) => a + b, 0),
+  min: (xs) => Math.min(...xs),
+  max: (xs) => Math.max(...xs),
+  median,
+  count: (xs) => xs.length,
+};
 const CONSTS: Record<string, number> = { pi: Math.PI, π: Math.PI };
 
 function tokens(src: string, vars?: Vars): Tok[] | null {
   const out: Tok[] = [];
   let i = 0;
+  // Which open brackets belong to a list function (their commas split values).
+  const parens: boolean[] = [];
   const push = (t: Tok) => {
     // Written side by side means times: "2x", "3(4)", "x y", "2 sqrt(9)" (two plain numbers never).
     const prev = out[out.length - 1];
@@ -37,7 +56,8 @@ function tokens(src: string, vars?: Vars): Tok[] | null {
       i++;
       continue;
     }
-    const num = /^(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|^\.\d+/.exec(src.slice(i));
+    const inList = parens[parens.length - 1] === true;
+    const num = (inList ? /^\d+(?:\.\d+)?|^\.\d+/ : /^(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|^\.\d+/).exec(src.slice(i));
     if (num) {
       push({ k: "n", v: Number(num[0].replace(/,/g, "")) });
       i += num[0].length;
@@ -46,8 +66,17 @@ function tokens(src: string, vars?: Vars): Tok[] | null {
     const word = /^[A-Za-z_π][A-Za-z0-9_]*/.exec(src.slice(i));
     if (word) {
       const w = word[0];
-      if (vars?.has(w)) push({ k: "n", v: vars.get(w)!, named: true });
+      if (parens[parens.length - 1] === true && vars?.has(`${w}#0`)) {
+        // A list inside avg(…), sum(…): all its values, comma separated.
+        for (let k = 0; vars.has(`${w}#${k}`); k++) {
+          if (k) out.push({ k: "op", v: "," });
+          out.push({ k: "n", v: vars.get(`${w}#${k}`)!, named: true });
+        }
+        i += w.length;
+        continue;
+      } else if (vars?.has(w)) push({ k: "n", v: vars.get(w)!, named: true });
       else if (w in FUNCS) push({ k: "f", v: FUNCS[w] });
+      else if (w in LIST_FUNCS && /^\s*\(/.test(src.slice(i + w.length))) push({ k: "lf", v: LIST_FUNCS[w] });
       else if (w in CONSTS) push({ k: "n", v: CONSTS[w], named: true });
       // "10% of 200": "of" after a percent means times.
       else if (w === "of" && out[out.length - 1]?.k === "op" && (out[out.length - 1] as { v: string }).v === "%") {
@@ -64,15 +93,25 @@ function tokens(src: string, vars?: Vars): Tok[] | null {
         const between = !!prev && (prev.k === "n" || (prev.k === "op" && prev.v === ")")) && /^[\d.(]/.test(after);
         if (!between) return null;
       }
-      if (vars?.has(w) || w in FUNCS || w in CONSTS) {
+      if (vars?.has(w) || w in FUNCS || w in CONSTS || out[out.length - 1]?.k === "lf") {
         i += w.length;
         continue;
       }
     }
     const op = c === "−" ? "-" : c === "×" || c === "x" || c === "X" ? "*" : c === "÷" ? "/" : c;
+    if (op === "," && inList) {
+      out.push({ k: "op", v: "," });
+      i++;
+      continue;
+    }
     if (!"+-*/^%()".includes(op)) return null;
-    if (op === "(") push({ k: "op", v: op });
-    else out.push({ k: "op", v: op });
+    if (op === "(") {
+      parens.push(out[out.length - 1]?.k === "lf");
+      push({ k: "op", v: op });
+    } else {
+      if (op === ")") parens.pop();
+      out.push({ k: "op", v: op });
+    }
     i++;
   }
   return out;
@@ -86,7 +125,7 @@ export function evaluate(src: string, vars?: Vars): number | null {
   // a function is enough ("x =" shows x).
   const isOp = (x: Tok, v: string) => x.k === "op" && x.v === v;
   const binary = t.some((x, j) => x.k === "op" && "+-*/^".includes(x.v) && j > 0 && (t[j - 1].k === "n" || isOp(t[j - 1], ")") || isOp(t[j - 1], "%")));
-  if (!binary && !t.some((x) => isOp(x, "%") || x.k === "f" || (x.k === "n" && x.named))) return null;
+  if (!binary && !t.some((x) => isOp(x, "%") || x.k === "f" || x.k === "lf" || (x.k === "n" && x.named))) return null;
   let p = 0;
   const peek = () => t[p];
   const at = (v: string) => peek()?.k === "op" && (peek() as { v: string }).v === v;
@@ -142,6 +181,18 @@ export function evaluate(src: string, vars?: Vars): number | null {
     } else if (tok.k === "f") {
       p++;
       v = tok.v(power());
+    } else if (tok.k === "lf") {
+      p++;
+      if (!at("(")) throw new Error("bracket");
+      p++;
+      const xs = [expr()];
+      while (at(",")) {
+        p++;
+        xs.push(expr());
+      }
+      if (!at(")")) throw new Error("bracket");
+      p++;
+      v = tok.v(xs);
     } else if (tok.v === "(") {
       p++;
       v = expr();
@@ -207,7 +258,14 @@ const BRACKET_NAME = /\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*=\s*/g;
 /** "coefficient(F=1.2)" or "(F = 1.2 N)": a whole definition in brackets. */
 const BRACKET_DEF = /\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^()=]+?)\s*\)/g;
 
-export const isFunctionName = (w: string) => w in FUNCS || w in CONSTS;
+export const isFunctionName = (w: string) => w in FUNCS || w in LIST_FUNCS || w in CONSTS;
+/** A list defined in the lines ("scores = 80, 90, 70"): its values, or null. */
+export function listOf(name: string, vars: Vars): number[] | null {
+  if (!vars.has(`${name}#0`)) return null;
+  const xs: number[] = [];
+  for (let k = 0; vars.has(`${name}#${k}`); k++) xs.push(vars.get(`${name}#${k}`)!);
+  return xs;
+}
 
 /** One variable definition found in the note. */
 export interface Definition {
@@ -277,6 +335,16 @@ export function definitionsIn(lines: string[], start: Vars = new Map()): Definit
     }
     if (found.size) return;
     const parts = line.split("=");
+    // A list: "scores = 80, 90, 70" (not a number with thousands commas). avg(scores), sum(scores)…
+    // read every value; the name alone is their sum.
+    const listName = parts.length === 2 ? NAME.exec(parts[0])?.[1] : undefined;
+    const listSrc = parts[1]?.trim() ?? "";
+    if (listName && /^-?\d+(?:\.\d+)?(?:\s*,\s*-?\d+(?:\.\d+)?)+$/.test(listSrc) && !/^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(listSrc)) {
+      const xs = listSrc.split(",").map((x) => Number(x.trim()));
+      add(listName, xs.reduce((a, b) => a + b, 0), i);
+      xs.forEach((x, k) => add(`${listName}#${k}`, x, i));
+      return;
+    }
     const whole = NAME.exec(parts[0]);
     const name = whole?.[1] ?? TRAILING_NAME.exec(parts[0])?.[1];
     if (!name) return;
@@ -313,6 +381,8 @@ export function namesIn(expr: string): string[] {
   for (const m of expr.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
     const w = m[0];
     if (w in FUNCS || w in CONSTS || out.includes(w)) continue;
+    // avg(…), sum(…): a list function only when a bracket follows ("total" alone is a name).
+    if (w in LIST_FUNCS && /^\s*\(/.test(expr.slice((m.index ?? 0) + w.length))) continue;
     // "10% of 200" and the times sign in "3x4" / "3 x 4" aren't names.
     const before = expr.slice(0, m.index).trimEnd();
     const after = expr.slice((m.index ?? 0) + w.length).trimStart();

@@ -97,8 +97,10 @@ export function assistantSystem(now: Date): string {
     "Photos, videos, memes, GIFs, sounds, audio or files: find_media then add_media ('my latest/recent photo' = source phone, newest first; files already in the journal = journal; memes, GIFs, meme sounds = memes). Never write ![..](..), file names or '/meme' as text instead. " +
     "Read aloud with read_aloud. To summarise a note, read it first (read_day / read_page). " +
     "Cash: whenever they mention paying in cash, from their pocket or wallet ('haircut 350 from my pocket', 'spent 370 on food from pocket'), call pocket (spend/add/count) as well as anything else asked; ATM cash = pocket add. " +
-    "Maths: new calculations or formulas go in math blocks (math_add with plain maths lines, or math_solve for a problem in words); 'my formulas', 'the formula I starred' = math_find (the person sees them as cards); 'change r to 5 / drop the price to 300' = math_set, or math_recalc to only see the answer. " +
+    "Maths: new calculations or formulas go in math blocks (math_add with plain maths lines, or math_solve for a problem in words). Averages and totals: a list line then a function, e.g. 'marks = 80, 90, 70' and 'average = avg(marks)' (also sum, min, max, median, count). 'my formulas', 'the formula I starred' = math_find (the person sees them as cards); 'change r to 5 / drop the price to 300' = math_set, or math_recalc to only see the answer. " +
     "Planning: a deadline = add_deadline (+ add_reminder lines the day before and on the day); work/break blocks or 'plan my day/evening for X' = plan_blocks, which fits blocks around their routine duties. " +
+    "Be quick: use as few tool calls as you can, don't re-read a note you just changed, and don't explain your plan. " +
+    "Deleting several lines or paragraphs they asked for: delete_lines once with every line (empty lines go with them), not one call per line. " +
     "Never delete or rewrite anything they didn't ask you to. If a step can't be done, say why in one sentence."
   );
 }
@@ -132,6 +134,11 @@ async function runStep(step: Step, opts: RunOpts, ctx: RunCtx, model: string, be
     const r = await addPocket(opts.store, cash, { actor: ctx.actor });
     step.lines.push(`✓ pocket “${r.line}”`);
     return { answer: `👛 Added “${r.line}” under [[pocket]] in today's note. ${pocketSummary(pocketState(await loadPocket(opts.store)))}.`, fast: true };
+  }
+  if (fast?.kind === "math") {
+    const r = await runAssistantTool({ name: "math_add", arguments: { lines: fast.lines } }, ctx);
+    step.lines.push(`${r.bad ? "⚠" : "✓"} math_add “${fast.label}”`);
+    if (!r.bad) return { answer: `🧮 ${r.out}`, fast: true };
   }
   if (fast?.kind === "open") {
     const said = await openFast(opts.store, fast);

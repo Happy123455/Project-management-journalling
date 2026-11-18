@@ -3,7 +3,7 @@
  * working shown step by step, points for a chart, nice steps for the wheels and sliders, and a
  * small library of ready formulas.
  */
-import { evaluate, formatAnswer, isFunctionName, type Vars } from "./mathEval";
+import { evaluate, formatAnswer, isFunctionName, listOf, type Vars } from "./mathEval";
 
 type Node =
   | { t: "num"; v: string }
@@ -12,6 +12,7 @@ type Node =
   | { t: "neg"; a: Node }
   | { t: "pct"; a: Node }
   | { t: "fn"; f: string; a: Node }
+  | { t: "list"; f: string; args: Node[] }
   | { t: "group"; a: Node };
 
 const GREEK = ["alpha", "beta", "gamma", "delta", "epsilon", "theta", "lambda", "mu", "nu", "rho", "sigma", "tau", "phi", "omega", "eta", "kappa", "Delta", "Omega", "Sigma", "Theta", "Phi"];
@@ -36,12 +37,14 @@ function lex(src: string): string[] | null {
       continue;
     }
     const op = c === "−" ? "-" : c === "×" ? "*" : c === "÷" ? "/" : c;
-    if (!"+-*/^()%".includes(op)) return null;
+    if (!"+-*/^()%,".includes(op)) return null;
     out.push(op);
     i++;
   }
   return out;
 }
+
+const LIST_NAMES = new Set(["avg", "average", "mean", "sum", "total", "min", "max", "median", "count"]);
 
 function parse(tokens: string[]): Node | null {
   let p = 0;
@@ -104,6 +107,16 @@ function parse(tokens: string[]): Node | null {
     if (/^[\d.]/.test(tok)) return { t: "num", v: tok };
     if (tok === "π") return { t: "name", v: "pi" };
     if (/^[A-Za-z_]/.test(tok)) {
+      if (LIST_NAMES.has(tok) && peek() === "(") {
+        p++;
+        const args = [expr()];
+        while (peek() === ",") {
+          p++;
+          args.push(expr());
+        }
+        if (tokens[p++] !== ")") throw new Error("bracket");
+        return { t: "list", f: tok, args };
+      }
       if (isFunctionName(tok) && tok !== "pi" && tok !== "π" && peek() === "(") return { t: "fn", f: tok, a: atom() };
       return { t: "name", v: tok };
     }
@@ -143,6 +156,10 @@ function tex(n: Node): string {
       if (n.f === "sqrt") return `\\sqrt{${inner}}`;
       if (n.f === "abs") return `\\left|${inner}\\right|`;
       return `${FN_LATEX[n.f] ?? `\\operatorname{${n.f}}`}\\left(${inner}\\right)`;
+    }
+    case "list": {
+      const inner = n.args.map((x) => tex(unwrap(x))).join(", ");
+      return `\\operatorname{${n.f}}\\left(${inner}\\right)`;
     }
     case "bin": {
       if (n.op === "/") return `\\frac{${tex(unwrap(n.a))}}{${tex(unwrap(n.b))}}`;
@@ -226,7 +243,13 @@ export function inlineFormulas(text: string): { from: number; to: number; latex:
 
 /** The expression with every known variable replaced by its value ("m*g" → "(5)*(9.8)"). */
 export function substitute(expr: string, vars: Vars): string {
-  return expr.replace(/[A-Za-z_][A-Za-z0-9_]*/g, (w) => (vars.has(w) && !isFunctionName(w) ? `(${formatAnswer(vars.get(w)!)})` : w));
+  return expr.replace(/[A-Za-z_][A-Za-z0-9_]*/g, (w, at: number) => {
+    if (!vars.has(w) || (isFunctionName(w) && /^\s*\(/.test(expr.slice(at + w.length)))) return w;
+    // A list inside avg(…) / sum(…): its values.
+    const xs = listOf(w, vars);
+    if (xs && /[(,]\s*$/.test(expr.slice(0, at))) return xs.map(formatAnswer).join(", ");
+    return `(${formatAnswer(vars.get(w)!)})`;
+  });
 }
 
 /** Step-by-step working for "name = expr" or "expr": the formula, the values put in, the answer. */
@@ -239,9 +262,9 @@ export function workingFor(src: string, vars: Vars): { steps: string[]; answer: 
   if (v === null) return null;
   const lhs = named ? `${parts[0]} = ` : "";
   const steps = [`${lhs}${expr}`];
-  const used = [...new Set(expr.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [])].filter((w) => vars.has(w) && !isFunctionName(w));
+  const used = [...new Set(expr.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [])].filter((w) => vars.has(w) && !new RegExp(`\\b${w}\\s*\\(`).test(expr));
   if (used.length) {
-    steps.push(used.map((w) => `${w} = ${formatAnswer(vars.get(w)!)}`).join(", "));
+    steps.push(used.map((w) => `${w} = ${listOf(w, vars)?.map(formatAnswer).join(", ") ?? formatAnswer(vars.get(w)!)}`).join(", "));
     steps.push(`${lhs}${substitute(expr, vars)}`);
   }
   const answer = `${lhs}${formatAnswer(v)}`;

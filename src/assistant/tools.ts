@@ -17,7 +17,7 @@ import { emptySheet, setCells } from "../lib/sheet";
 import { deadlineRows } from "../editor/deadlineStore";
 import { loadConfig, writeLog } from "../routine/routineData";
 import { describeHits, findMedia, mediaBlock, storedFile, type MediaHit } from "./media";
-import { insertUnder, linesToBlocks, nodeAt, taskBlock, tasksIn, tickTask, topCounts, type FoundTask } from "./noteOps";
+import { deleteLines, insertUnder, linesToBlocks, nodeAt, taskBlock, tasksIn, tickTask, topCounts, type FoundTask } from "./noteOps";
 import { cursorFx } from "./AgentCursors";
 import { watchEdit } from "./swarm/watch";
 import { MORE_TOOLS, MORE_WRITES, moreNoteOf, runMoreTool } from "./moreTools";
@@ -31,6 +31,8 @@ export interface RunCtx {
   confirm?: (question: string) => Promise<boolean>;
   /** Notes changed so far in this run. */
   touched: Set<string>;
+  /** Notes the person already said yes to deleting from in this run (asked once, not per line). */
+  approved?: Set<string>;
   /** Tasks found by find_tasks, by their number. */
   found: FoundTask[];
   /** Notes opened (to tell the person). */
@@ -62,13 +64,18 @@ export const ASSISTANT_TOOLS = [
   { name: "log_routine", description: "Log a routine step or habit now (e.g. 'Gym' start, 'Brush' point) in today's Routine box.", parameters: obj({ item: { type: "string" }, edge: { type: "string", enum: ["start", "end", "point"] }, note: { type: "string" } }, ["item"]) },
   { name: "find_media", description: "List photos, videos, memes, GIFs, sounds or files that can be added to a note, numbered for add_media. source: 'phone' = the phone's own gallery (camera photos, screenshots), newest first; 'journal' = files already in the journal, newest first; 'memes' = the built-in meme kit (meme pictures, GIFs, sounds, green-screen clips) by best match to query.", parameters: obj({ source: { type: "string", enum: ["phone", "journal", "memes"] }, query: { type: "string", description: "words in the name (memes: what the meme is about)" }, kind: { type: "string", enum: ["any", "photo", "video", "gif", "meme", "sound", "audio", "greenscreen", "pdf", "file"] }, limit: { type: "integer" } }, ["source"]) },
   { name: "add_media", description: "Add real photos, videos, memes, GIFs, sounds or files to a note (at the end, or under a heading). Pick items by their numbers from find_media (n or ns), or give source (+ query/kind) to add the best match (phone/journal: the newest). The only way to put media in a note: never write ![..](..) or '/meme' text.", parameters: obj({ n: { type: "integer" }, ns: { type: "array", items: { type: "integer" } }, source: { type: "string", enum: ["phone", "journal", "memes"] }, query: { type: "string" }, kind: { type: "string", enum: ["any", "photo", "video", "gif", "meme", "sound", "audio", "greenscreen", "pdf", "file"] }, count: { type: "integer", description: "how many of the best matches (default 1)" }, under: { type: "string", description: "a heading or box line to put it under" }, date: DATE, title: TITLE }) },
+  {
+    name: "delete_lines",
+    description: "Delete several lines or paragraphs of a note in one go (one OK from the person for all of them). Give the start of each line to delete; the empty lines next to them go too unless keep_empty.",
+    parameters: obj({ lines: { type: "array", items: { type: "string" } }, keep_empty: { type: "boolean" }, date: DATE, title: TITLE }, ["lines"]),
+  },
   { name: "read_aloud", description: "Read text aloud to the person (a summary you wrote, a note's text).", parameters: obj({ text: { type: "string" } }, ["text"]) },
 ];
 
 /** Every tool the assistant offers: the shared ones (without open_note) and its own. */
 export const assistantToolList = () => [...toolsFor(null).filter((t) => t.name !== "open_note"), ...ASSISTANT_TOOLS, ...MORE_TOOLS];
 
-const WRITES = new Set(["append", "replace_text", "add_to_page", "set_cells", "add_sheet", "add_rule", "save_graph", "replace_block", "insert_after", "delete_block", "copy_task", "put_under", "tick_task", "add_table", "add_reminder", "add_deadline", "log_routine", "add_media"]);
+const WRITES = new Set(["delete_lines", "append", "replace_text", "add_to_page", "set_cells", "add_sheet", "add_rule", "save_graph", "replace_block", "insert_after", "delete_block", "copy_task", "put_under", "tick_task", "add_table", "add_reminder", "add_deadline", "log_routine", "add_media"]);
 
 /** Which note a write lands on, for the "second note" check. */
 function noteOf(name: string, a: Record<string, unknown>, now: Date): string {
@@ -80,7 +87,7 @@ function noteOf(name: string, a: Record<string, unknown>, now: Date): string {
   return `day:${typeof a.date === "string" && a.date ? a.date : dayKey(now)}`;
 }
 
-const isDelete = (name: string, a: Record<string, unknown>) => name === "delete_block" || (name === "replace_text" && !String(a.replace ?? "").trim());
+const isDelete = (name: string, a: Record<string, unknown>) => name === "delete_block" || name === "delete_lines" || (name === "replace_text" && !String(a.replace ?? "").trim());
 
 interface Note {
   name: string;
@@ -134,10 +141,15 @@ async function runTool(call: ToolCall, ctx: RunCtx): Promise<Out> {
   if (WRITES.has(call.name) || MORE_WRITES.has(call.name)) {
     const note = moreNoteOf(call.name, a, ctx) ?? noteOf(call.name, a, now);
     const second = !note.startsWith("pocket:") && ctx.touched.size > 0 && !ctx.touched.has(note);
-    if (isDelete(call.name, a) || second) {
-      const q = isDelete(call.name, a) ? `Delete from ${note.slice(note.indexOf(":") + 1)}?` : `Also change ${note.slice(note.indexOf(":") + 1)}?`;
+    const del = isDelete(call.name, a);
+    // One OK covers the whole job on that note (Hapi, 18 Nov: one deletion asked once per
+    // paragraph and per empty line). Removing only empty lines never asks.
+    ctx.approved ??= new Set();
+    if ((del && !ctx.approved.has(note)) || (second && !ctx.approved.has(note))) {
+      const q = del ? `Delete from ${note.slice(note.indexOf(":") + 1)}?` : `Also change ${note.slice(note.indexOf(":") + 1)}?`;
       if (!ctx.confirm) return bad(`Not done: "${q}" needs the person's OK, and this run can't ask. Tell them.`);
       if (!(await ctx.confirm(q))) return bad("The person said no. Don't do it; carry on with the rest if it makes sense.");
+      ctx.approved.add(note);
     }
     if (!note.startsWith("pocket:")) ctx.touched.add(note);
   }
@@ -164,6 +176,15 @@ async function runTool(call: ToolCall, ctx: RunCtx): Promise<Out> {
         });
         ctx.opened.push(target);
         return ok(`Opened ${target}${a.new_tab ? " in a new tab" : ""}.`);
+      }
+      case "delete_lines": {
+        const want = (Array.isArray(a.lines) ? a.lines : [a.lines]).map((x) => String(x ?? "").trim().toLowerCase()).filter(Boolean);
+        if (!want.length) return bad("lines are empty");
+        const note = await noteFor(ctx, a);
+        if (typeof note === "string") return bad(note);
+        const r = deleteLines(note.doc, want, a.keep_empty !== true);
+        if (!r.removed) return bad(`None of those lines are in ${note.name}.`);
+        return ok(await saved(note, r.doc, `Deleted ${r.removed} line${r.removed === 1 ? "" : "s"} from ${note.name}${r.missing.length ? ` (not found: ${r.missing.join(", ")})` : ""}.`));
       }
       case "find_tasks": {
         const open = a.open !== false;
