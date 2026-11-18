@@ -1407,6 +1407,7 @@ function App() {
               }}
               onPick={goTo}
               onOpenYear={openYear}
+              covered={overlayOpen || routineOpen || moneyOpen || !!dayPicker}
               below={
                 <>
                   {store && <TodayAgenda store={store} view={routine} onOpenRoutine={() => setRoutineOpen(true)} />}

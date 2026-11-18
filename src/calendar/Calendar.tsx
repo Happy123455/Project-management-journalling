@@ -172,10 +172,13 @@ interface MonthProps {
   onToggle: (open?: boolean) => void;
   onPick: (day: string) => void;
   onOpenYear: () => void;
+  /** A panel (search, menu, chat…) opened on top: a floating month folds away first (Hapi, 18 Nov:
+   * the search opened behind the floating month, and with the page inert the month could not close). */
+  covered?: boolean;
 }
 
 /** Month heat map at the top of the page; shrinks to the current week while writing. */
-export function MonthCalendar({ day, shading, today, collapsed, compact, onToggle, onPick, onOpenYear, actions, below }: MonthProps & { actions?: React.ReactNode; below?: React.ReactNode }) {
+export function MonthCalendar({ day, shading, today, collapsed, compact, onToggle, onPick, onOpenYear, covered, actions, below }: MonthProps & { actions?: React.ReactNode; below?: React.ReactNode }) {
   const [year, month] = day.split("-").map(Number);
   // Pull the strip down to open the month, push the month up to fold it.
   const drag = useRef<{ y: number; x: number } | null>(null);
@@ -206,6 +209,15 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
     if (collapsed) setFloating(false);
   }, [collapsed]);
   const sheet = floating && !collapsed;
+  useEffect(() => {
+    if (covered && sheet) {
+      setFloating(false);
+      onToggle(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [covered, sheet]);
+  // Esc (and the phone's Back) folds the floating month.
+  useEscapeToClose(() => toggle(false, true), sheet && !covered);
   const titleTouch = useRef<{ x: number; y: number } | null>(null);
   const titleSwiped = useRef(0);
   // Pulling the week strip down: the month opens under the finger and follows it (not a snap at the end).
