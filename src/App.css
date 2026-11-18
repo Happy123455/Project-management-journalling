@@ -4502,3 +4502,26 @@ html.nav-showing .agent-panel, html.nav-showing .dls-back:has(> .cmd) { opacity:
 .project-item > .project-row::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 3px; background: #16a34a; opacity: 0.7; pointer-events: none; }
 .project-item.is-logged > .project-row::before { background: #b45309; opacity: 0.55; }
 .project-item.is-logged .project-name { opacity: 0.85; }
+
+/* Items 11–13 (18 Nov): tables. The title strip is the only place that moves a table; Normal ↔
+   Excel switch; a joystick that grows the selection, apart from the fill square. */
+.sheet-title { display: flex; align-items: center; gap: 8px; padding: 4px 8px 2px; min-height: 30px; cursor: grab; -webkit-user-select: none; user-select: none; touch-action: pan-y; }
+.sheet-title:active { cursor: grabbing; }
+.sheet-grip { color: var(--muted); font-size: 14px; letter-spacing: -1px; }
+.sheet-kind { font-size: 11.5px; font-weight: 650; color: var(--muted); }
+.sheet-title-space { flex: 1; align-self: stretch; }
+.sheet-mode { display: inline-flex; gap: 2px; padding: 2px; border-radius: 10px; background: color-mix(in srgb, var(--muted) 12%, transparent); cursor: default; }
+.sheet-mode button { font-size: 11.5px; padding: 2px 8px; border-radius: 8px; border: 0; background: transparent; box-shadow: none; min-height: 24px; }
+.sheet-mode button.active { background: var(--panel); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16); font-weight: 650; }
+.sheet-grid, .sheet-bar { -webkit-user-drag: none; -webkit-touch-callout: none; }
+.sheet-joy { position: relative; flex: none; width: 34px; height: 34px; border-radius: 50%; touch-action: none; cursor: grab; background: color-mix(in srgb, var(--accent) 12%, var(--bg)); border: 1.5px solid color-mix(in srgb, var(--accent) 45%, transparent); display: grid; place-items: center; }
+.sheet-joy::before { content: "✥"; position: absolute; font-size: 15px; color: color-mix(in srgb, var(--accent) 70%, var(--muted)); opacity: 0.55; pointer-events: none; }
+.sheet-joy i { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3); transition: transform 0.12s ease-out; pointer-events: none; z-index: 1; }
+.sheet-joy.on { cursor: grabbing; box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent); }
+.sheet-joy.on i { transition: none; }
+/* Normal table: no letters and numbers round it, words wrap, the first row is the header. */
+.sheet-plain .sheet-grid thead, .sheet-plain .sheet-grid tbody th, .sheet-plain .sheet-ref { display: none; }
+.sheet-plain .sheet-grid td { white-space: pre-wrap; word-break: break-word; vertical-align: top; min-width: 120px; max-width: 320px; }
+.sheet-plain .sheet-grid td.head { font-weight: 650; background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.sheet-plain .sheet-formula { font-family: inherit; }
+.sheet-plain .sheet-grid td { height: auto; padding: 5px 8px; line-height: 1.4; }

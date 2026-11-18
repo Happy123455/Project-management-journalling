@@ -29,7 +29,10 @@ const cellAt = (x: number, y: number): Cell | null => {
 
 function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) {
   const data = useMemo(() => parseSheet(node.attrs.data), [node.attrs.data]);
-  const values = useMemo(() => evaluate(data), [data]);
+  // Item 11 (18 Nov): a plain table for words, or the Excel-style sheet for sums; switching keeps
+  // every cell as typed (a formula in a plain table shows as written, and works again in Excel).
+  const plain = data.mode === "table";
+  const values = useMemo(() => (plain ? new Map(Object.entries(data.cells).map(([k, v]) => [k, v])) : evaluate(data)), [data, plain]);
   // Live: the editor can turn editable after the table was drawn (Reading → Edit, a note opened
   // while loading). Reading it once at render left those tables stuck read-only.
   const [editable, setEditable] = useState(editor.isEditable);
@@ -299,6 +302,71 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
     drag.current = null;
     setFillTo(null);
   };
+  // Item 12 (18 Nov): a joystick for picking cells, apart from the fill square. Hold it and lean the
+  // way to grow the selection from the picked cell: further = faster, a tick per cell.
+  const [joy, setJoy] = useState<{ dx: number; dy: number } | null>(null);
+  const joyRef = useRef<{ id: number; x0: number; y0: number; dx: number; dy: number; ax: number; ay: number; at: number; frame: number; r: number; c: number } | null>(null);
+  const onJoyDown = (e: React.PointerEvent) => {
+    if (!editable) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (editing) commit(input.current?.value ?? editing.draft);
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    const j = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, ax: 0, ay: 0, at: performance.now(), frame: 0, r: active.r, c: active.c };
+    joyRef.current = j;
+    setTouchSel(true);
+    setJoy({ dx: 0, dy: 0 });
+    window.JournalHaptics?.play("press", 0.5);
+    const step = (now: number) => {
+      const k = joyRef.current;
+      if (!k) return;
+      const dt = Math.min(0.1, (now - k.at) / 1000);
+      k.at = now;
+      const go = (lean: number) => (Math.abs(lean) < 12 ? 0 : Math.sign(lean) * Math.min(14, 1.2 + Math.pow((Math.abs(lean) - 12) / 30, 1.6) * 2.4));
+      k.ax += go(k.dx) * dt;
+      k.ay += go(k.dy) * dt;
+      let moved = false;
+      while (Math.abs(k.ax) >= 1 || (k.ax !== 0 && Math.abs(k.ax) > 0.999)) {
+        const s = Math.sign(k.ax);
+        k.ax -= s;
+        const nc = Math.min(data.cols - 1, Math.max(0, k.c + s));
+        if (nc !== k.c) (k.c = nc), (moved = true);
+      }
+      while (Math.abs(k.ay) >= 1) {
+        const s = Math.sign(k.ay);
+        k.ay -= s;
+        const nr = Math.min(data.rows - 1, Math.max(0, k.r + s));
+        if (nr !== k.r) (k.r = nr), (moved = true);
+      }
+      if (moved) {
+        setActive({ r: k.r, c: k.c });
+        window.JournalHaptics?.play("tick", 0.4);
+        grid.current?.querySelector<HTMLElement>(`[data-r="${k.r}"][data-c="${k.c}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
+      k.frame = requestAnimationFrame(step);
+    };
+    j.frame = requestAnimationFrame(step);
+  };
+  const onJoyMove = (e: React.PointerEvent) => {
+    const k = joyRef.current;
+    if (!k || k.id !== e.pointerId) return;
+    const dx = Math.max(-60, Math.min(60, e.clientX - k.x0));
+    const dy = Math.max(-60, Math.min(60, e.clientY - k.y0));
+    k.dx = dx;
+    k.dy = dy;
+    // The first lean moves one cell at once (then the speed takes over).
+    if (Math.abs(dx) > 12 && k.ax === 0) k.ax = Math.sign(dx) * 0.999;
+    if (Math.abs(dy) > 12 && k.ay === 0) k.ay = Math.sign(dy) * 0.999;
+    setJoy({ dx, dy });
+  };
+  const onJoyUp = () => {
+    const k = joyRef.current;
+    if (k) cancelAnimationFrame(k.frame);
+    joyRef.current = null;
+    setJoy(null);
+  };
+  useEffect(() => () => cancelAnimationFrame(joyRef.current?.frame ?? 0), []);
+
   // A fill dragged past the last row or column grows the sheet: offer one more row/column while filling.
   const shownRows = fillTo ? Math.max(data.rows, Math.min(MAX_ROWS, fillTo.r1 + 2)) : data.rows;
   const shownCols = fillTo ? Math.max(data.cols, Math.min(MAX_COLS, fillTo.c1 + 2)) : data.cols;
@@ -324,14 +392,27 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
   const activeRaw = raw(active.r, active.c);
   const fillCorner = sel;
   return (
-    <NodeViewWrapper className={`sheet-wrap${selected ? " is-selected" : ""}`} contentEditable={false} data-drag-handle="">
-      <div className="sheet-bar">
+    <NodeViewWrapper className={`sheet-wrap${selected ? " is-selected" : ""}${plain ? " sheet-plain" : ""}`} contentEditable={false}>
+      {/* Item 13 (18 Nov): only this title strip moves the table (held or dragged); holding a cell
+          or the table body never picks the whole table up any more. */}
+      <div className="sheet-title" data-drag-handle="" draggable title="Hold here to move the table">
+        <span className="sheet-grip" aria-hidden>⠿</span>
+        <span className="sheet-kind">{plain ? "☰ Table" : "▦ Sheet"}</span>
+        <span className="sheet-title-space" />
+        {editable && (
+          <span className="sheet-mode" role="radiogroup" aria-label="Table kind" draggable={false} onPointerDown={(e) => e.stopPropagation()}>
+            <button type="button" role="radio" aria-checked={plain} className={plain ? "active" : ""} onClick={() => !plain && save({ ...data, mode: "table" })} title="A plain table for words and notes">☰ Normal</button>
+            <button type="button" role="radio" aria-checked={!plain} className={!plain ? "active" : ""} onClick={() => { if (plain) { const { mode: _m, ...rest } = data; void _m; save(rest); } }} title="Excel: formulas and sums">▦ Excel</button>
+          </span>
+        )}
+      </div>
+      <div className="sheet-bar" draggable={false} onDragStart={(e) => e.preventDefault()}>
         <span className="sheet-ref">{sel.r0 === sel.r1 && sel.c0 === sel.c1 ? refName(active.r, active.c) : `${refName(sel.r0, sel.c0)}:${refName(sel.r1, sel.c1)}`}</span>
         <input
           className="sheet-formula"
           value={editing ? editing.draft : activeRaw}
           readOnly={!editable}
-          placeholder={editable ? "Type a value or =SUM(A1:A3)" : ""}
+          placeholder={editable ? (plain ? "Type in the cell" : "Type a value or =SUM(A1:A3)") : ""}
           onFocus={() => editable && !editing && setEditing({ draft: activeRaw, bar: true })}
           onChange={(e) => setEditing({ draft: e.target.value, bar: true })}
           onKeyDown={onEditKey}
@@ -350,6 +431,21 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
           </span>
         )}
         {editable && (
+          <span
+            className={`sheet-joy${joy ? " on" : ""}`}
+            role="slider"
+            aria-label="Select cells: hold and lean"
+            aria-valuetext={sel.r0 === sel.r1 && sel.c0 === sel.c1 ? refName(active.r, active.c) : `${refName(sel.r0, sel.c0)}:${refName(sel.r1, sel.c1)}`}
+            title="Hold and lean to select cells"
+            onPointerDown={onJoyDown}
+            onPointerMove={onJoyMove}
+            onPointerUp={onJoyUp}
+            onPointerCancel={onJoyUp}
+          >
+            <i style={joy ? { transform: `translate(${joy.dx * 0.25}px, ${joy.dy * 0.25}px)` } : undefined} />
+          </span>
+        )}
+        {editable && (
           <span className="sheet-tools">
             <button type="button" onClick={addRow} title="Add a row">+ Row</button>
             <button type="button" onClick={addCol} title="Add a column">+ Col</button>
@@ -358,7 +454,7 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
           </span>
         )}
       </div>
-      <div className="sheet-grid" ref={grid} tabIndex={0} onKeyDown={onKeyDown} onPaste={onPaste} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onCancel} role="grid" aria-label="Spreadsheet">
+      <div className="sheet-grid" ref={grid} tabIndex={0} draggable={false} onDragStart={(e) => (e.preventDefault(), e.stopPropagation())} onContextMenu={(e) => e.preventDefault()} onKeyDown={onKeyDown} onPaste={onPaste} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onCancel} role="grid" aria-label="Spreadsheet">
         <table>
           <thead>
             <tr>
@@ -380,18 +476,19 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
                     inRange(sel, r, c) && "sel",
                     isActive && "active",
                     fillTo && inRange(fillTo, r, c) && !inRange(sel, r, c) && "filling",
-                    typeof v === "number" && "num",
-                    isError(v) && "err",
-                    data.cells[key]?.startsWith("=") && "fx",
+                    !plain && typeof v === "number" && "num",
+                    !plain && isError(v) && "err",
+                    !plain && data.cells[key]?.startsWith("=") && "fx",
+                    plain && r === 0 && "head",
                   ].filter(Boolean).join(" ");
                   return (
                     <td key={c} data-r={r} data-c={c} className={cls} onPointerDown={(e) => onCellDown(e, r, c)} onDoubleClick={() => editable && setEditing({ draft: raw(r, c) })} role="gridcell" aria-selected={inRange(sel, r, c)}>
                       {isActive && editing && !editing.bar ? (
                         <input ref={input} className="sheet-edit" value={editing.draft} onChange={(e) => setEditing({ draft: e.target.value })} onKeyDown={onEditKey} onBlur={(e) => commit(e.target.value)} spellCheck={false} />
                       ) : (
-                        display(v)
+                        plain ? (v as string | undefined) ?? "" : display(v)
                       )}
-                      {editable && !editing && !fillTo && r === fillCorner.r1 && c === fillCorner.c1 && !touchSel && <i className="sheet-fill" onPointerDown={onFillDown} title="Drag to fill" />}
+                      {editable && !plain && !editing && !fillTo && r === fillCorner.r1 && c === fillCorner.c1 && !touchSel && <i className="sheet-fill" onPointerDown={onFillDown} title="Drag to fill" />}
                       {editable && !editing && touchSel && r === sel.r0 && c === sel.c0 && <i className="sheet-handle start" onPointerDown={(e) => onHandleDown(e, "start")} aria-label="Stretch the selection" />}
                       {editable && !editing && touchSel && r === sel.r1 && c === sel.c1 && <i className="sheet-handle end" onPointerDown={(e) => onHandleDown(e, "end")} aria-label="Stretch the selection" />}
                     </td>

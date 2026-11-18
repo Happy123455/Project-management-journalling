@@ -10,6 +10,8 @@ export interface SheetData {
   cells: Record<string, string>;
   /** Column widths in px (optional). */
   widths?: number[];
+  /** "table": a plain table for words (no formulas, letters or numbers round it); else a spreadsheet. */
+  mode?: "table";
 }
 
 export const MAX_ROWS = 500;
@@ -26,7 +28,7 @@ export function parseSheet(raw: unknown): SheetData {
     for (const [k, v] of Object.entries(o.cells ?? {})) if (parseRef(k) && v != null && String(v) !== "") cells[k.toUpperCase()] = String(v);
     const rows = clampInt(o.rows, 1, MAX_ROWS, 4);
     const cols = clampInt(o.cols, 1, MAX_COLS, 4);
-    return { v: 1, rows, cols, cells, ...(Array.isArray(o.widths) ? { widths: o.widths.slice(0, cols).map((w) => clampInt(w, 40, 600, 96)) } : {}) };
+    return { v: 1, rows, cols, cells, ...(Array.isArray(o.widths) ? { widths: o.widths.slice(0, cols).map((w) => clampInt(w, 40, 600, 96)) } : {}), ...(o.mode === "table" ? { mode: "table" as const } : {}) };
   } catch {
     return emptySheet();
   }
