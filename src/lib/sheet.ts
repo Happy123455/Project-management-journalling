@@ -81,9 +81,20 @@ const num = (v: Value): number | SheetError => {
   if (typeof v === "number") return v;
   if (typeof v === "boolean") return v ? 1 : 0;
   if (v === "") return 0;
+  const m = moneyNumber(String(v));
+  if (m !== null) return m;
   const n = Number(String(v).replace(/,/g, ""));
   return Number.isFinite(n) ? n : new SheetError("#VALUE!");
 };
+
+/** "₹1,200", "$5.50", "350 rs", "350/-", "Rs. 40", "1 200" → the number (Hapi's money tables), or null. */
+function moneyNumber(s: string): number | null {
+  const t = s.trim().replace(/^(?:₹|rs\.?|inr|\$|€|£)\s*/i, "").replace(/\s*(?:₹|rs\.?|rupees?|inr|\/-)$/i, "").trim();
+  if (t === s.trim() && !/^[-+]?\d{1,3}(?:[ ,]\d{3})+(?:\.\d+)?$/.test(t)) return null;
+  if (!/^[-+]?(?:\d{1,3}(?:[, ]\d{3})+|\d+)(?:\.\d+)?$/.test(t)) return null;
+  const n = Number(t.replace(/[, ]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
 const text = (v: Value): string => (typeof v === "boolean" ? (v ? "TRUE" : "FALSE") : typeof v === "number" ? fmtNum(v) : String(v));
 const truthy = (v: Value): boolean | SheetError => (isErr(v) ? v : typeof v === "string" ? v !== "" && v.toUpperCase() !== "FALSE" && v !== "0" : !!v);
 
@@ -101,6 +112,8 @@ export function literal(raw: string): Value {
   if (/^[-+]?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?$/.test(s) || /^[-+]?\.\d+$/.test(s)) return Number(s.replace(/,/g, ""));
   if (/^[-+]?\d+(\.\d+)?%$/.test(s)) return Number(s.slice(0, -1)) / 100;
   if (/^(true|false)$/i.test(s)) return s.toUpperCase() === "TRUE";
+  const money = moneyNumber(s);
+  if (money !== null) return money;
   return raw;
 }
 
@@ -108,7 +121,9 @@ export function literal(raw: string): Value {
 
 type Tok = { t: "num"; v: number } | { t: "str"; v: string } | { t: "ref"; v: string } | { t: "name"; v: string } | { t: "op"; v: string };
 
-function tokenize(src: string): Tok[] | SheetError {
+function tokenize(src0: string): Tok[] | SheetError {
+  // Phone keyboards: curly quotes, the real minus, × and ÷.
+  const src = src0.replace(/[“”„″]/g, '"').replace(/[−–]/g, "-").replace(/×/g, "*").replace(/÷/g, "/");
   const out: Tok[] = [];
   let i = 0;
   while (i < src.length) {
@@ -142,6 +157,8 @@ function tokenize(src: string): Tok[] | SheetError {
     if (w) {
       const word = w[0];
       if (/^\$?[A-Za-z]{1,2}\$?\d{1,4}$/.test(word) && src[i + word.length] !== "(") out.push({ t: "ref", v: word.toUpperCase() });
+      // A whole column ("A:A", "B:C").
+      else if (/^\$?[A-Za-z]{1,2}$/.test(word) && (src[i + word.length] === ":" || out[out.length - 1]?.v === ":")) out.push({ t: "ref", v: `${word.toUpperCase().replace(/\$/g, "")}*` });
       else out.push({ t: "name", v: word.toUpperCase() });
       i += word.length;
       continue;
@@ -326,7 +343,8 @@ function criterion(c: Value): (v: Value) => boolean {
   };
 }
 
-export const FUNCTIONS = ["SUM", "AVERAGE", "MIN", "MAX", "COUNT", "COUNTA", "IF", "AND", "OR", "NOT", "ROUND", "ABS", "SQRT", "PRODUCT", "MEDIAN", "IFERROR", "CONCAT", "LEN", "UPPER", "LOWER", "SUMIF", "COUNTIF", "POWER", "MOD", "INT"];
+export const FUNCTIONS = ["SUM", "AVERAGE", "MIN", "MAX", "COUNT", "COUNTA", "IF", "AND", "OR", "NOT", "ROUND", "ABS", "SQRT", "PRODUCT", "MEDIAN", "IFERROR", "CONCAT", "LEN", "UPPER", "LOWER", "SUMIF", "COUNTIF", "POWER", "MOD", "INT",
+  "AVERAGEIF", "SUMIFS", "COUNTIFS", "AVERAGEIFS", "MAXIFS", "MINIFS", "SUMPRODUCT", "COUNTBLANK", "ROUNDUP", "ROUNDDOWN", "CEILING", "FLOOR", "LEFT", "RIGHT", "MID", "TRIM", "VLOOKUP", "HLOOKUP", "INDEX", "MATCH", "XLOOKUP", "IFS", "TODAY", "NOW", "PI", "LN", "LOG", "LOG10", "EXP", "AVG", "TEXTJOIN", "PERCENT", "SIGN", "RAND"];
 
 /** Every cell's value. Cycles and bad formulas become errors in those cells only. */
 export function evaluate(data: SheetData): Map<string, Value> {
@@ -340,13 +358,13 @@ export function evaluate(data: SheetData): Map<string, Value> {
     if (!at || at.r >= MAX_ROWS || at.c >= MAX_COLS) return new SheetError("#REF!");
     if (done.has(key)) return done.get(key)!;
     if (busy.has(key)) return new SheetError("#CYCLE!");
-    const raw = data.cells[key] ?? "";
+    const raw = (data.cells[key] ?? "").replace(/^\s+(?==)/, "");
     let v: Value;
     if (!raw.startsWith("=")) v = literal(raw);
     else {
       busy.add(key);
       let ast = cache.get(raw);
-      if (!ast) cache.set(raw, (ast = parseFormula(raw.slice(1))));
+      if (!ast) cache.set(raw, (ast = parseFormula(raw.slice(1).replace(/^=+/, ""))));
       v = isErr(ast) ? ast : run(ast);
       if (Array.isArray(v)) v = new SheetError("#VALUE!");
       busy.delete(key);
@@ -355,15 +373,44 @@ export function evaluate(data: SheetData): Map<string, Value> {
     return v;
   };
 
-  const rangeValues = (a: string, b: string): Value[] | SheetError => {
-    const p = parseRef(a.replace(/\$/g, ""));
-    const q = parseRef(b.replace(/\$/g, ""));
+  const rangeBox = (a: string, b: string): Range | SheetError => {
+    // "A*" is a whole column (A:A): every row of the table.
+    const end = (x: string, last: boolean) => (x.endsWith("*") ? { r: last ? data.rows - 1 : 0, c: colIndex(x.slice(0, -1)) } : parseRef(x.replace(/\$/g, "")));
+    const p = end(a, false);
+    const q = end(b, true);
     if (!p || !q) return new SheetError("#REF!");
     const g = normRange(p, q);
+    if (a.endsWith("*") || b.endsWith("*")) (g.r0 = 0), (g.r1 = data.rows - 1);
     if ((g.r1 - g.r0 + 1) * (g.c1 - g.c0 + 1) > 20000) return new SheetError("#REF!");
+    return g;
+  };
+  const rangeValues = (a: string, b: string): Value[] | SheetError => {
+    const g = rangeBox(a, b);
+    if (isErr(g)) return g;
     const out: Value[] = [];
-    for (let r = g.r0; r <= g.r1; r++) for (let c = g.c0; c <= g.c1; c++) out.push(cellValue(refName(r, c)));
+    for (let r = g.r0; r <= g.r1; r++)
+      for (let c = g.c0; c <= g.c1; c++) {
+        const k = refName(r, c);
+        // A total inside its own range (=SUM(A1:A5) in A5) leaves itself out instead of a cycle.
+        out.push(busy.has(k) && busy.size && [...busy].pop() === k ? "" : cellValue(k));
+      }
     return out;
+  };
+  /** A range as rows of values (lookups). */
+  const rangeGrid = (n: Node): Value[][] | SheetError => {
+    if (n.k !== "range") {
+      const v = run(n);
+      return isErr(v) ? v : [[v]];
+    }
+    const g = rangeBox(n.a, n.b);
+    if (isErr(g)) return g;
+    const rows: Value[][] = [];
+    for (let r = g.r0; r <= g.r1; r++) {
+      const row: Value[] = [];
+      for (let c = g.c0; c <= g.c1; c++) row.push(cellValue(refName(r, c)));
+      rows.push(row);
+    }
+    return rows;
   };
 
   const arg = (n: Node): Arg => {
@@ -387,6 +434,15 @@ export function evaluate(data: SheetData): Map<string, Value> {
       const v = run(raw[0]);
       return isErr(v) ? run(raw[1]) : v;
     }
+    if (name === "IFS") {
+      for (let i = 0; i + 1 < raw.length; i += 2) {
+        const c = truthy(run(raw[i]));
+        if (isErr(c)) return c;
+        if (c) return run(raw[i + 1]);
+      }
+      return new SheetError("#N/A");
+    }
+    if (name === "VLOOKUP" || name === "HLOOKUP" || name === "INDEX" || name === "MATCH" || name === "XLOOKUP") return lookup(name, raw);
     const args = raw.map(arg);
     for (const a of args) if (isErr(a)) return a;
     const ns = () => nums(args);
@@ -483,10 +539,192 @@ export function evaluate(data: SheetData): Map<string, Value> {
         });
         return s;
       }
+      case "AVG":
+        return call("AVERAGE", raw);
+      case "AVERAGEIF": {
+        const range = Array.isArray(args[0]) ? args[0] : [args[0] as Value];
+        const test = criterion(args[1] as Value);
+        const vals = args[2] === undefined ? range : Array.isArray(args[2]) ? args[2] : [args[2] as Value];
+        const hit = range.map((v, i) => (test(v) ? num(vals[i] ?? "") : null)).filter((x): x is number => typeof x === "number");
+        return hit.length ? hit.reduce((a, b) => a + b, 0) / hit.length : new SheetError("#DIV/0!");
+      }
+      case "SUMIFS":
+      case "AVERAGEIFS":
+      case "MAXIFS":
+      case "MINIFS":
+      case "COUNTIFS": {
+        const counting = name === "COUNTIFS";
+        const target = counting ? null : Array.isArray(args[0]) ? args[0] : [args[0] as Value];
+        const pairs = counting ? args : args.slice(1);
+        const len = (Array.isArray(pairs[0]) ? pairs[0] : [pairs[0]]).length;
+        const hits: number[] = [];
+        for (let i = 0; i < len; i++) {
+          let okRow = true;
+          for (let k = 0; k + 1 < pairs.length; k += 2) {
+            const range = Array.isArray(pairs[k]) ? (pairs[k] as Value[]) : [pairs[k] as Value];
+            if (!criterion(pairs[k + 1] as Value)(range[i] ?? "")) {
+              okRow = false;
+              break;
+            }
+          }
+          if (!okRow) continue;
+          if (counting) hits.push(1);
+          else {
+            const n = num(target![i] ?? "");
+            if (!isErr(n) && target![i] !== "") hits.push(n);
+          }
+        }
+        if (counting) return hits.length;
+        if (name === "SUMIFS") return hits.reduce((a, b) => a + b, 0);
+        if (!hits.length) return name === "AVERAGEIFS" ? new SheetError("#DIV/0!") : 0;
+        if (name === "AVERAGEIFS") return hits.reduce((a, b) => a + b, 0) / hits.length;
+        return name === "MAXIFS" ? Math.max(...hits) : Math.min(...hits);
+      }
+      case "SUMPRODUCT": {
+        const lists = args.map((a) => (Array.isArray(a) ? a : [a]));
+        const n = Math.min(...lists.map((l) => l.length));
+        let total = 0;
+        for (let i = 0; i < n; i++) {
+          let p = 1;
+          for (const l of lists) {
+            const x = typeof l[i] === "number" ? (l[i] as number) : 0;
+            p *= x;
+          }
+          total += p;
+        }
+        return total;
+      }
+      case "COUNTBLANK":
+        return flat(args).filter((v) => v === "").length;
+      case "ROUNDUP":
+      case "ROUNDDOWN": {
+        const x = num(args[0] as Value);
+        const d = args[1] === undefined ? 0 : num(args[1] as Value);
+        if (isErr(x)) return x;
+        if (isErr(d)) return d;
+        const f = 10 ** d;
+        const away = name === "ROUNDUP";
+        return (Math.sign(x) * (away ? Math.ceil(Math.abs(x) * f - 1e-9) : Math.floor(Math.abs(x) * f + 1e-9))) / f;
+      }
+      case "CEILING":
+      case "FLOOR": {
+        const x = num(args[0] as Value);
+        const m = args[1] === undefined ? 1 : num(args[1] as Value);
+        if (isErr(x)) return x;
+        if (isErr(m)) return m;
+        if (m === 0) return 0;
+        return (name === "CEILING" ? Math.ceil(x / m - 1e-9) : Math.floor(x / m + 1e-9)) * m;
+      }
+      case "LEFT":
+      case "RIGHT": {
+        const t = text(args[0] as Value);
+        const n = args[1] === undefined ? 1 : num(args[1] as Value);
+        if (isErr(n)) return n;
+        return name === "LEFT" ? t.slice(0, n) : n ? t.slice(-n) : "";
+      }
+      case "MID": {
+        const t = text(args[0] as Value);
+        const a = num(args[1] as Value);
+        const n = num(args[2] as Value);
+        if (isErr(a)) return a;
+        if (isErr(n)) return n;
+        return t.slice(a - 1, a - 1 + n);
+      }
+      case "TRIM":
+        return text(args[0] as Value).trim().replace(/\s+/g, " ");
+      case "TEXTJOIN": {
+        const sep = text(args[0] as Value);
+        const skip = truthy(args[1] as Value);
+        return flat(args.slice(2)).filter((v) => !(skip && v === "")).map(text).join(sep);
+      }
+      case "TODAY":
+      case "NOW": {
+        const d = new Date();
+        const days = (Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(1899, 11, 30)) / 86400000;
+        return name === "TODAY" ? days : days + (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()) / 86400;
+      }
+      case "PI":
+        return Math.PI;
+      case "RAND":
+        return Math.random();
+      case "SIGN": {
+        const x = num(args[0] as Value);
+        return isErr(x) ? x : Math.sign(x);
+      }
+      case "LN":
+      case "LOG":
+      case "LOG10":
+      case "EXP": {
+        const x = num(args[0] as Value);
+        if (isErr(x)) return x;
+        if (name === "EXP") return Math.exp(x);
+        if (x <= 0) return new SheetError("#VALUE!");
+        if (name === "LN") return Math.log(x);
+        if (name === "LOG" && args[1] !== undefined) {
+          const b = num(args[1] as Value);
+          return isErr(b) ? b : Math.log(x) / Math.log(b);
+        }
+        return Math.log10(x);
+      }
+      case "PERCENT": {
+        const a = num(args[0] as Value);
+        const b = num(args[1] as Value);
+        if (isErr(a)) return a;
+        if (isErr(b)) return b;
+        return b === 0 ? new SheetError("#DIV/0!") : (a / b) * 100;
+      }
       default:
         return new SheetError("#NAME?");
     }
   };
+
+  const same = (a: Value, b: Value) => (typeof a === "number" && typeof b === "number" ? a === b : text(a).toLowerCase() === text(b).toLowerCase());
+  function lookup(name: string, raw: Node[]): Value {
+    if (name === "INDEX") {
+      const g = rangeGrid(raw[0]);
+      if (isErr(g)) return g;
+      const r = raw[1] ? num(run(raw[1])) : 1;
+      const c = raw[2] ? num(run(raw[2])) : 1;
+      if (isErr(r)) return r;
+      if (isErr(c)) return c;
+      // A single row or column: one number picks along it.
+      if (g.length === 1 && !raw[2]) return g[0][r - 1] ?? new SheetError("#REF!");
+      return g[(r || 1) - 1]?.[(c || 1) - 1] ?? new SheetError("#REF!");
+    }
+    const key = run(raw[0]);
+    if (isErr(key)) return key;
+    if (name === "MATCH") {
+      const g = rangeGrid(raw[1]);
+      if (isErr(g)) return g;
+      const line = g.length === 1 ? g[0] : g.map((r) => r[0]);
+      const i = line.findIndex((v) => same(v, key));
+      return i >= 0 ? i + 1 : new SheetError("#N/A");
+    }
+    if (name === "XLOOKUP") {
+      const a = rangeGrid(raw[1]);
+      const b = rangeGrid(raw[2]);
+      if (isErr(a)) return a;
+      if (isErr(b)) return b;
+      const la = a.length === 1 ? a[0] : a.map((r) => r[0]);
+      const lb = b.length === 1 ? b[0] : b.map((r) => r[0]);
+      const i = la.findIndex((v) => same(v, key));
+      return i >= 0 ? lb[i] ?? new SheetError("#N/A") : raw[3] ? run(raw[3]) : new SheetError("#N/A");
+    }
+    // VLOOKUP / HLOOKUP: exact match (also when the 4th argument asks for approximate, unless sorted numbers).
+    const g = rangeGrid(raw[1]);
+    if (isErr(g)) return g;
+    const idx = num(run(raw[2]));
+    if (isErr(idx)) return idx;
+    const approx = raw[3] ? truthy(run(raw[3])) : true;
+    const grid = name === "HLOOKUP" ? g[0].map((_, c) => g.map((r) => r[c])) : g;
+    let row = grid.find((r) => same(r[0], key));
+    if (!row && approx === true && typeof key === "number") {
+      // Approximate: the last row whose first value is ≤ the key (sorted ascending).
+      for (const r of grid) if (typeof r[0] === "number" && r[0] <= key) row = r;
+    }
+    if (!row) return new SheetError("#N/A");
+    return row[idx - 1] ?? new SheetError("#REF!");
+  }
 
   function run(n: Node): Value {
     switch (n.k) {

@@ -64,3 +64,34 @@ describe("sheet formulas", () => {
     expect(setCells(d, { "A 1": "x" })).toMatch(/isn't a cell/);
   });
 });
+
+describe("formulas that didn't work (18 Nov)", () => {
+  it("money in cells, phone quotes and minus, a leading space, a total in its own range", () => {
+    const d = sheet({ A1: "₹1,200", A2: "350 rs", A3: "Rs. 50", A4: "=SUM(A1:A4)", B1: " =A1*2", B2: "=IF(A1>1000,“big”,“small”)", B3: "=A1−A2", B4: "=A2×2" });
+    expect(val(d, "A4")).toBe("1600");
+    expect(val(d, "B1")).toBe("2400");
+    expect(val(d, "B2")).toBe("big");
+    expect(val(d, "B3")).toBe("850");
+    expect(val(d, "B4")).toBe("700");
+  });
+  it("whole columns, lookups and the IFS family", () => {
+    const d = sheet({ A1: "apple", B1: "30", A2: "pear", B2: "50", A3: "apple", B3: "20", C1: "=SUM(B:B)", C2: '=VLOOKUP("pear",A1:B3,2,FALSE)', C3: '=SUMIF(A:A,"apple",B:B)', C4: '=INDEX(B1:B3,MATCH("pear",A1:A3,0))', D1: '=COUNTIFS(A1:A3,"apple",B1:B3,">25")', D2: '=AVERAGEIF(A1:A3,"apple",B1:B3)', D3: "=SUMPRODUCT(B1:B3,B1:B3)", D4: '=IFS(B1>40,"hi",B1>10,"mid")' }, 6, 4);
+    expect(val(d, "C1")).toBe("100");
+    expect(val(d, "C2")).toBe("50");
+    expect(val(d, "C3")).toBe("50");
+    expect(val(d, "C4")).toBe("50");
+    expect(val(d, "D1")).toBe("1");
+    expect(val(d, "D2")).toBe("25");
+    expect(val(d, "D3")).toBe("3800");
+    expect(val(d, "D4")).toBe("mid");
+  });
+  it("rounding and text", () => {
+    const d = sheet({ A1: "=ROUNDUP(2.341,1)", A2: "=ROUNDDOWN(2.349,2)", A3: '=LEFT("Journal",4)', A4: "=CEILING(7,5)", B1: '=TEXTJOIN(", ",TRUE,"a","","b")', B2: "=AVG(2,4)" });
+    expect(val(d, "A1")).toBe("2.4");
+    expect(val(d, "A2")).toBe("2.34");
+    expect(val(d, "A3")).toBe("Jour");
+    expect(val(d, "A4")).toBe("10");
+    expect(val(d, "B1")).toBe("a, b");
+    expect(val(d, "B2")).toBe("3");
+  });
+});
