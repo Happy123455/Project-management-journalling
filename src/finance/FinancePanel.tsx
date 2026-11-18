@@ -21,8 +21,8 @@ const monthName = (m: string) => new Date(Number(m.slice(0, 4)), Number(m.slice(
 const thisMonth = () => dayKey(new Date()).slice(0, 7);
 
 /** 💰 Money: what came in and went out (from bank SMS and payment notifications in the notes), charts and AI insights. */
-export function FinancePanel({ store, onClose, onOpenDay }: { store: JournalStore; onClose: () => void; onOpenDay: (day: string) => void }) {
-  const [tab, setTab] = useState<Tab>("overview");
+export function FinancePanel({ store, onClose, onOpenDay, startTab }: { store: JournalStore; onClose: () => void; onOpenDay: (day: string) => void; startTab?: Tab }) {
+  const [tab, setTab] = useState<Tab>(startTab ?? "overview");
   const [txns, setTxns] = useState<Txn[] | null>(null);
   useEscapeToClose(onClose);
   const panel = useRef<HTMLElement>(null);

@@ -4459,6 +4459,52 @@ html.nav-showing .agent-panel, html.nav-showing .dls-back:has(> .cmd) { opacity:
 .bank-trend { display: block; width: 100%; height: 64px; color: #0ea5e9; margin: 4px 0 6px; }
 .bank-add { grid-template-columns: 1fr 1fr auto; }
 .bank-split dd { font-variant-numeric: tabular-nums; }
+/* 🏦 Statement history: chart with the safety margin, a day scrubber, then every day's entries. */
+.bank-history { margin: 10px 0 14px; }
+.bank-history-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bank-history-head h3 { margin: 6px 0; }
+.bank-history-head .chip { border: 1px solid color-mix(in srgb, #0ea5e9 40%, transparent); background: color-mix(in srgb, #0ea5e9 10%, transparent); color: inherit; border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.bank-pw { grid-template-columns: 1fr auto auto; }
+.bank-margin-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, #22c55e 10%, var(--panel)); margin: 4px 0 6px; }
+.bank-margin-card.under { background: color-mix(in srgb, #ef4444 13%, var(--panel)); }
+.bank-margin-card strong { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+.bank-margin-card small { color: var(--muted); font-size: 12px; }
+.bank-margin-card.under small { color: color-mix(in srgb, #ef4444 75%, var(--text, currentColor)); }
+.bank-margin-edit { display: flex; flex-direction: column; font-size: 11px; color: var(--muted); gap: 2px; }
+.bank-margin-edit input { width: 84px; font: inherit; font-size: 14px; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--border, rgba(127,127,127,.3)); background: transparent; color: inherit; text-align: right; font-variant-numeric: tabular-nums; }
+.bank-history-chart { display: block; width: 100%; height: 140px; touch-action: none; cursor: ew-resize; user-select: none; outline: none; }
+.bank-history-chart:focus-visible { outline: 2px solid #0ea5e9; border-radius: 8px; }
+.bh-line { fill: none; stroke: #0ea5e9; stroke-width: 2.2; stroke-linejoin: round; }
+.bh-line-under { stroke: #ef4444; }
+.bh-danger { fill: #ef4444; opacity: .08; }
+.bh-margin { stroke: #ef4444; stroke-width: 1.2; stroke-dasharray: 4 4; opacity: .8; }
+.bh-margin-label { fill: #ef4444; font-size: 9px; opacity: .9; }
+.bh-cursor { stroke: var(--muted); stroke-width: 1; opacity: .6; }
+.bh-dot { fill: #0ea5e9; stroke: var(--panel); stroke-width: 2; }
+.bh-dot.under { fill: #ef4444; }
+.bh-axis { fill: var(--muted); font-size: 9px; }
+.bank-scrub { display: grid; grid-template-columns: 36px 1fr 36px; align-items: center; gap: 6px; margin: 2px 0 8px; text-align: center; }
+.bank-scrub button { height: 36px; border-radius: 10px; border: 1px solid var(--border, rgba(127,127,127,.3)); background: transparent; color: inherit; font-size: 20px; cursor: pointer; }
+.bank-scrub button:disabled { opacity: .3; }
+.bank-scrub strong { display: block; font-size: 14px; }
+.bank-scrub small { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.bank-scrub .under b { color: #ef4444; }
+.bank-split dd small { color: var(--muted); font-size: 11px; }
+.bank-days { max-height: 46vh; overflow-y: auto; overscroll-behavior: contain; border-radius: 12px; margin-top: 6px; }
+.bank-day { padding: 6px 8px; border-left: 3px solid transparent; border-radius: 10px; }
+.bank-day.picked { background: color-mix(in srgb, #0ea5e9 9%, transparent); border-left-color: #0ea5e9; }
+.bank-day.under .bank-day-bal { color: #ef4444; }
+.bank-day-head { display: flex; justify-content: space-between; width: 100%; background: none; border: 0; padding: 2px 0; color: inherit; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; text-align: left; }
+.bank-day-bal { font-variant-numeric: tabular-nums; }
+.bank-day ul { list-style: none; margin: 2px 0 0; padding: 0; }
+.bank-day li { display: grid; grid-template-columns: 1fr auto 92px; gap: 8px; font-size: 13px; padding: 3px 0 3px 8px; }
+.bank-day .bt-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bank-day .bt-amt, .bank-day .bt-bal { font-variant-numeric: tabular-nums; text-align: right; }
+.bank-day li.credit .bt-amt { color: #16a34a; }
+.bank-day .bt-bal { color: var(--muted); }
+.bank-day .bt-bal.under { color: color-mix(in srgb, #ef4444 80%, var(--muted)); }
+.bank-day.opening { opacity: .7; }
+.bank-open-day { background: none; border: 0; color: #0ea5e9; font: inherit; font-size: 12px; padding: 4px 8px; cursor: pointer; }
 
 /* Item 5 (18 Nov): no square edges in the month. Rows' soft shadows used to be cut flat by the
    scrolling box; it now has room for them. The reminder's colour mark is a rounded pill, and taps
@@ -4565,3 +4611,11 @@ html.nav-showing .agent-panel, html.nav-showing .dls-back:has(> .cmd) { opacity:
 .yth-kind-pick { display: grid; gap: 4px; margin: 8px 0; font-size: 12px; color: var(--muted); }
 .yth-sheet-acts { display: flex; gap: 8px; }
 @media (prefers-reduced-motion: reduce) { .yth-sheet { animation: none; } }
+/* 🚨 Bank near / under the safety margin. */
+.bank-alert { display: flex; align-items: stretch; gap: 0; margin: 8px 12px 6px; border-radius: 18px; color: #fff; background: linear-gradient(135deg, #dc2626, #b91c1c); box-shadow: 0 8px 24px rgba(220, 38, 38, .35); overflow: hidden; }
+.bank-alert.near { background: linear-gradient(135deg, #ef4444, #ea580c); }
+.bank-alert-main { flex: 1; display: flex; flex-direction: column; gap: 3px; padding: 14px 16px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.bank-alert-main strong { font-size: 18px; line-height: 1.25; }
+.bank-alert-main span { font-size: 14px; opacity: .95; font-variant-numeric: tabular-nums; }
+.bank-alert-main small { font-size: 12px; opacity: .8; }
+.bank-alert-x { width: 44px; background: rgba(0, 0, 0, .12); border: 0; color: inherit; font-size: 16px; cursor: pointer; }

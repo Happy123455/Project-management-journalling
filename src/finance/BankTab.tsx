@@ -6,6 +6,9 @@ import { pocketState, type PocketEntry } from "../lib/pocket";
 import { showError, showToast } from "../lib/toast";
 import { addBank, loadBank } from "./bank";
 import { loadPocket } from "./pocket";
+import { loadStatements } from "./bankStatement";
+import { BankHistory } from "./BankHistory";
+import type { SavedStatements } from "../lib/bankStatement";
 import { FINANCE_EVENT } from "./capture";
 
 const r0 = (n: number) => rupees(n, 0);
@@ -41,8 +44,10 @@ export function BankTab({ store, onOpenDay }: { store: JournalStore; onOpenDay: 
   const [account, setAccount] = useState("Bank");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
+  const [statements, setStatements] = useState<SavedStatements | null>(null);
   useEffect(() => {
     const load = () => {
+      void loadStatements(store).then(setStatements).catch(() => setStatements(null));
       void loadBank(store).then(setEntries).catch(() => setEntries([]));
       void loadPocket(store).then(setCash).catch(() => setCash([]));
     };
@@ -54,7 +59,17 @@ export function BankTab({ store, onOpenDay }: { store: JournalStore; onOpenDay: 
       window.removeEventListener("journal:synced", load);
     };
   }, [store]);
-  const s = useMemo(() => bankState(entries ?? []), [entries]);
+  // The statement's last balance counts as a "Bank" entry (end of its last day), so the card shows it
+  // until a newer balance is typed.
+  const s = useMemo(() => {
+    const all = [...(entries ?? [])];
+    const t = statements?.txns[statements.txns.length - 1];
+    if (t) {
+      const [y, mo, d] = t.day.split("-").map(Number);
+      all.push({ account: "Bank", amount: t.balance, day: t.day, at: new Date(y, mo - 1, d, 23, 59).getTime(), line: "statement" });
+    }
+    return bankState(all);
+  }, [entries, statements]);
   const pocket = useMemo(() => pocketState(cash).balance, [cash]);
   const names = s.accounts.map((a) => a.account);
 
@@ -97,7 +112,8 @@ export function BankTab({ store, onOpenDay }: { store: JournalStore; onOpenDay: 
           <dd>{s.total !== null || pocket !== null ? r0((s.total ?? 0) + (pocket ?? 0)) : "—"}</dd>
         </div>
       </dl>
-      <Trend points={s.totals} />
+      {!statements && <Trend points={s.totals} />}
+      <BankHistory store={store} saved={statements} onSaved={setStatements} onOpenDay={onOpenDay} />
       <form className="pocket-add bank-add" onSubmit={(e) => (e.preventDefault(), void add())}>
         <input value={account} onChange={(e) => setAccount(e.target.value)} list="bank-accounts" placeholder="Bank" aria-label="Account" />
         <datalist id="bank-accounts">
@@ -125,9 +141,9 @@ export function BankTab({ store, onOpenDay }: { store: JournalStore; onOpenDay: 
           </ul>
         </>
       )}
-      <h3>Balance history</h3>
+      <h3>{statements ? "Balances you typed" : "Balance history"}</h3>
       <ul className="finance-list">
-        {s.history.slice(0, 200).map((e, i) => (
+        {s.history.filter((e) => e.line !== "statement").slice(0, 200).map((e, i) => (
           <li key={`${e.day}|${e.at}|${i}`} className={e.change !== null && e.change < 0 ? "debit" : "credit"}>
             <div className="fl-row">
               <button type="button" onClick={() => onOpenDay(e.day)}>
@@ -139,7 +155,7 @@ export function BankTab({ store, onOpenDay }: { store: JournalStore; onOpenDay: 
           </li>
         ))}
       </ul>
-      {!s.history.length && <p className="hint">No balances yet.</p>}
+      {!s.history.some((e) => e.line !== "statement") && <p className="hint">No balances typed yet.</p>}
     </div>
   );
 }

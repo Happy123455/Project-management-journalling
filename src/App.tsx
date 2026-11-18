@@ -13,6 +13,7 @@ import { TodayAgenda } from "./routine/TodayAgenda";
 import { editDayLine, ROUTINE_EVENT, useRoutine } from "./routine/routineData";
 import { startHealthSync } from "./routine/health";
 import { FinancePanel } from "./finance/FinancePanel";
+import { BankAlert, bankAlarms, useBankForecast } from "./finance/BankAlert";
 import { startMoneySync } from "./finance/capture";
 import { noteLines, reminderLine, timeEdit, timeSpans, type Alarm } from "./lib/reminders";
 import { BacklinkList, BacklinksFooter, PageView, TagView, type LinkHandlers } from "./pages/LinkViews";
@@ -136,7 +137,7 @@ function App() {
     window.addEventListener(YT_HISTORY_EVENT, on);
     return () => window.removeEventListener(YT_HISTORY_EVENT, on);
   }, []);
-  const [moneyOpen, setMoneyOpen] = useState(false);
+  const [moneyOpen, setMoneyOpen] = useState<false | true | "bank">(false);
   const [yearShown, setYearShown] = useState(() => new Date().getFullYear());
   // What the main area shows: today's/any day's page, a named page, or a tag.
   const [route, setRoute] = useState<{ kind: "day" } | { kind: "page"; page: NamedPage } | { kind: "tag"; tag: string }>({ kind: "day" });
@@ -645,11 +646,14 @@ function App() {
   useEffect(() => (store ? watchDeadlines(store) : undefined), [store]);
   const deadlines = useAllDeadlines();
   const deadlineRings = useMemo(() => deadlineAlarms(deadlines, Date.now()), [deadlines, today]);
+  // 🚨 Bank near / under the safety margin: a red banner and one notification a day.
+  const bankForecast = useBankForecast(store);
+  const bankRings = useMemo(() => bankAlarms(bankForecast), [bankForecast, today]);
   // The phone's notifications and home-screen widget follow the reminders.
   useEffect(() => {
     const own = todayDoc && !reminders.some((r) => r.day === today) ? [{ day: today, content: todayDoc, marked: true }] : [];
-    publishReminders(reminders, today, own, [...nudges, ...deadlineRings]);
-  }, [reminders, today, todayDoc, nudges, deadlineRings]);
+    publishReminders(reminders, today, own, [...nudges, ...deadlineRings, ...bankRings]);
+  }, [reminders, today, todayDoc, nudges, deadlineRings, bankRings]);
   useEffect(() => startInAppNudges((d) => void goTo(d)), []);
   // 🛢️ The evening oil-drop check (once a day, while the app is open).
   useEffect(() => (store ? startEveningCheck(store) : undefined), [store]);
@@ -902,7 +906,7 @@ function App() {
       [!!dayPicker, () => setDayPicker(null)],
       [tabsOpen, setTabsOpen], [titleSearchOpen, setTitleSearchOpen], [searchOpen, setSearchOpen],
       [settingsOpen, setSettingsOpen], [chatOpen, setChatOpen], [mindOpen, setMindOpen], [graphOpen, setGraphOpen],
-      [!!nexus, () => setNexus(null)], [moneyOpen, setMoneyOpen], [routineOpen, setRoutineOpen], [ytHistOpen, setYtHistOpen],
+      [!!nexus, () => setNexus(null)], [!!moneyOpen, () => setMoneyOpen(false)], [routineOpen, setRoutineOpen], [ytHistOpen, setYtHistOpen],
       [upcomingOpen, setUpcomingOpen], [yearOpen, setYearOpen], [drawerOpen, setDrawerOpen],
     ];
     const top = open.find(([on]) => on);
@@ -1370,6 +1374,7 @@ function App() {
       </aside>
 
       <main className="page" inert={overlayOpen || undefined}>
+        <BankAlert forecast={bankForecast} onOpen={() => setMoneyOpen("bank")} />
         {route.kind === "page" && store ? (
           <>
           {route.page.title.startsWith(YOUTUBE_PREFIX) && (
@@ -1442,7 +1447,7 @@ function App() {
               }}
               onPick={goTo}
               onOpenYear={openYear}
-              covered={overlayOpen || routineOpen || ytHistOpen || moneyOpen || !!dayPicker}
+              covered={overlayOpen || routineOpen || ytHistOpen || !!moneyOpen || !!dayPicker}
               below={
                 <>
                   {store && <TodayAgenda store={store} view={routine} onOpenRoutine={() => setRoutineOpen(true)} />}
@@ -1654,7 +1659,7 @@ function App() {
       <Toasts />
       {touch && store && (
         <NavIsland
-          away={overlayOpen || routineOpen || ytHistOpen || moneyOpen || !!dayPicker || !!assist}
+          away={overlayOpen || routineOpen || ytHistOpen || !!moneyOpen || !!dayPicker || !!assist}
           tabs={tabs}
           today={today}
           canBack={activeTab(tabs).index > 0}
@@ -1792,7 +1797,7 @@ function App() {
       {dayPicker && <DayPickerSheet title={dayPicker.title} from={dayPicker.from} withTime={dayPicker.withTime} onPick={dayPicker.onPick} onClose={() => setDayPicker(null)} />}
       {routineOpen && store && <RoutinePanel store={store} onClose={() => setRoutineOpen(false)} />}
       {ytHistOpen && store && <YoutubeHistory store={store} onClose={() => setYtHistOpen(false)} />}
-      {moneyOpen && store && <FinancePanel store={store} onClose={() => setMoneyOpen(false)} onOpenDay={(d) => void goTo(d)} />}
+      {moneyOpen && store && <FinancePanel store={store} startTab={moneyOpen === "bank" ? "bank" : undefined} onClose={() => setMoneyOpen(false)} onOpenDay={(d) => void goTo(d)} />}
       <UpcomingPanel
         open={upcomingOpen}
         pages={upcoming}

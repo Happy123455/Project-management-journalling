@@ -14,10 +14,10 @@ function loadPdfjs() {
   return pdfjs;
 }
 
-export async function openPdf(bytes: Uint8Array): Promise<PDFDocumentProxy> {
+export async function openPdf(bytes: Uint8Array, password?: string): Promise<PDFDocumentProxy> {
   const lib = await loadPdfjs();
   // pdf.js takes ownership of the buffer it's given, so hand it a copy.
-  return lib.getDocument({ data: bytes.slice() }).promise;
+  return lib.getDocument({ data: bytes.slice(), ...(password ? { password } : {}) }).promise;
 }
 
 /** Draws one page into a canvas at `width` CSS pixels (sharp on high-density screens). */
