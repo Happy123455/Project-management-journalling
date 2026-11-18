@@ -4459,3 +4459,15 @@ html.nav-showing .agent-panel, html.nav-showing .dls-back:has(> .cmd) { opacity:
 .bank-trend { display: block; width: 100%; height: 64px; color: #0ea5e9; margin: 4px 0 6px; }
 .bank-add { grid-template-columns: 1fr 1fr auto; }
 .bank-split dd { font-variant-numeric: tabular-nums; }
+
+/* Item 5 (18 Nov): no square edges in the month. Rows' soft shadows used to be cut flat by the
+   scrolling box; it now has room for them. The reminder's colour mark is a rounded pill, and taps
+   show no square highlight. */
+.upcoming-box { padding: 8px 10px 10px; margin: -8px -10px -10px; border-radius: 18px; }
+.reminder-open { position: relative; border-left: 0; padding-left: 14px; }
+.reminder-open::before { content: ""; position: absolute; left: 6px; top: 8px; bottom: 8px; width: 3px; border-radius: 3px; background: var(--reminder); pointer-events: none; }
+.upcoming.folded .reminder-open::before { top: 6px; bottom: 6px; }
+.month-calendar, .month-calendar *, .today-agenda, .today-agenda * { -webkit-tap-highlight-color: transparent; }
+.month-calendar button:focus:not(:focus-visible), .today-agenda button:focus:not(:focus-visible) { outline: none; }
+.ta-inner { padding: 6px 8px; margin: -6px -8px; border-radius: 16px; }
+.upcoming.folded .reminder-open, .upcoming li.squeezed .reminder-open { padding-left: 16px; }

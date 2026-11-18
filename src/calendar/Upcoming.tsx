@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { addDays, dayKey, dayTitle } from "../lib/timestamp";
 import { REPEATS, stepDay, type Repeat } from "../lib/reminders";
 import { docText } from "../lib/words";
@@ -331,6 +331,24 @@ export function Upcoming({ pages, onPick, onAction, title = "Coming up", inMonth
     if (dy < 0 && !folded && at.end) setFolded(true);
     else if (dy > 0 && folded && at.top) setFolded(false);
   };
+  // Folding and opening glide (Hapi, 18 Nov: it snapped, with square edges showing). The section's
+  // height animates from what it was to what it is now; its rounded box clips the rows meanwhile.
+  const sectionRef = useRef<HTMLElement>(null);
+  const lastHeight = useRef(0);
+  useLayoutEffect(() => {
+    const el = sectionRef.current;
+    if (!el) return;
+    const to = el.offsetHeight;
+    const from = lastHeight.current;
+    lastHeight.current = to;
+    if (!from || from === to || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    el.animate([{ height: `${from}px`, overflow: "clip" }, { height: `${to}px`, overflow: "clip" }], { duration: 340, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folded]);
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (el && !el.getAnimations?.().length) lastHeight.current = el.offsetHeight;
+  });
   if (!pages.length) return null;
   const rows = (
     <ul ref={list}>
@@ -341,7 +359,7 @@ export function Upcoming({ pages, onPick, onAction, title = "Coming up", inMonth
   );
   if (!inMonth)
     return (
-      <section className={folded ? "reminders upcoming folded" : "reminders upcoming"}>
+      <section ref={sectionRef} className={folded ? "reminders upcoming folded" : "reminders upcoming"}>
         <h2>
           <button type="button" className="upcoming-fold" onClick={() => setFolded(!folded)} aria-expanded={!folded}>
             {title} <span aria-hidden>{folded ? "▾" : "▴"}</span>
@@ -351,7 +369,7 @@ export function Upcoming({ pages, onPick, onAction, title = "Coming up", inMonth
       </section>
     );
   return (
-    <section className={folded ? "reminders upcoming in-month folded" : "reminders upcoming in-month"}>
+    <section ref={sectionRef} className={folded ? "reminders upcoming in-month folded" : "reminders upcoming in-month"}>
       <h2>
         <button type="button" className="upcoming-fold" onClick={() => setFolded(!folded)} aria-expanded={!folded}>
           {title} <span aria-hidden>{folded ? "▾" : "▴"}</span>
