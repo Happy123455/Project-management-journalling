@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { createPortal } from "react-dom";
 import { dayLabel } from "../lib/deadline";
 import { festivalsOn } from "../lib/specialDates";
-import { editorPrefs } from "../lib/editorPrefs";
+import { editorPrefs, shownFestGroups } from "../lib/editorPrefs";
 import { dayKey } from "../lib/timestamp";
 import { fx } from "../lib/fx";
 
@@ -41,7 +41,7 @@ export const canPick = (day: string, m: DayMarks) => (m.allowed ? m.allowed.has(
 export function DayGrid({ value, onPick, marks }: { value: string; onPick: (day: string) => void; marks: DayMarks }) {
   const [shown, setShown] = useState(() => ({ y: Number(value.slice(0, 4)), m: Number(value.slice(5, 7)) - 1 }));
   const today = dayKey(new Date());
-  const groups = editorPrefs().festGroups;
+  const groups = shownFestGroups(editorPrefs());
   const step = (by: number) => {
     fx("tick");
     setShown(({ y, m }) => ({ y: y + Math.floor((m + by) / 12), m: (((m + by) % 12) + 12) % 12 }));

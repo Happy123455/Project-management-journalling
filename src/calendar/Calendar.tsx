@@ -2,7 +2,7 @@ import React, { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { KIND_COLOR, monthEvents, waveLength, waves, type MonthEvent } from "./monthEvents";
 import { useAllDeadlines } from "../editor/deadlineStore";
 import { personalDates, specialsOn, subscribePersonalDates } from "../lib/specialDates";
-import { useEditorPrefs } from "../lib/editorPrefs";
+import { setEditorPrefs, useEditorPrefs, shownFestGroups } from "../lib/editorPrefs";
 import { dayKey } from "../lib/timestamp";
 import { heat } from "../lib/words";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
@@ -71,7 +71,7 @@ interface GridProps {
 function useMonthEvents(prefix: string, counts: Counts, today: string, on: boolean): MonthEvent[] | undefined {
   const deadlines = useAllDeadlines();
   const personal = useSyncExternalStore(subscribePersonalDates, personalDates, personalDates);
-  const groups = useEditorPrefs().festGroups;
+  const groups = shownFestGroups(useEditorPrefs());
   return useMemo(
     () =>
       on
@@ -575,6 +575,23 @@ interface YearProps {
 }
 
 /** Slide-in panel with all twelve months; shades are relative to the busiest day of the year. */
+/** 🎉 on/off for every festival on the calendars (Hapi, 18 Nov). Your own dates stay. */
+function FestSwitch() {
+  const on = useEditorPrefs().festivalsOn !== false;
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      className={`year-fest-switch${on ? " on" : ""}`}
+      onClick={() => (haptic("tap", 0.5), setEditorPrefs({ festivalsOn: !on }))}
+      title={on ? "Hide festivals" : "Show festivals"}
+    >
+      🎉 <span className="yfs-track" aria-hidden><i /></span> {on ? "On" : "Off"}
+    </button>
+  );
+}
+
 export function YearPanel({ year, day, shading, today, open, onClose, onPick, onYear, onUpcoming }: YearProps) {
   const max = maxFor(shading, String(year), today);
   const touch = useRef<{ x: number; y: number } | null>(null);
@@ -611,6 +628,7 @@ export function YearPanel({ year, day, shading, today, open, onClose, onPick, on
           <button type="button" onClick={() => onYear(year - 1)} aria-label="Previous year">‹</button>
           <h2>{year}</h2>
           <button type="button" onClick={() => onYear(year + 1)} aria-label="Next year">›</button>
+          <FestSwitch />
           {onUpcoming && <button type="button" className="year-upcoming" onClick={onUpcoming} aria-label="Coming up">Coming up ›</button>}
           <button type="button" className="close" onClick={onClose} aria-label="Close year view">✕</button>
         </header>

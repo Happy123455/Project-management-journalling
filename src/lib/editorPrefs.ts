@@ -24,6 +24,8 @@ export interface EditorPrefs {
   festiveTiles: boolean;
   /** Festival groups shown in the calendar (Settings → Editor); all on unless switched off. */
   festGroups: { india: boolean; world: boolean; fun: boolean };
+  /** The Year view's 🎉 switch: false hides every festival (birthdays and your own dates stay). */
+  festivalsOn: boolean;
   /** Opening the month plays its major events as waves over the days after them. */
   monthWaves: boolean;
   /** The routine new deadlines start with behind their bars (each deadline keeps its own after). */
@@ -42,7 +44,7 @@ export function useEditorPrefs(): EditorPrefs {
 }
 
 const KEY = "journal.editor";
-const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true, prettyMath: true, typingGuide: false, maxCps: 6, monthDeadlines: "below", timeFlash: true, festiveTiles: true, festGroups: { india: true, world: true, fun: true }, monthWaves: true, deadlineLayer: "avg" };
+const DEFAULTS: EditorPrefs = { codeScroll: true, editStamps: true, relativeTime: true, autoMath: true, prettyMath: true, typingGuide: false, maxCps: 6, monthDeadlines: "below", timeFlash: true, festiveTiles: true, festGroups: { india: true, world: true, fun: true }, festivalsOn: true, monthWaves: true, deadlineLayer: "avg" };
 
 /** Read on every letter typed (formulas, edit stamps…): parsed again only when the stored text changes. */
 let cached: { raw: string | null; prefs: EditorPrefs } | null = null;
@@ -72,3 +74,7 @@ export function setEditorPrefs(patch: Partial<EditorPrefs>): EditorPrefs {
   window.dispatchEvent(new Event("journal:editor-prefs"));
   return next;
 }
+
+const NO_FESTS = { india: false, world: false, fun: false };
+/** The festival groups to show: none while the Year view's 🎉 switch is off. */
+export const shownFestGroups = (p: EditorPrefs) => (p.festivalsOn === false ? NO_FESTS : p.festGroups);

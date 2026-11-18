@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { haptic } from "../lib/haptic";
-import { useEditorPrefs } from "../lib/editorPrefs";
+import { useEditorPrefs, shownFestGroups } from "../lib/editorPrefs";
 import { personalDates, specialsOn, subscribePersonalDates, type Special, type SpecialKind } from "../lib/specialDates";
 
 const HOLD_MS = 300;
@@ -13,7 +13,7 @@ const MOVE_PX = 10;
 /** Special days, following the "Special dates" page and the festival groups switched on in Settings. */
 export function useSpecials(): (day: string) => Special[] {
   const list = useSyncExternalStore(subscribePersonalDates, personalDates, personalDates);
-  const groups = useEditorPrefs().festGroups;
+  const groups = shownFestGroups(useEditorPrefs());
   return (day: string) => specialsOn(day, list, groups);
 }
 

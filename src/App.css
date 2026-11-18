@@ -4471,3 +4471,9 @@ html.nav-showing .agent-panel, html.nav-showing .dls-back:has(> .cmd) { opacity:
 .month-calendar button:focus:not(:focus-visible), .today-agenda button:focus:not(:focus-visible) { outline: none; }
 .ta-inner { padding: 6px 8px; margin: -6px -8px; border-radius: 16px; }
 .upcoming.folded .reminder-open, .upcoming li.squeezed .reminder-open { padding-left: 16px; }
+.year-fest-switch { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 13px; }
+.yfs-track { position: relative; width: 30px; height: 18px; border-radius: 9px; background: color-mix(in srgb, var(--muted) 35%, transparent); transition: background 0.2s ease; }
+.yfs-track i { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1); }
+.year-fest-switch.on .yfs-track { background: var(--accent); }
+.year-fest-switch.on .yfs-track i { transform: translateX(12px); }
+@media (max-width: 480px) { .year-header { flex-wrap: wrap; } }
