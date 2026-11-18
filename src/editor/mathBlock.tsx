@@ -4,6 +4,7 @@ import type { Transaction } from "@tiptap/pm/state";
 import { onlyTextInLines } from "./blocks";
 import katex from "katex";
 import "katex/dist/katex.min.css";
+import { swarmOn } from "../assistant/swarm/run";
 import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { askAi, AiUnavailableError } from "../ai/client";
 import { solveMath } from "../ai/mathSolve";
@@ -550,6 +551,12 @@ function MathView(props: NodeViewProps) {
             props.updateAttributes({ latex: source, tweaks: "", solution: JSON.stringify(sol) });
             setEditing(false);
             setOpen("work");
+            // The answer is built in front of you by the math agents (purely a show).
+            window.setTimeout(() => {
+              const pos = props.getPos();
+              const dom = typeof pos === "number" ? props.editor.view.nodeDOM(pos) : null;
+              if (dom instanceof HTMLElement) void swarmOn(dom, { kind: "math", text: source });
+            }, 120);
           }}
         />
       )}

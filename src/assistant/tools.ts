@@ -19,6 +19,7 @@ import { loadConfig, writeLog } from "../routine/routineData";
 import { describeHits, findMedia, mediaBlock, storedFile, type MediaHit } from "./media";
 import { insertUnder, linesToBlocks, nodeAt, taskBlock, tasksIn, tickTask, topCounts, type FoundTask } from "./noteOps";
 import { cursorFx } from "./AgentCursors";
+import { watchEdit } from "./swarm/watch";
 import { MORE_TOOLS, MORE_WRITES, moreNoteOf, runMoreTool } from "./moreTools";
 import type { FoundFormula } from "../lib/mathFind";
 
@@ -115,6 +116,17 @@ let timers = 0;
 
 /** One tool call from the assistant. */
 export async function runAssistantTool(call: ToolCall, ctx: RunCtx): Promise<Out> {
+  const write = WRITES.has(call.name) || MORE_WRITES.has(call.name);
+  if (!write) return runTool(call, ctx);
+  const a = call.arguments ?? {};
+  const words = [a.text, a.lines, a.title, a.what, a.latex, a.expr].find((v) => typeof v === "string" && v.trim());
+  const done = watchEdit({ tool: call.name, text: typeof words === "string" ? words : "", actor: ctx.actor });
+  const r = await runTool(call, ctx);
+  if (!r.bad) done();
+  return r;
+}
+
+async function runTool(call: ToolCall, ctx: RunCtx): Promise<Out> {
   const a = call.arguments ?? {};
   const { store, now } = ctx;
   const words = [a.text, a.what, a.lines, a.question, a.task, a.title, a.target, a.query].find((v) => typeof v === "string" && v.trim());

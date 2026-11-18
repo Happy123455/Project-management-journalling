@@ -555,3 +555,11 @@ html[data-theme="neu"] .ambience-rain { opacity: 0.7; }
 :where(html[data-theme="neu"]) .focus-pill { box-shadow: var(--neu-out); }
 :where(html[data-theme="neu"]) .dl-plan, :where(html[data-theme="neu"]) .ds-plan { box-shadow: var(--neu-out-xs); }
 :where(html[data-theme="neu"]) .dls-back { backdrop-filter: none; background: rgba(0, 0, 0, 0.18); }
+
+/* Agent swarm in Soft UI: the parts are pressed out of the surface and the frame is a soft well. */
+:where(html[data-theme="neu"]) .swarm-frame { border: none; background: var(--bg); box-shadow: var(--neu-in-sm); }
+:where(html[data-theme="neu"]) .swarm-piece { background: color-mix(in srgb, var(--accent) 7%, var(--bg)); box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .sp-head, :where(html[data-theme="neu"]) .sp-check { background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
+:where(html[data-theme="neu"]) .sp-formula, :where(html[data-theme="neu"]) .sp-result { background: color-mix(in srgb, #10b981 10%, var(--bg)); }
+:where(html[data-theme="neu"]) .swarm-tag { color: var(--text); background: var(--bg); box-shadow: var(--neu-out-xs); }
+:where(html[data-theme="neu"]) .swarm-tag b { color: hsl(var(--h) 65% 42%); }

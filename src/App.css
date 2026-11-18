@@ -4325,3 +4325,21 @@ html.agent-merged .nav-home { animation: agent-gulp 0.5s var(--spring); }
 .yt-kinds button.active { outline: 2px solid var(--accent); }
 .dp-chart { margin-top: 6px; }
 @media (max-width: 420px) { .yt-pie-row { grid-template-columns: 100px 1fr; } .yt-pie svg { width: 100px; height: 100px; } }
+
+/* Agent swarm (assistant/swarm): labelled agents build a block, then it morphs into the real one. */
+.swarm { position: fixed; inset: 0; pointer-events: none; z-index: 10040; overflow: hidden; contain: strict; }
+.swarm-stage { position: absolute; inset: 0; }
+.swarm-frame { position: absolute; box-sizing: border-box; border-radius: 14px; border: 1.5px dashed color-mix(in srgb, var(--accent) 40%, transparent); background: color-mix(in srgb, var(--bg, #fff) 55%, transparent); will-change: transform, opacity; }
+.swarm-piece { position: absolute; border-radius: 7px; background: color-mix(in srgb, var(--accent) 16%, var(--bg, #fff)); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); transform-origin: 50% 100%; will-change: transform, opacity; }
+.sp-head { background: color-mix(in srgb, var(--accent) 30%, var(--bg, #fff)); }
+.sp-formula, .sp-result { background: color-mix(in srgb, #10b981 22%, var(--bg, #fff)); }
+.sp-check { border-radius: 4px; background: color-mix(in srgb, var(--accent) 45%, var(--bg, #fff)); }
+.sp-plot { background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--accent) 34%, transparent) 0 14%, transparent 14% 20%), color-mix(in srgb, var(--bg, #fff) 80%, var(--accent)); }
+.sp-media { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 30%, var(--bg, #fff)), color-mix(in srgb, #f59e0b 25%, var(--bg, #fff))); }
+.swarm-agent { position: absolute; left: -3px; top: -2px; will-change: transform, opacity; }
+.swarm-agent svg { display: block; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.3)); }
+.swarm-agent path { fill: hsl(var(--h) 78% 52%); stroke: #fff; stroke-width: 1.4; stroke-linejoin: round; }
+.swarm-tag { position: absolute; left: 15px; top: 17px; padding: 3px 8px 3px 6px; border-radius: 999px; font: 600 11px/1.1 system-ui, sans-serif; color: #fff; white-space: nowrap; background: hsl(var(--h) 70% 46%); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22); }
+.swarm-tag b { margin-right: 4px; font-weight: 700; }
+.swarm-ripple { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; border: 2px solid hsl(var(--h) 80% 58%); opacity: 0; will-change: transform, opacity; }
+@media (prefers-reduced-motion: reduce) { .swarm { display: none; } }
