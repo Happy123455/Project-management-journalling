@@ -120,7 +120,7 @@ export async function runAssistantTool(call: ToolCall, ctx: RunCtx): Promise<Out
   if (!write) return runTool(call, ctx);
   const a = call.arguments ?? {};
   const words = [a.text, a.lines, a.title, a.what, a.latex, a.expr].find((v) => typeof v === "string" && v.trim());
-  const done = watchEdit({ tool: call.name, text: typeof words === "string" ? words : "", actor: ctx.actor });
+  const done = watchEdit({ tool: call.name, text: typeof words === "string" ? words : "", actor: ctx.actor, why: typeof a.why === "string" ? a.why : undefined });
   const r = await runTool(call, ctx);
   if (!r.bad) done();
   return r;
@@ -155,10 +155,14 @@ async function runTool(call: ToolCall, ctx: RunCtx): Promise<Out> {
           }
           target = page.title;
         }
-        window.dispatchEvent(new CustomEvent(AI_OPEN_EVENT, { detail: { target, newTab: !!a.new_tab, now: true } }));
+        // A day is reached the way a person would (Home, week, month or year) before the next step.
+        await new Promise<void>((r) => {
+          let over = false;
+          const done = () => !over && ((over = true), window.setTimeout(r, 350));
+          window.dispatchEvent(new CustomEvent(AI_OPEN_EVENT, { detail: { target, newTab: !!a.new_tab, now: true, show: true, done } }));
+          window.setTimeout(done, 12_000);
+        });
         ctx.opened.push(target);
-        // Tabs open one after another, not all at once.
-        await new Promise((r) => setTimeout(r, 350));
         return ok(`Opened ${target}${a.new_tab ? " in a new tab" : ""}.`);
       }
       case "find_tasks": {

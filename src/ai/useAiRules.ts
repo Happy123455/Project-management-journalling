@@ -4,6 +4,7 @@ import { dueRule, firedKey, parseRules, RULES_PAGE, targetDay, type AiRule } fro
 import { pageLines } from "../lib/specialDates";
 import { isTyping } from "../lib/toast";
 import { AI_OPEN_EVENT } from "./journalTools";
+import { showNavTo } from "../assistant/swarm/navShow";
 
 const FIRED_KEY = "dynamic-journal.rules-fired";
 
@@ -36,18 +37,27 @@ export function useAiNavigation(store: JournalStore | null, open: (target: strin
   useEffect(() => {
     let wait = 0;
     // `now`: asked for this moment (the assistant), so it doesn't wait for typing to pause.
-    const go = (target: string, newTab = false, now = false) => {
+    const go = (target: string, newTab = false, now = false, show = false, done?: () => void) => {
       if (!now && isTyping()) {
         window.clearTimeout(wait);
         wait = window.setTimeout(() => go(target, newTab), 1500);
         return;
       }
       const day = targetDay(target, new Date());
+      // The assistant opening a day: its arrow goes there the way you would (Home, the week, the
+      // month or the year) and taps the day (swarm/navShow.ts). Otherwise, or if that can't be
+      // shown, it simply opens.
+      if (show && day && !newTab)
+        return void showNavTo(day).then((shown) => {
+          if (!shown) openRef.current(day, false);
+          done?.();
+        });
       openRef.current(day ?? target, newTab);
+      done?.();
     };
     const on = (e: Event) => {
-      const d = (e as CustomEvent<{ target?: string; newTab?: boolean; now?: boolean }>).detail;
-      if (d?.target) go(d.target, !!d.newTab, !!d.now);
+      const d = (e as CustomEvent<{ target?: string; newTab?: boolean; now?: boolean; show?: boolean; done?: () => void }>).detail;
+      if (d?.target) go(d.target, !!d.newTab, !!d.now, !!d.show, d.done);
     };
     window.addEventListener(AI_OPEN_EVENT, on);
     return () => {

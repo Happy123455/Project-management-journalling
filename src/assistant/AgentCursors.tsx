@@ -20,7 +20,16 @@ export interface CursorMsg {
   /** act: the tool, and words it writes (to find the line on screen). */
   tool?: string;
   text?: string;
+  /**
+   * think: only if this agent's run is still going (the swarm's "back to the bubble" after a
+   * write). It may come after the run's "done", and used to start a new run nobody ended: three
+   * arrows circling forever (an endless animation, the FPS drop after math blocks, 18 Nov).
+   */
+  soft?: boolean;
 }
+
+/** A run that hears nothing for this long is over (a lost "done" must never leave arrows spinning). */
+const STALE_MS = 90_000;
 
 export function cursorFx(m: CursorMsg) {
   window.dispatchEvent(new CustomEvent<CursorMsg>(CURSOR_EVENT, { detail: m }));
@@ -89,13 +98,25 @@ const reduced = () => {
 export function AgentCursors() {
   const [runs, setRuns] = useState<Run[]>([]);
   const timers = useRef(new Map<string, number>());
+  const stale = useRef(new Map<string, number>());
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
   const [, tick] = useState(0);
   useEffect(() => {
     const on = (e: Event) => {
       const m = (e as CustomEvent<CursorMsg>).detail;
       if (!m?.key || reduced()) return;
       const t = timers.current;
+      if (m.soft) {
+        // Nothing to do unless the run is still on (and not on its way out).
+        const cur = runsRef.current.find((r) => r.key === m.key);
+        if (!cur || cur.phase === "done") return;
+        setRuns((list) => list.map((r) => (r.key === m.key && r.phase !== "done" ? { ...r, phase: "think", to: [null, null, null], n: r.n + 1 } : r)));
+      }
       window.clearTimeout(t.get(m.key));
+      window.clearTimeout(stale.current.get(m.key));
+      if (m.phase !== "done") stale.current.set(m.key, window.setTimeout(() => setRuns((list) => list.filter((r) => r.key !== m.key)), STALE_MS));
+      if (m.soft) return;
       setRuns((list) => {
         const cur = list.find((r) => r.key === m.key);
         const rest = list.filter((r) => r.key !== m.key);
@@ -121,6 +142,7 @@ export function AgentCursors() {
     return () => {
       window.removeEventListener(CURSOR_EVENT, on);
       window.removeEventListener("resize", follow);
+      for (const id of stale.current.values()) window.clearTimeout(id);
     };
   }, []);
   if (!runs.length) return null;

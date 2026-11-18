@@ -143,6 +143,7 @@ function MonthGridView({ year, month, counts, max, search, selected, today, onPi
           <button
             key={d}
             type="button"
+            data-day={d}
             className={classes}
             style={style as CSSProperties}
             title={`${ev ? `${ev.emoji} ${ev.label} · ` : ""}${s ? `${specials.map((x) => x.title).join(", ")} · ` : ""}${reminder ? `${d}: reminder` : search ? `${d}: ${words} matches` : `${d}: ${words} words`}`}
@@ -267,8 +268,30 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
     drag.current = null;
     endPull(cancelled ? p.dy : (e.changedTouches[0]?.clientY ?? p.y + p.dy) - p.y, cancelled ? e.timeStamp + 1000 : e.timeStamp);
   };
-  const pullFns = useRef({ pullMove, pullEnd });
-  pullFns.current = { pullMove, pullEnd };
+  // A small swipe up on the open month (its grid or its bar) folds it to the week (Hapi, 18 Nov: it
+  // took a hard swipe, because the month's own list scrolled first and a scrolled month never folded).
+  // The swipe is taken over as soon as it's clearly upwards, so nothing scrolls under it; a tap or a
+  // sideways move on a date is left alone, and the click that ends a fold never opens a day.
+  const fold = useRef<{ x: number; y: number; done: boolean } | null>(null);
+  const foldedAt = useRef(0);
+  const foldMove = (e: TouchEvent) => {
+    const f = fold.current;
+    if (!f || f.done || scrubRef.current?.on) return;
+    const t = e.touches[0];
+    const dy = t.clientY - f.y;
+    const dx = t.clientX - f.x;
+    if (Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy)) return void (fold.current = null);
+    if (dy > 8) return void (fold.current = null);
+    if (dy < -6 && -dy > Math.abs(dx) * 1.3 && e.cancelable) e.preventDefault();
+    if (dy < -26 && -dy > Math.abs(dx) * 1.3) {
+      f.done = true;
+      foldedAt.current = Date.now();
+      haptic("edge", 0.6);
+      toggle(false, true);
+    }
+  };
+  const pullFns = useRef({ pullMove, pullEnd, foldMove });
+  pullFns.current = { pullMove, pullEnd, foldMove };
   const pulledAt = useRef(0);
   useEffect(() => {
     const el = section.current;
@@ -290,7 +313,12 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
     };
     // Runs after React's onTouchStart (which sets up `pull`): both listen on the way up.
     el.addEventListener("touchstart", onStart, { passive: true });
-    return () => el.removeEventListener("touchstart", onStart);
+    const onFoldMove = (ev: TouchEvent) => pullFns.current.foldMove(ev);
+    el.addEventListener("touchmove", onFoldMove, { passive: false });
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onFoldMove);
+    };
   }, []);
   // Hold the month name: a joystick for months. Lean left or right, further = faster, a tick for each month.
   const [scrub, setScrub] = useState<number | null>(null);
@@ -371,6 +399,7 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
       {sheet && <div className="cal-scrim" onClick={() => toggle(false)} />}
       <section
         ref={section}
+        data-month={`${shownYear}-${String(shownMonth).padStart(2, "0")}`}
         className={`month-calendar${collapsed ? " collapsed" : ""}${compact ? " compact" : ""}${sheet ? " floating" : ""}${shading.search ? " search-mode" : ""}${scrub != null ? " scrubbing" : ""}${pulling ? " pulling" : ""}`}
         style={sheet && stripBox.current ? { left: stripBox.current.left, width: stripBox.current.width, right: "auto", maxWidth: "none", margin: 0, boxSizing: "border-box" } : undefined}
         // A day opens that day; anywhere else (not a button) opens the week into the month, or folds the month back.
@@ -399,10 +428,19 @@ export function MonthCalendar({ day, shading, today, collapsed, compact, onToggl
           // Touching a deadline's day bar (Deadlines today) is for the bar, not for folding the month.
           if ((e.target as HTMLElement).closest?.(".tdl-bar, .tdl-next")) return void ((drag.current = null), (pull.current = null));
           drag.current = { y: t.clientY, x: t.clientX };
+          // On the month's grid or bar (not its lists, which scroll): a small swipe up folds it.
+          fold.current = !collapsed && (e.target as HTMLElement).closest?.(".month-grid, .cal-bar") ? { x: t.clientX, y: t.clientY, done: false } : null;
           pull.current = collapsed ? { x: t.clientX, y: t.clientY, t: e.timeStamp, base: section.current?.offsetHeight ?? 0, on: false, dy: 0 } : null;
         }}
         // The pull itself is followed by pullMove / pullEnd (see above).
+        onClickCapture={(e) => {
+          // The lift of the finger that just folded the month is not a tap on a day.
+          if (Date.now() - foldedAt.current < 450) (e.stopPropagation(), e.preventDefault());
+        }}
         onTouchEnd={(e) => {
+          const folding = fold.current;
+          fold.current = null;
+          if (folding?.done) return void (drag.current = null);
           const start = drag.current;
           drag.current = null;
           if (Date.now() - pulledAt.current < 200) return void e.stopPropagation();

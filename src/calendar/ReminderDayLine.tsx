@@ -44,15 +44,17 @@ export function ReminderTimeLeft({ day, content }: { day: string; content: JSONC
  * evening), with a point where each of today's reminders falls, sunrise, sunset and now, and how
  * long is left until the next one.
  */
+/** Today's sky as a left-to-right gradient (the day line's colours), for a folded Today bar too. */
+export function skyGradient(day: string): string {
+  const coords = homeCoords();
+  const stops: string[] = [];
+  for (let i = 0; i <= 48; i++) stops.push(`${skyAt(at(day, 0, i * 30), coords).bg} ${(i / 48) * 100}%`);
+  return `linear-gradient(90deg, ${stops.join(", ")})`;
+}
+
 export function TodayDayLine({ day, items, onPick }: { day: string; items: { at: number; text: string; done: boolean }[]; onPick?: (text: string) => void }) {
   const now = useNow();
-  const sky = useMemo(() => {
-    const coords = homeCoords();
-    const stops: string[] = [];
-    for (let i = 0; i <= 48; i++) stops.push(`${skyAt(at(day, 0, i * 30), coords).bg} ${(i / 48) * 100}%`);
-    const sun = sunForDay(new Date(at(day, 12, 0)), coords);
-    return { gradient: `linear-gradient(90deg, ${stops.join(", ")})`, sun };
-  }, [day]);
+  const sky = useMemo(() => ({ gradient: skyGradient(day), sun: sunForDay(new Date(at(day, 12, 0)), homeCoords()) }), [day]);
   const start = at(day, 0, 0);
   const pctOf = (t: number) => ((t - start) / 86_400_000) * 100;
   const inDay = (p: number) => p >= 0 && p <= 100;

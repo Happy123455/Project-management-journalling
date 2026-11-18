@@ -1,8 +1,18 @@
-import type React from "react";
+import React, { useMemo, useState } from "react";
 import type { JournalStore } from "../store";
 import { agendaAction, useTodayAgenda } from "./agenda";
 import { writeLog, type RoutineView } from "./routineData";
-import { TodayDayLine } from "../calendar/ReminderDayLine";
+import { skyGradient, TodayDayLine } from "../calendar/ReminderDayLine";
+import { haptic } from "../lib/haptic";
+
+const FOLD_KEY = "journal.todayFolded";
+const loadFolded = () => {
+  try {
+    return localStorage.getItem(FOLD_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
 import { dayKey } from "../lib/timestamp";
 
 /** The reminder's words without its "⏰ 15:00" (the day line shows the time). */
@@ -33,10 +43,26 @@ export function jumpToLine(text: string) {
  */
 export function TodayAgenda({ store, view, onOpenRoutine }: { store: JournalStore; view: RoutineView | null; onOpenRoutine: () => void }) {
   const { items, now } = useTodayAgenda(store);
+  // Tap the Today bar to fold it to a thin line in today's sky colours, tap again to open (Hapi, 18 Nov).
+  const [folded, setFolded] = useState(loadFolded);
+  const today = dayKey(new Date(now));
+  const sky = useMemo(() => skyGradient(today), [today]);
+  const fold = () => {
+    haptic("tick", 0.6);
+    setFolded((f) => {
+      try {
+        localStorage.setItem(FOLD_KEY, f ? "0" : "1");
+      } catch {
+        // Only a convenience.
+      }
+      return !f;
+    });
+  };
   const next = view?.plan[0];
   const nextStep = next && view?.config.steps.find((s) => s.id === next.id);
   const open = view && view.config.steps.flatMap((s) => (view.filled.get(s.id) ?? []).filter((x) => x.open && !x.estimated && x.end >= view.now - 60_000).map(() => s))[0];
   if (!items.length && !nextStep && !open) return null;
+  const left = items.filter((i) => !i.done && i.at > now).length;
   const dayStart = new Date(now).setHours(0, 0, 0, 0);
   const dayPct = (t: number) => Math.max(0, Math.min(100, ((t - dayStart) / 86_400_000) * 100));
   const rows = items.map((item) => (
@@ -63,9 +89,18 @@ export function TodayAgenda({ store, view, onOpenRoutine }: { store: JournalStor
     </li>
   ));
   return (
-    <section className="reminders today-agenda">
-      <h2>Today</h2>
-      {items.length > 0 && <TodayDayLine day={dayKey(new Date(now))} items={items} onPick={jumpToLine} />}
+    <section className={`reminders today-agenda${folded ? " folded" : ""}`}>
+      <button type="button" className="ta-head" onClick={fold} aria-expanded={!folded} title={folded ? "Show today" : "Fold today away"}>
+        <h2>Today</h2>
+        <span className="ta-mini" style={{ background: sky }} aria-hidden>
+          <i style={{ left: `${dayPct(now)}%` }} />
+        </span>
+        {folded && (left > 0 || items.length > 0) && <span className="ta-left">{left ? `${left} left` : "✓ all done"}</span>}
+        <span className="ta-chev" aria-hidden>▾</span>
+      </button>
+      <div className="ta-body" aria-hidden={folded}>
+      <div className="ta-inner">
+      {items.length > 0 && <TodayDayLine day={today} items={items} onPick={jumpToLine} />}
       <ul>{rows}</ul>
       {view && (open || nextStep) && (
         <div className="agenda-next">
@@ -85,6 +120,8 @@ export function TodayAgenda({ store, view, onOpenRoutine }: { store: JournalStor
           <button type="button" className="agenda-routine" onClick={onOpenRoutine} aria-label="Open the routine">🧭</button>
         </div>
       )}
+      </div>
+      </div>
     </section>
   );
 }

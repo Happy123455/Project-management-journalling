@@ -60,3 +60,29 @@ export const FindHighlight = Extension.create({
     ];
   },
 });
+
+/** A line of the note with matches: its text, where they are, and the number of its first match. */
+export interface NoteLineMatch {
+  text: string;
+  ranges: { start: number; end: number }[];
+  /** Index of its first match among all of the note's matches (the same order as findMatches). */
+  first: number;
+}
+
+/** The note's text blocks that match, in order, numbered like findMatches (for "in this note"). */
+export function matchLines(doc: PMNode, terms: string[], limit = 40): { lines: NoteLineMatch[]; total: number } {
+  const lines: NoteLineMatch[] = [];
+  let total = 0;
+  if (!terms.length) return { lines, total };
+  doc.descendants((node) => {
+    if (!node.isTextblock) return;
+    const text = node.textBetween(0, node.content.size, undefined, "￼");
+    const ranges = findRanges(text, terms);
+    if (ranges.length) {
+      if (lines.length < limit) lines.push({ text: text.replace(/￼/g, " "), ranges, first: total });
+      total += ranges.length;
+    }
+    return false;
+  });
+  return { lines, total };
+}

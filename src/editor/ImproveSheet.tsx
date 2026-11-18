@@ -1,7 +1,8 @@
 // Item 6: the "✨ Improve" sheet. The original and the improved prompt side by side (one above
 // the other on a phone), the new words underlined, a short note on what changed; Keep, Edit or
 // Close. The caller applies a kept version as an AI edit and offers Undo.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { correctInto } from "../assistant/swarm/correctRun";
 import { createPortal } from "react-dom";
 import { improvePrompt, wordDiff, type Improved } from "../ai/improve";
 import { fx } from "../lib/fx";
@@ -13,18 +14,31 @@ export function ImproveSheet({ original, title = "✨ Improve", improve = improv
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [why, setWhy] = useState(false);
+  // The fixes play word by word first (Hapi, 18 Nov), then the usual underlined view; ▶ replays them.
+  const [watching, setWatching] = useState(0);
+  const playBox = useRef<HTMLParagraphElement>(null);
   const close = () => (fx("close"), onClose());
   useEscapeToClose(close);
   useEffect(() => {
     let live = true;
     improve(original)
-      .then((r) => live && (setResult(r), setDraft(r.text), fx("done")))
+      .then((r) => live && (setResult(r), setDraft(r.text), fx("done"), r.text.trim() !== original.trim() && setWatching((n) => n + 1)))
       .catch((e) => live && setError(e instanceof Error ? e.message : String(e)));
     return () => {
       live = false;
     };
   }, [original]);
   const same = result && result.text.trim() === original.trim();
+  useEffect(() => {
+    const box = playBox.current;
+    if (!watching || !box || !result) return;
+    let live = true;
+    void correctInto(box, original, result.text, { why: result.note, who: result.actor }).then(() => live && setWatching(0));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watching]);
   return createPortal(
     <div className="dls-back" onClick={close}>
       <div className="dls dls-wide improve-sheet" role="dialog" aria-label="Improve the prompt" onClick={(e) => e.stopPropagation()}>
@@ -42,7 +56,8 @@ export function ImproveSheet({ original, title = "✨ Improve", improve = improv
             <h4>Improved</h4>
             {!result && !error && <p className="improve-text improve-wait">Improving…</p>}
             {error && <p className="hint prompt-error">{error}</p>}
-            {result && !editing && (
+            {result && !editing && watching > 0 && <p className="improve-text" ref={playBox} key={`play${watching}`} />}
+            {result && !editing && !watching && (
               <p className="improve-text">
                 {wordDiff(original, result.text).map((p, i) => (p.kind === "new" ? <mark key={i} className="improve-new">{p.text}</mark> : <span key={i}>{p.text}</span>))}
               </p>
@@ -64,7 +79,8 @@ export function ImproveSheet({ original, title = "✨ Improve", improve = improv
         <footer className="improve-actions">
           {result && <span className="hint">{same ? "Already reads well: nothing to change." : `By ${result.actor}`}</span>}
           <button type="button" onClick={close}>Close</button>
-          {result && !editing && !same && <button type="button" onClick={() => (fx("open"), setEditing(true))}>Edit</button>}
+          {result && !editing && !same && !watching && <button type="button" onClick={() => setWatching(1)} title="Watch the fixes again, word by word">▶ Replay</button>}
+          {result && !editing && !same && <button type="button" onClick={() => (fx("open"), setWatching(0), setEditing(true))}>Edit</button>}
           {result && (
             <button type="button" onClick={() => (fx("done"), void navigator.clipboard?.writeText(editing ? draft : result.text))}>
               Copy

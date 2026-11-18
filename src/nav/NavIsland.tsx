@@ -4,7 +4,8 @@ import { createPortal } from "react-dom";
 import { dayTitle } from "../lib/timestamp";
 import { openOutline, setViewMode, useViewMode, viewMode as currentViewMode, type ViewMode } from "../editor/viewMode";
 import { matchTitles, parseScope, type TitleHit } from "./titleMatch";
-import { highlightParts } from "../lib/search";
+import { highlightParts, searchTerms } from "../lib/search";
+import type { NoteLineMatch } from "../editor/findHighlight";
 import { rememberSearch, type SearchResult } from "../search/SearchPanel";
 import type { SearchHit } from "../store";
 import { joyLane } from "./joyPrefs";
@@ -150,6 +151,27 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     fn();
   };
 
+  const noteScroll = useRef<{ y: number; at: number } | null>(null);
+  const stickY = useRef<number | null>(null);
+  /**
+   * Keeps the note at `y` while the agent's bubble and chat appear (leaving reading mode, the chat
+   * box taking focus and the keyboard can each move it), until the person touches or scrolls.
+   */
+  const holdScroll = (y: number) => {
+    let stop = false;
+    const quit = () => {
+      stop = true;
+      window.removeEventListener("touchstart", quit, true);
+      window.removeEventListener("wheel", quit, true);
+    };
+    window.addEventListener("touchstart", quit, { capture: true, passive: true });
+    window.addEventListener("wheel", quit, { capture: true, passive: true });
+    const put = () => !stop && Math.abs(window.scrollY - y) > 1 && window.scrollTo({ top: y, behavior: "auto" });
+    put();
+    requestAnimationFrame(put);
+    for (const ms of [60, 140, 260, 450, 700]) window.setTimeout(put, ms);
+    window.setTimeout(quit, 800);
+  };
   const stopJoy = () => {
     const j = joyRun.current;
     joyRun.current = null;
@@ -287,6 +309,10 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
       // Not capturable (already up).
     }
     const zone = (e.target as HTMLElement).closest<HTMLElement>("[data-zone]")?.dataset.zone ?? "bar";
+    // Where the note was before Home was touched: drawing Home up into the top third (an agent)
+    // runs through the stick's scroll zone on the way, which scrolled the note to the top. The
+    // agent's bubble puts it back exactly here (the plain joystick keeps where it scrolled to).
+    if (zone === "home") (noteScroll.current = { y: window.scrollY, at: Date.now() }), (stickY.current = null);
     const gesture: Gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: e.timeStamp, zone, mode: "idle", timer: 0, movedAfter: false };
     if (zone === "search")
       gesture.timer = window.setTimeout(() => {
@@ -363,6 +389,15 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
       // Just under the top third the stick pauses (well past its full-speed reach); in the top third, letting go starts an agent.
       const agent: 0 | 1 | 2 = !onAgent ? 0 : e.clientY < window.innerHeight / 3 ? 2 : j.armed && e.clientY < window.innerHeight * 0.45 ? 1 : 0;
       if (agent !== j.agent) {
+        // Into the agent's zone (top third): the note goes back to where it was before Home was
+        // touched. Back out of it without letting go: back to where the stick had brought it.
+        if (agent === 2 && noteScroll.current) {
+          stickY.current = window.scrollY;
+          window.scrollTo({ top: noteScroll.current.y, behavior: "auto" });
+        } else if (j.agent === 2 && stickY.current != null) {
+          window.scrollTo({ top: stickY.current, behavior: "auto" });
+          stickY.current = null;
+        }
         if (agent === 2) haptic("press", 1);
         else if (j.agent === 2) haptic("tick", 0.5);
         j.agent = agent;
@@ -400,6 +435,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
       if (agent) {
         haptic("edge", 1);
         onAgent?.(e.clientX, e.clientY);
+        if (noteScroll.current) holdScroll(noteScroll.current.y);
       }
       return;
     }
@@ -703,11 +739,41 @@ function rememberTitle(h: TitleHit) {
   }
 }
 
-export function TitleSearch({ pages, days, today, onOpen, onClose, history = false, onTextSearch, search, onPickHit }: {
+/** The open note, for "in this note" in the search. */
+export interface SearchHere {
+  /** Its name ("Today", a day, a page). */
+  label: string;
+  /** Its lines that match. */
+  lines: (terms: string[]) => { lines: NoteLineMatch[]; total: number };
+}
+
+const DEEP_KEY = "journal.searchDeep";
+const loadDeep = () => {
+  try {
+    return localStorage.getItem(DEEP_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+
+/** A line of the note with its matches marked, cut to the part around the first one. */
+function HereLine({ line }: { line: NoteLineMatch }) {
+  const cut = Math.max(0, line.ranges[0].start - 28);
+  const shown = { text: (cut ? "…" : "") + line.text.slice(cut), ranges: line.ranges.map((r) => ({ start: r.start - cut + (cut ? 1 : 0), end: r.end - cut + (cut ? 1 : 0) })).filter((r) => r.start >= 0) };
+  return <>{highlightParts(shown).map((p, k) => (p.hit ? <mark key={k}>{p.text}</mark> : <span key={k}>{p.text}</span>))}</>;
+}
+
+/**
+ * The 🔍 search (Hapi, 18 Nov): first the open note (its matches light up in the note as you
+ * type, and its matching lines are listed: tap one to go there), then notes whose names match
+ * (they open with the words highlighted), and on request every note's text ("Search all notes").
+ */
+export function TitleSearch({ pages, days, today, onOpen, onClose, history = false, onTextSearch, search, onPickHit, here, onFindHere }: {
   pages: () => Promise<string[]>;
   days: string[];
   today: string;
-  onOpen: (hit: TitleHit, newTab: boolean) => void;
+  /** `terms`: what was typed, to highlight in the note that opens. */
+  onOpen: (hit: TitleHit, newTab: boolean, terms: string[]) => void;
   onClose: () => void;
   /** Opened by holding / swiping up on 🔍: the history shows first and the keyboard stays down. */
   history?: boolean;
@@ -715,8 +781,12 @@ export function TitleSearch({ pages, days, today, onOpen, onClose, history = fal
   onTextSearch?: (q: string) => void;
   /** Searches what the notes say (and file names): the same search as the 🔎 panel. */
   search?: (q: string) => Promise<SearchResult[]>;
-  /** A text match tapped: open it at that match. */
-  onPickHit?: (hit: SearchHit, match: number) => void;
+  /** A text match tapped: open it at that match (with these words highlighted). */
+  onPickHit?: (hit: SearchHit, match: number, terms: string[]) => void;
+  /** The open note. */
+  here?: SearchHere | null;
+  /** Highlight these words in the open note, `index` the current match (no words: clear). */
+  onFindHere?: (terms: string[], index: number) => void;
 }) {
   const [q, setQ] = useState("");
   const [past, setPast] = useState<Past[]>(() => {
@@ -725,10 +795,6 @@ export function TitleSearch({ pages, days, today, onOpen, onClose, history = fal
     const texts = loadRecent().map((t, i) => ({ kind: "text" as const, key: t, label: t, at: -i }));
     return [...titles, ...texts];
   });
-  const open = (h: TitleHit, newTab: boolean) => {
-    rememberTitle(h);
-    onOpen(h, newTab);
-  };
   const [names, setNames] = useState<string[]>([]);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -740,28 +806,66 @@ export function TitleSearch({ pages, days, today, onOpen, onClose, history = fal
     };
   }, [pages]);
   useEscapeToClose(onClose);
-  // A global search: titles first, then everything the notes say. "file:(…)" (or title:, day:,
-  // page:) looks only there.
+  // "file:(…)" (or title:, day:, page:) looks only there, and always in every note.
   const { scope, text } = parseScope(q);
+  const terms = searchTerms(text);
+  const termKey = terms.join("\u0000");
   const titleHits = scope === "file" ? [] : matchTitles(text, names, days, today).filter((h) => scope === "all" || scope === "title" || h.kind === scope);
   const hits = scope === "all" ? titleHits.slice(0, 6) : titleHits;
+  const open = (h: TitleHit, newTab: boolean) => {
+    rememberTitle(h);
+    if (text.trim()) rememberSearch(q);
+    onOpen(h, newTab, terms);
+  };
+
+  // In this note: its lines that match, and the matches lit up in the note as you type.
+  const inNote = scope === "all" && here && terms.length ? here.lines(terms) : null;
+  const findRef = useRef(onFindHere);
+  findRef.current = onFindHere;
+  const typed = useRef(false);
+  useEffect(() => {
+    // Opening the search doesn't clear what an earlier search lit up; typing does.
+    if (scope !== "all" || (!typed.current && !termKey)) return;
+    typed.current = true;
+    const t = window.setTimeout(() => findRef.current?.(termKey ? termKey.split("\u0000") : [], 0), 140);
+    return () => window.clearTimeout(t);
+  }, [termKey, scope]);
+
+  // Every note's text: on request (or with a scope).
+  const [deep, setDeep] = useState(loadDeep);
+  const setDeepOn = (on: boolean) => {
+    setDeep(on);
+    try {
+      localStorage.setItem(DEEP_KEY, on ? "1" : "0");
+    } catch {
+      // Only a convenience.
+    }
+  };
+  const wantDeep = !!search && !!text && scope !== "title" && (deep || scope !== "all");
   const [found, setFound] = useState<SearchResult[] | null>(null);
   useEffect(() => {
-    if (!search || !text || scope === "title") return setFound(null);
+    if (!search || !wantDeep) return setFound(null);
     let live = true;
     const t = window.setTimeout(() => void search(text).then((r) => live && setFound(r.filter((x) => scope === "all" || x.hit.kind === scope)), () => {}), 220);
     return () => {
       live = false;
       window.clearTimeout(t);
     };
-  }, [search, text, scope]);
+  }, [search, text, scope, wantDeep]);
   const pickHit = (hit: SearchHit, match: number) => {
     rememberSearch(q);
-    onPickHit?.(hit, match);
+    onPickHit?.(hit, match, terms);
   };
+  const goHere = (index: number) => {
+    rememberSearch(q);
+    haptic("tick", 0.6);
+    onFindHere?.(terms, index);
+    onClose();
+  };
+  const hereTotal = inNote?.total ?? 0;
   return createPortal(
     <>
-      <div className="search-backdrop" onClick={onClose} />
+      <div className={`search-backdrop${hereTotal ? " see-note" : ""}`} onClick={onClose} />
       <div className="search-panel title-search" role="dialog" aria-label="Find a note">
         <div className="search-bar">
           <span aria-hidden>🔍</span>
@@ -769,19 +873,24 @@ export function TitleSearch({ pages, days, today, onOpen, onClose, history = fal
             ref={input}
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search everything… (file: for files)"
+            placeholder={here ? `Search ${here.label} first, then everything…` : "Search everything… (file: for files)"}
             enterKeyHint="go"
-            onKeyDown={(e) => e.key === "Enter" && (hits[0] ? open(hits[0], false) : found?.[0] && pickHit(found[0].hit, 0))}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              if (hereTotal) return goHere(0);
+              if (hits[0]) return open(hits[0], false);
+              if (found?.[0]) pickHit(found[0].hit, 0);
+            }}
             aria-label="Search"
           />
           <button type="button" className="search-clear" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <p className="search-summary">
           {q.trim()
-            ? `${scope === "all" ? "" : `Only ${scope === "file" ? "files" : scope === "title" ? "titles" : `${scope}s`} · `}${hits.length ? `${hits.length} by title` : ""}${hits.length && found?.length ? " · " : ""}${found?.length ? `${found.length} in ${scope === "file" ? "files" : "notes"}` : ""}${!hits.length && !found?.length ? (found ? "No matches" : "Searching…") : ""}`
+            ? `${scope === "all" ? "" : `Only ${scope === "file" ? "files" : scope === "title" ? "titles" : `${scope}s`} · `}${inNote ? `${hereTotal || "No"} in this note · ` : ""}${hits.length ? `${hits.length} by name` : "no names match"}${found ? ` · ${found.length} in ${scope === "file" ? "files" : "all notes"}` : wantDeep ? " · searching…" : ""}`
             : past.length
               ? `Search history · ${past.length}`
-              : "Everything: titles, text, #tags, files. file:(…) for files only"}
+              : "This note first, then names. file:(…) for files only"}
         </p>
         {!q.trim() && past.length > 0 && (
           <ul className="search-results search-history">
@@ -819,6 +928,29 @@ export function TitleSearch({ pages, days, today, onOpen, onClose, history = fal
           </ul>
         )}
         <ul className="search-results">
+          {inNote && (
+            <li className="search-group search-here">
+              <div className="search-group-head">
+                <span>📍 In {here!.label}</span>
+                {hereTotal > 0 && <span className="search-count">{hereTotal}</span>}
+                {hereTotal > 0 && (
+                  <button type="button" className="search-here-go" onClick={() => goHere(0)}>
+                    Show in note ↓
+                  </button>
+                )}
+              </div>
+              {hereTotal === 0 && <p className="hint search-here-none">No “{text.trim()}” in this note.</p>}
+              {inNote.lines.slice(0, 5).map((l, i) => (
+                <button key={i} type="button" className="search-result search-here-line" onClick={() => goHere(l.first)}>
+                  <span className="search-line">
+                    <HereLine line={l} />
+                  </span>
+                </button>
+              ))}
+              {inNote.lines.length > 5 && <p className="hint search-here-more">+{inNote.lines.length - 5} more lines: ↑ ↓ in the note</p>}
+            </li>
+          )}
+          {q.trim() && hits.length > 0 && <li className="search-group-head search-sep">📄 Notes named like “{text.trim()}”</li>}
           {hits.map((h) => (
             <li key={`${h.kind}:${h.key}`} className="title-hit">
               <button type="button" className="search-result" onClick={() => open(h, false)}>
@@ -832,6 +964,13 @@ export function TitleSearch({ pages, days, today, onOpen, onClose, history = fal
               </button>
             </li>
           ))}
+          {q.trim() && search && scope === "all" && text.trim() && (
+            <li className="search-deep">
+              <button type="button" className={deep ? "on" : ""} aria-pressed={deep} onClick={() => setDeepOn(!deep)}>
+                {deep ? "✓ Searching every note's text" : `🔎 Search all notes for “${text.trim()}”`}
+              </button>
+            </li>
+          )}
           {found?.map((r) => (
             <li key={r.hit.kind === "file" ? r.hit.file.id : r.hit.blockId}>
               <div className="search-result" role="button" tabIndex={0} onClick={() => pickHit(r.hit, 0)}>

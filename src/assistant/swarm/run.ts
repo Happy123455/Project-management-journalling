@@ -114,9 +114,9 @@ export function piecesOf(el: HTMLElement): Piece[] {
   return out;
 }
 
-const ARROW = '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 2 L4 19 L8.6 14.8 L11.6 21.6 L14.6 20.3 L11.7 13.6 L18 13.4 Z"/></svg>';
+export const ARROW = '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 2 L4 19 L8.6 14.8 L11.6 21.6 L14.6 20.3 L11.7 13.6 L18 13.4 Z"/></svg>';
 
-function node(cls: string, parent: HTMLElement, html = "") {
+export function node(cls: string, parent: HTMLElement, html = "") {
   const d = document.createElement("div");
   d.className = cls;
   if (html) d.innerHTML = html;
@@ -124,7 +124,7 @@ function node(cls: string, parent: HTMLElement, html = "") {
   return d;
 }
 
-const ease = "cubic-bezier(0.22, 1, 0.36, 1)";
+export const ease = "cubic-bezier(0.22, 1, 0.36, 1)";
 
 /**
  * Builds `el` in front of the person with a swarm of agents, then morphs into the real block.

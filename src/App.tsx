@@ -67,7 +67,8 @@ import { flushPendingEdits, hasPendingEdits, JournalEditor } from "./editor/Jour
 import { startHistoryThinning } from "./store/thinRunner";
 import { useTouchDevice } from "./editor/KeyboardBar";
 import { rememberScroll, recallScroll, restoreScroll, scrollKey } from "./nav/scrollMemory";
-import { MacTabBar, NavIsland, TabSwitcher, TitleSearch, type MenuAction } from "./nav/NavIsland";
+import { MacTabBar, NavIsland, TabSwitcher, TitleSearch, type MenuAction, type SearchHere } from "./nav/NavIsland";
+import { matchLines } from "./editor/findHighlight";
 import { PanelResizer, SidebarEdge, usePanelWidths, useSidebarToggle } from "./nav/PanelResizer";
 import { activeTab, closeTab, currentLoc, go, loadTabs, locKey, openTab, saveTabs, switchTab, visit, type Loc, type TabsState } from "./nav/tabs";
 import { receiveTyping } from "./sync/liveTyping";
@@ -827,8 +828,8 @@ function App() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [here, tabs.active, loadedDay]);
-  const openLoc = (l: Loc) => {
-    if (l.kind === "day") return void goTo(l.day);
+  const openLoc = (l: Loc, keepFind = false) => {
+    if (l.kind === "day") return void goTo(l.day, keepFind);
     if (l.kind === "page") return void handlers.onOpenLink(l.title);
     return void handlers.onOpenTag(l.tag);
   };
@@ -1204,10 +1205,21 @@ function App() {
     setQuery("");
   }, []);
 
+  // The 🔍 search looks in the open note first (its lines, numbered like the note's highlights).
+  const searchHere = useMemo<SearchHere | null>(() => {
+    if (route.kind === "tag") return null;
+    return {
+      label: route.kind === "page" ? route.page.title : day === today ? "Today" : dayTitle(day),
+      lines: (terms: string[]) => {
+        const ed = document.querySelector<HTMLElement & { editor?: Editor }>(".tiptap")?.editor;
+        return ed ? matchLines(ed.state.doc, terms) : { lines: [], total: 0 };
+      },
+    };
+  }, [route, day, today]);
   const globalSearch = useCallback(async (q: string) => (store ? toResults(await store.search(q), q) : []), [store]);
-  const openHit = async (hit: SearchHit, match: number) => {
+  const openHit = async (hit: SearchHit, match: number, terms = searchTerms(query)) => {
     setSearchOpen(false);
-    if (hit.kind !== "file") setFind({ where: hit.day ?? `page:${hit.title}`, terms: searchTerms(query), index: match, count: 0 });
+    if (hit.kind !== "file") setFind({ where: hit.day ?? `page:${hit.title}`, terms, index: match, count: 0 });
     if (hit.kind === "day" && hit.day) return goTo(hit.day, true);
     if (hit.kind === "page" && hit.title) return handlers.onOpenLink(hit.title);
     if (hit.kind === "file") {
@@ -1680,16 +1692,26 @@ function App() {
             setSearchOpen(true);
           }}
           search={globalSearch}
-          onPickHit={(hit, match) => {
+          onPickHit={(hit, match, terms) => {
             setTitleSearchOpen(false);
-            void openHit(hit, match);
+            void openHit(hit, match, terms);
           }}
           onClose={() => setTitleSearchOpen(false)}
-          onOpen={(hit, newTab) => {
+          here={searchHere}
+          onFindHere={(terms, index) => {
+            const where = route.kind === "page" ? `page:${route.page.title}` : route.kind === "day" ? day : "";
+            if (!where) return;
+            const key = terms.join("\u0000");
+            // Same words as already lit up: keep the count (the note only recounts when they change).
+            setFind((f) => (terms.length ? { where, terms, index, count: f && f.where === where && f.terms.join("\u0000") === key ? f.count : 0 } : f?.where === where ? null : f));
+          }}
+          onOpen={(hit, newTab, terms) => {
             setTitleSearchOpen(false);
             const l: Loc = hit.kind === "day" ? { kind: "day", day: hit.key } : { kind: "page", title: hit.key };
             if (newTab) setTabs((t) => openTab(t, l));
-            openLoc(l);
+            // The note opens searched for what was typed (its matches lit up, ↑ ↓ to step).
+            if (terms.length) setFind({ where: hit.kind === "day" ? hit.key : `page:${hit.key}`, terms, index: 0, count: 0 });
+            openLoc(l, terms.length > 0);
           }}
         />
       )}

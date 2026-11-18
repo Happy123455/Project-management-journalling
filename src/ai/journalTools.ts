@@ -36,7 +36,7 @@ export const TOOL_SPECS: ToolSpec[] = [
   { kind: "read", name: "read_sheet", description: "Read a spreadsheet table in a note: each cell with what's typed and, for formulas, the result.", parameters: obj({ date: DATE, title: TITLE, sheet: SHEET }) },
   // Writing
   { kind: "write", name: "append", description: "Add text at the end of a day's note (today if no date). One paragraph per line; [[Page]] links and #tags work.", parameters: obj({ text: { type: "string" }, date: DATE }, ["text"]) },
-  { kind: "write", name: "replace_text", description: "In a day's note or a page, replace `find` (first line that has it) with `replace` (empty deletes).", parameters: obj({ find: { type: "string" }, replace: { type: "string" }, date: DATE, title: TITLE }, ["find", "replace"]) },
+  { kind: "write", name: "replace_text", description: "In a day's note or a page, replace `find` (first line that has it) with `replace` (empty deletes).", parameters: obj({ find: { type: "string" }, replace: { type: "string" }, why: { type: "string", description: "when fixing or improving writing: one short sentence on what you changed and why (shown to the person with the correction)" }, date: DATE, title: TITLE }, ["find", "replace"]) },
   { kind: "write", name: "add_to_page", description: "Add text at the end of a named page, creating it if needed.", parameters: obj({ title: { type: "string" }, text: { type: "string" } }, ["title", "text"]) },
   {
     kind: "write",

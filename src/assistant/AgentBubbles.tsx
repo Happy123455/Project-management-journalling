@@ -9,6 +9,8 @@ import type { JournalStore } from "../store";
 import { haptic } from "../lib/haptic";
 import { ASSISTANT_ACTOR } from "./runner";
 import { CommandBar, type AgentStatus } from "./CommandBar";
+import { dismissBubble } from "./swarm/gone";
+import { swarmOff } from "./swarm/run";
 
 export const AGENT_SPAWN = "journal:agent-spawn";
 export const spawnAgent = (x: number, y: number) => window.dispatchEvent(new CustomEvent(AGENT_SPAWN, { detail: { x, y } }));
@@ -27,6 +29,8 @@ interface Agent {
   /** Finished (or asking) while folded away: a dot until it's opened. */
   unseen: boolean;
   merging?: { x: number; y: number };
+  /** Its closing show is playing (the real bubble is hidden under it). */
+  gone?: boolean;
 }
 
 const clampPos = (x: number, y: number) => ({
@@ -94,12 +98,21 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
     setAgents((list) => list.filter((a) => a.id !== id));
     setOpen((o) => (o === id ? null : o));
   }, []);
-  const merge = (a: Agent, at: { x: number; y: number }) => {
+  const merge = (a: Agent, at: { x: number; y: number }, from: { x: number; y: number }) => {
     haptic("edge", 1);
-    patch(a.id, { merging: at });
-    document.documentElement.classList.add("agent-merged");
-    window.setTimeout(() => document.documentElement.classList.remove("agent-merged"), 520);
-    window.setTimeout(() => remove(a.id), 340);
+    if (swarmOff()) {
+      // Reduced motion (or the swarm off): the old quick merge.
+      patch(a.id, { merging: at });
+      document.documentElement.classList.add("agent-merged");
+      window.setTimeout(() => document.documentElement.classList.remove("agent-merged"), 520);
+      window.setTimeout(() => remove(a.id), 340);
+      return;
+    }
+    // The long goodbye (Hapi, 18 Nov: it went too quickly): the bubble cracks into sparks that
+    // spiral into Home (swarm/gone.ts). Its chat folds at once; it's removed when the show ends.
+    patch(a.id, { merging: from, gone: true });
+    const homeEl = document.querySelector<HTMLElement>(".nav-island:not(.away) .nav-home");
+    void dismissBubble(from, at, `Agent ${a.n}`, homeEl).then(() => remove(a.id));
   };
 
   const statusFor = useRef(new Map<string, (s: AgentStatus, last: string) => void>());
@@ -136,7 +149,7 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
           }}
           onMove={(x, y) => patch(a.id, { x, y })}
           onNear={setNearHome}
-          onDrop={(at) => (at ? merge(a, at) : undefined)}
+          onDrop={(at, from) => (at ? merge(a, at, from) : undefined)}
         />
       ))}
       {agents.map((a) => (
@@ -170,7 +183,7 @@ function Bubble({ agent, open, unseen, onTap, onMove, onNear, onDrop }: {
   onTap: () => void;
   onMove: (x: number, y: number) => void;
   onNear: (near: boolean) => void;
-  onDrop: (home: { x: number; y: number } | null) => void;
+  onDrop: (home: { x: number; y: number } | null, from: { x: number; y: number }) => void;
 }) {
   const drag = useRef<{ id: number; dx: number; dy: number; x0: number; y0: number; moved: boolean; near: boolean; home: { x: number; y: number } | null } | null>(null);
   const el = useRef<HTMLButtonElement>(null);
@@ -181,7 +194,7 @@ function Bubble({ agent, open, unseen, onTap, onMove, onNear, onDrop }: {
     <button
       ref={el}
       type="button"
-      className={`agent-bubble s-${agent.status}${open ? " open" : ""}${unseen ? " unseen" : ""}${agent.merging ? " merging" : ""}${drag.current?.near ? " near" : ""}${pos ? " dragging" : ""}`}
+      className={`agent-bubble s-${agent.status}${open ? " open" : ""}${unseen ? " unseen" : ""}${agent.merging ? " merging" : ""}${agent.gone ? " gone" : ""}${drag.current?.near ? " near" : ""}${pos ? " dragging" : ""}`}
       style={{ left: x, top: y }}
       data-agent-key={agent.id}
       aria-label={`Agent ${agent.n}${agent.last ? `: ${agent.last}` : ""} (tap: open or fold; drag onto Home: close)`}
@@ -220,7 +233,7 @@ function Bubble({ agent, open, unseen, onTap, onMove, onNear, onDrop }: {
         setPos(null);
         if (!d.moved) return onTap();
         onNear(false);
-        if (d.near && d.home) return onDrop(d.home);
+        if (d.near && d.home) return onDrop(d.home, { x: e.clientX - d.dx, y: e.clientY - d.dy });
         const p = clampPos(e.clientX - d.dx, e.clientY - d.dy);
         onMove(p.x, p.y);
       }}

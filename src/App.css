@@ -2798,6 +2798,17 @@ html.yt-full-open .nav-island {
 .title-search .title-hit .search-result { flex: 1; min-width: 0; }
 .title-hit-label { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .title-hit-tab { width: 44px; padding: 0; border-radius: 14px; flex: none; }
+/* 🔍: this note first (its matches lit up behind a lighter veil), then names, then every note on request. */
+.search-backdrop.see-note { background: rgba(0, 0, 0, 0.12); }
+.search-group { display: grid; gap: 4px; }
+.search-group-head { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--muted); padding: 2px 4px; }
+.search-group-head .search-count { font-weight: 600; }
+.search-sep { margin-top: 4px; }
+.search-here-go { margin-left: auto; padding: 3px 10px; border-radius: 999px; font-size: 12px; }
+.search-here-line { padding: 6px 12px; }
+.search-here-none, .search-here-more { margin: 0 4px; font-size: 12px; }
+.search-deep button { width: 100%; padding: 9px 12px; border-radius: 14px; font-size: 14px; text-align: left; border-style: dashed; }
+.search-deep button.on { border-style: solid; color: rgb(var(--heat-rgb, 234, 179, 8)); }
 
 /* The formatting bar pops up out of where the island was. */
 .keyboard-bar { animation: kb-bar-in 0.36s var(--spring); transform-origin: 50% 100%; }
@@ -2880,6 +2891,19 @@ html.typing-hot .tiptap, html.typing-hot .source-text { caret-color: #ff3b30; }
 :where(html[data-theme="neu"]) .rdl-dot { box-shadow: 0 0 0 2px var(--bg), var(--neu-out-xs); }
 .rdl-point.done { opacity: 0.45; }
 .today-agenda .reminder-dayline { margin: 2px 0 10px; }
+/* Today folds to a thin line in today's sky colours (tap the bar), and opens again smoothly. */
+.ta-head { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; cursor: pointer; padding: 2px 0; -webkit-tap-highlight-color: transparent; }
+.ta-head h2 { margin: 0; flex: none; }
+.ta-mini { position: relative; flex: 1; height: 6px; border-radius: 3px; opacity: 0; transform: scaleX(0.6); transform-origin: 0 50%; transition: opacity 0.35s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
+.ta-mini i { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); opacity: 0.7; }
+.today-agenda.folded .ta-mini { opacity: 1; transform: none; }
+.ta-left { flex: none; font-size: 11px; font-weight: 600; color: var(--muted); }
+.ta-chev { flex: none; margin-left: auto; font-size: 11px; color: var(--muted); transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
+.today-agenda.folded .ta-chev { transform: rotate(-90deg); }
+.ta-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease; }
+.ta-inner { min-height: 0; overflow: hidden; }
+.today-agenda.folded .ta-body { grid-template-rows: 0fr; opacity: 0; }
+:where(html[data-theme="neu"]) .ta-mini { box-shadow: var(--neu-in-xs); }
 
 /* ───────────── Mac: resizable side panels and the bottom tab bar ───────────── */
 @media (min-width: 761px) {
@@ -4347,6 +4371,50 @@ html.agent-merged .nav-home { animation: agent-gulp 0.5s var(--spring); }
 .swarm-tag { position: absolute; left: 15px; top: 17px; padding: 3px 8px 3px 6px; border-radius: 999px; font: 600 11px/1.1 system-ui, sans-serif; color: #fff; white-space: nowrap; background: hsl(var(--h) 70% 46%); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22); }
 .swarm-tag b { margin-right: 4px; font-weight: 700; }
 .swarm-ripple { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; border: 2px solid hsl(var(--h) 80% 58%); opacity: 0; will-change: transform, opacity; }
+/* Deleting (assistant/swarm/gone.ts): a block crumbles away, a bubble spirals into Home. */
+.swarm-ghost { position: absolute !important; margin: 0 !important; padding: 0 !important; min-height: 0 !important; max-width: none !important; background: transparent !important; box-shadow: none !important; border: 0 !important; will-change: transform, opacity; }
+.swarm-ghost > .ProseMirror { margin: 0 !important; padding: 0 !important; min-height: 0 !important; outline: none; }
+.swarm-frame-del { border-color: rgba(239, 68, 68, 0.75); background: transparent; }
+.swarm-blush { position: absolute; inset: 0; border-radius: inherit; background: rgba(239, 68, 68, 0.22); }
+.swarm-strike { position: absolute; height: 2.5px; border-radius: 2px; background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.6); transform-origin: 0 50%; }
+.swarm-dust { position: absolute; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%; background: color-mix(in srgb, var(--text) 55%, #ef4444); }
+.swarm-gone-chip { position: absolute; padding: 3px 10px; border-radius: 999px; font: 600 12px/1.3 system-ui, sans-serif; color: #fff; background: rgba(220, 38, 38, 0.9); box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2); white-space: nowrap; }
+.agent-bubble.gone { opacity: 0 !important; transition: none !important; pointer-events: none; }
+.swarm-dbubble { position: absolute; width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 22px; background: radial-gradient(circle at 35% 30%, #c4b5fd, #7c3aed 60%, #4c1d95); box-shadow: 0 8px 22px rgba(124, 58, 237, 0.5); }
+.swarm-dcrack { position: absolute; inset: 6px; border-radius: 50%; background: conic-gradient(from 10deg, transparent 0 8%, rgba(255, 255, 255, 0.95) 9% 10%, transparent 11% 36%, rgba(255, 255, 255, 0.9) 37% 38%, transparent 39% 64%, rgba(255, 255, 255, 0.9) 65% 66%, transparent 67%); }
+.swarm-dflash, .swarm-dring { position: absolute; width: 60px; height: 60px; border-radius: 50%; border: 3px solid rgba(196, 181, 253, 0.95); box-shadow: 0 0 16px rgba(167, 139, 250, 0.7); }
+.swarm-spark { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: #c4b5fd; box-shadow: 0 0 10px #a78bfa; display: grid; place-items: center; font-size: 10px; line-height: 1; color: #fff; }
+.swarm-spark.sk-1 { background: #f0abfc; box-shadow: 0 0 10px #e879f9; }
+.swarm-spark.sk-2 { width: 6px; height: 6px; margin: -3px 0 0 -3px; background: #fff; }
+.swarm-dtag { position: absolute; padding: 4px 11px; border-radius: 999px; font: 600 12px/1.2 system-ui, sans-serif; white-space: nowrap; color: #fff; background: rgba(76, 29, 149, 0.92); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25); }
+.swarm-ddone { background: rgba(22, 163, 74, 0.92); }
+/* Word-by-word corrections (assistant/swarm/correctRun.ts). */
+.corr-box { position: absolute; box-sizing: border-box; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 10px; background: var(--bg, #fff); box-shadow: 0 0 0 6px var(--bg, #fff), 0 6px 22px rgba(0, 0, 0, 0.12); }
+.corr-old, .corr-new { position: relative; display: inline-block; vertical-align: bottom; white-space: pre; overflow: hidden; border-radius: 4px; transition: background-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease; }
+.corr-old.wide, .corr-new.wide { display: inline; white-space: pre-wrap; overflow: visible; }
+.corr-new.hidden { max-width: 0; opacity: 0; }
+.corr-new.wide.hidden, .corr-old.gone, .corr-new.gone { display: none; }
+.corr-old::after { content: ""; position: absolute; left: 0; right: 0; top: 54%; height: 2px; border-radius: 1px; background: #ef4444; transform: scaleX(0); transform-origin: 0 50%; transition: transform 0.3s ease-out; }
+.corr-old.wide::after { display: none; }
+.corr-old.aim { background: rgba(250, 204, 21, 0.35); box-shadow: 0 2px 0 rgba(234, 179, 8, 0.9); }
+.corr-old.struck { color: #dc2626; background: rgba(239, 68, 68, 0.14); }
+.corr-old.wide.struck { text-decoration: line-through 2px #ef4444; }
+.corr-old.struck::after { transform: scaleX(1); }
+.corr-new.typed { color: #15803d; background: rgba(34, 197, 94, 0.16); box-shadow: inset 0 -2px 0 rgba(34, 197, 94, 0.85); }
+@media (prefers-color-scheme: dark) { .corr-new.typed { color: #4ade80; } .corr-old.struck { color: #f87171; } }
+.settle .corr-new.typed { color: inherit; background: transparent; box-shadow: none; transition-duration: 0.6s; }
+.corr-agent { will-change: transform, opacity; }
+.corr-tip { position: absolute; display: grid; gap: 2px; padding: 7px 11px; border-radius: 12px; font: 500 12.5px/1.35 system-ui, sans-serif; color: var(--text); background: color-mix(in srgb, var(--panel, #fff) 96%, transparent); border: 1px solid var(--glass-edge, rgba(0, 0, 0, 0.1)); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); opacity: 0; }
+.corr-tip b { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #7c3aed; }
+.corr-tip.k-del b { color: #dc2626; }
+.corr-tip.k-ins b { color: #16a34a; }
+.corr-tip.k-rep b { color: #d97706; }
+.corr-tip i { position: absolute; top: 6px; right: 9px; font-style: normal; font-size: 10px; color: var(--muted); }
+.corr-tip.corr-sum b { text-transform: none; letter-spacing: 0; font-size: 13px; color: #16a34a; }
+.corr-key { font-size: 11px; color: var(--muted); }
+.corr-key s { color: #dc2626; } .corr-key u { color: #16a34a; text-decoration-color: #22c55e; } .corr-key em { color: #d97706; font-style: normal; }
+.corr-count { position: absolute; padding: 3px 10px; border-radius: 999px; font: 600 11.5px/1.3 system-ui, sans-serif; color: #fff; background: #7c3aed; box-shadow: 0 3px 10px rgba(124, 58, 237, 0.35); opacity: 0; white-space: nowrap; }
+.corr-inline { white-space: pre-wrap; }
 @media (prefers-reduced-motion: reduce) { .swarm { display: none; } }
 
 /* 18 Nov: Active (up to 4) and Logged projects, in the menu and in ⚡ setup. */
@@ -4360,3 +4428,8 @@ html.agent-merged .nav-home { animation: agent-gulp 0.5s var(--spring); }
 @media (max-width: 760px) {
   .relative-time { max-width: max(calc(100% + 32px), 42vw); flex: none; position: relative; z-index: 1; }
 }
+
+/* While the agent's arrow goes to a day (assistant/swarm/navShow.ts), its chat fades so the calendar shows. */
+html.nav-showing .agent-panel, html.nav-showing .dls-back:has(> .cmd) { opacity: 0.12; pointer-events: none; transition: opacity 0.3s ease; }
+.nav-agent .swarm-tag { transition: none; }
+@media (prefers-reduced-motion: reduce) { .ta-body, .ta-mini, .ta-chev { transition: none; } }
