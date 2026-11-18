@@ -3,7 +3,7 @@
 // step at a time with each step's progress shown. Edits are the assistant's, with one Undo for the
 // whole run. Follow-ups within 10 minutes keep the conversation. A command with a schedule
 // ("every day at 9 pm …") becomes a ▶ Do this block in today's note that runs on time.
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { JSONContent } from "@tiptap/core";
 import type { JournalStore } from "../store";
@@ -92,6 +92,18 @@ function scheduleIn(text: string) {
   return null;
 }
 
+/** The folded bar's one line: the step being worked on, else the last answer. */
+function miniStatus(turns: ViewTurn[]): string {
+  const t = turns[turns.length - 1];
+  if (!t) return "";
+  if (t.status === "run") {
+    const s = t.steps.find((x) => x.status === "run");
+    const tool = s?.lines[s.lines.length - 1];
+    return `✱ ${tool ?? s?.text ?? "Working…"}`.slice(0, 90);
+  }
+  return t.answer.split("\n")[0].slice(0, 90);
+}
+
 export function CommandBar({ store, request, onClose, agent }: { store: JournalStore; request: AssistRequest; onClose: () => void; agent?: AgentChrome }) {
   const key = agent?.key ?? "main";
   let convo = convos.get(key) ?? { turns: [], at: 0 };
@@ -109,6 +121,65 @@ export function CommandBar({ store, request, onClose, agent }: { store: JournalS
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const viaVoice = useRef(false);
+  // Item 3 (18 Nov): while it works the panel folds to a small bar, so the note and the agents'
+  // build animations stay in sight; it opens again with the answer. ▾ folds it by hand, and its
+  // header drags it anywhere (remembered).
+  const [mini, setMini] = useState(false);
+  const autoMini = useRef(false);
+  const [shift, setShift] = useState<{ x: number; y: number }>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(`journal.cmdPos.${agent ? "agent" : "main"}`) ?? "null");
+      return v && Number.isFinite(v.x) && Number.isFinite(v.y) ? v : { x: 0, y: 0 };
+    } catch {
+      return { x: 0, y: 0 };
+    }
+  });
+  const dragRef = useRef<{ x: number; y: number; sx: number; sy: number; moved: boolean; id: number } | null>(null);
+  const clampShift = (x: number, y: number) => ({
+    x: Math.max(-window.innerWidth / 2 + 60, Math.min(window.innerWidth / 2 - 60, x)),
+    y: Math.max(-window.innerHeight + 140, Math.min(window.innerHeight - 120, y)),
+  });
+  const dragStart = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest("button, a, input, textarea")) return;
+    dragRef.current = { x: e.clientX, y: e.clientY, sx: shift.x, sy: shift.y, moved: false, id: e.pointerId };
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+  const dragMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d || d.id !== e.pointerId) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) < 6) return;
+    d.moved = true;
+    setShift(clampShift(d.sx + dx, d.sy + dy));
+  };
+  const dragEnd = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    if (!d || d.id !== e.pointerId) return;
+    if (!d.moved) {
+      // A tap on the folded bar opens it.
+      if (mini) setMini(false);
+      return;
+    }
+    try {
+      localStorage.setItem(`journal.cmdPos.${agent ? "agent" : "main"}`, JSON.stringify(shift));
+    } catch {
+      // Remembered for this session only.
+    }
+  };
+  useEffect(() => {
+    if (running && !ask) {
+      if (!mini) {
+        autoMini.current = true;
+        setMini(true);
+      }
+    } else if (autoMini.current) {
+      autoMini.current = false;
+      setMini(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running, ask]);
 
   // A run keeps going when the bar closes (only Stop stops it); a question it was waiting on is a no.
   const actor = agent?.actor ?? ASSISTANT_ACTOR;
@@ -300,15 +371,19 @@ export function CommandBar({ store, request, onClose, agent }: { store: JournalS
   };
 
   const panel = (
-      <div className={agent ? "dls dls-wide cmd agent-panel" : "dls dls-wide cmd"} role="dialog" aria-label={agent ? agent.name : "Assistant"} hidden={agent ? !agent.open : undefined} onClick={(e) => e.stopPropagation()}>
+      <div className={`${agent ? "dls dls-wide cmd agent-panel" : "dls dls-wide cmd"}${mini ? " cmd-mini" : ""}`} style={shift.x || shift.y ? ({ "--cmd-x": `${shift.x}px`, "--cmd-y": `${shift.y}px` } as React.CSSProperties) : undefined} role="dialog" aria-label={agent ? agent.name : "Assistant"} hidden={agent ? !agent.open : undefined} onClick={(e) => e.stopPropagation()}>
         {!agent && <div className="dls-grip" />}
-        <header className="dls-head">
+        <header className="dls-head cmd-drag" onPointerDown={dragStart} onPointerMove={dragMove} onPointerUp={dragEnd} onPointerCancel={dragEnd} title="Drag to move">
           <h3 className="cmd-title">✦ {agent ? agent.name : "Assistant"}</h3>
+          {mini && <span className="cmd-mini-status">{miniStatus(turns)}</span>}
           {turns.length > 0 && !running && (
             <button type="button" className="link cmd-new" onClick={() => keep([])}>
               New
             </button>
           )}
+          <button type="button" className="cmd-help-btn cmd-mini-btn" onClick={() => ((autoMini.current = false), setMini(!mini))} aria-label={mini ? "Open the chat" : "Fold the chat to a small bar"} aria-expanded={!mini}>
+            {mini ? "▴" : "▾"}
+          </button>
           <button type="button" className="cmd-help-btn" aria-expanded={help} onClick={() => setHelp(!help)} aria-label="What can I ask?">
             ?
           </button>
@@ -414,7 +489,7 @@ export function CommandBar({ store, request, onClose, agent }: { store: JournalS
   // A floating agent's panel is drawn by its bubble; the plain assistant is a sheet over the page.
   if (agent) return panel;
   return createPortal(
-    <div className="dls-back cmd-back" onClick={close}>
+    <div className={`dls-back cmd-back${mini ? " mini" : ""}`} onClick={mini ? undefined : close}>
       {panel}
     </div>,
     document.body,

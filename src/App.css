@@ -4433,3 +4433,22 @@ html.agent-merged .nav-home { animation: agent-gulp 0.5s var(--spring); }
 html.nav-showing .agent-panel, html.nav-showing .dls-back:has(> .cmd) { opacity: 0.12; pointer-events: none; transition: opacity 0.3s ease; }
 .nav-agent .swarm-tag { transition: none; }
 @media (prefers-reduced-motion: reduce) { .ta-body, .ta-mini, .ta-chev { transition: none; } }
+
+/* Item 3 (18 Nov): the assistant folds to a small bar while it works (the note and the agents'
+   build animations stay in sight), opens with the answer, and its header drags it anywhere. */
+.cmd-drag { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.cmd-drag:active { cursor: grabbing; }
+.dls.cmd:not(.agent-panel) { transform: translate(var(--cmd-x, 0px), var(--cmd-y, 0px)); transition: max-height 0.3s var(--spring, ease), border-radius 0.3s ease; }
+.agent-panel { transform: translate(calc(-50% + var(--cmd-x, 0px)), var(--cmd-y, 0px)); }
+.cmd-back.mini { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; pointer-events: none; animation: none; }
+.cmd-back.mini > .cmd { pointer-events: auto; }
+.dls.cmd.cmd-mini { max-height: 64px; overflow: hidden; gap: 0; padding-top: 4px; padding-bottom: 4px; border-radius: 22px; margin-bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); width: min(420px, calc(100% - 24px)); border-bottom: 1px solid var(--glass-rim, var(--border)); }
+.dls.cmd.cmd-mini > :not(.dls-head) { display: none; }
+.dls.cmd.cmd-mini .dls-head { min-height: 52px; }
+.cmd-mini .cmd-title { flex: 0 0 auto; font-size: 14px; }
+.cmd-mini-status { flex: 1; min-width: 0; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmd-mini .cmd-new, .cmd-mini .cmd-help-btn:not(.cmd-mini-btn) { display: none; }
+.cmd-list { touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+@media (prefers-reduced-motion: reduce) { .dls.cmd:not(.agent-panel) { transition: none; } }
+/* The note stays readable behind the assistant (no blur), so its changes can be watched. */
+.cmd-back { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(10, 10, 20, 0.12); }
