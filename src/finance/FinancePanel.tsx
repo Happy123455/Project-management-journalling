@@ -12,9 +12,10 @@ import {
 } from "./capture";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
 import { PocketTab } from "./PocketTab";
+import { BankTab } from "./BankTab";
 import { POCKET } from "../lib/pocket";
 
-type Tab = "overview" | "pocket" | "list" | "insights" | "setup";
+type Tab = "overview" | "pocket" | "bank" | "list" | "insights" | "setup";
 const r0 = (n: number) => rupees(n, 0);
 const monthName = (m: string) => new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 1, 1).toLocaleDateString(undefined, { month: "short" });
 const thisMonth = () => dayKey(new Date()).slice(0, 7);
@@ -89,9 +90,9 @@ export function FinancePanel({ store, onClose, onOpenDay }: { store: JournalStor
         <header>
           <strong>💰 Money</strong>
           <nav>
-            {(["overview", "pocket", "list", "insights", "setup"] as Tab[]).map((t) => (
+            {(["overview", "pocket", "bank", "list", "insights", "setup"] as Tab[]).map((t) => (
               <button key={t} type="button" className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
-                {{ overview: "Overview", pocket: "👛 Pocket", list: "Payments", insights: "Insights", setup: "Setup" }[t]}
+                {{ overview: "Overview", pocket: "👛 Pocket", bank: "🏦 Bank", list: "Payments", insights: "Insights", setup: "Setup" }[t]}
               </button>
             ))}
           </nav>
@@ -104,6 +105,8 @@ export function FinancePanel({ store, onClose, onOpenDay }: { store: JournalStor
             <Overview txns={txns} onSetup={() => setTab("setup")} />
           ) : tab === "pocket" ? (
             <PocketTab store={store} txns={txns} onOpenDay={(d) => (onOpenDay(d), onClose())} />
+          ) : tab === "bank" ? (
+            <BankTab store={store} onOpenDay={(d) => (onOpenDay(d), onClose())} />
           ) : tab === "list" ? (
             <Payments store={store} txns={txns} onOpenDay={(d) => (onOpenDay(d), onClose())} />
           ) : tab === "insights" ? (

@@ -4452,3 +4452,10 @@ html.nav-showing .agent-panel, html.nav-showing .dls-back:has(> .cmd) { opacity:
 @media (prefers-reduced-motion: reduce) { .dls.cmd:not(.agent-panel) { transition: none; } }
 /* The note stays readable behind the assistant (no blur), so its changes can be watched. */
 .cmd-back { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(10, 10, 20, 0.12); }
+/* 🏦 Bank balance: its own colour, apart from the pocket. */
+.bank-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: color-mix(in srgb, #0ea5e9 12%, var(--panel)); margin-bottom: 10px; }
+.bank-card strong { display: block; font-size: 26px; font-variant-numeric: tabular-nums; }
+.bank-card small { color: var(--muted); font-size: 12px; }
+.bank-trend { display: block; width: 100%; height: 64px; color: #0ea5e9; margin: 4px 0 6px; }
+.bank-add { grid-template-columns: 1fr 1fr auto; }
+.bank-split dd { font-variant-numeric: tabular-nums; }

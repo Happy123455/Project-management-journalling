@@ -15,6 +15,8 @@ import { pocketFromSentence } from "../lib/pocket";
 import { addPocket, loadPocket, pocketSummary } from "../finance/pocket";
 import { pocketState } from "../lib/pocket";
 import { cursorFx } from "./AgentCursors";
+import { bankFromSentence } from "../lib/bank";
+import { addBank } from "../finance/bank";
 
 export const ASSISTANT_ACTOR = "Assistant";
 
@@ -134,6 +136,14 @@ async function runStep(step: Step, opts: RunOpts, ctx: RunCtx, model: string, be
     const r = await addPocket(opts.store, cash, { actor: ctx.actor });
     step.lines.push(`✓ pocket “${r.line}”`);
     return { answer: `👛 Added “${r.line}” under [[pocket]] in today's note. ${pocketSummary(pocketState(await loadPocket(opts.store)))}.`, fast: true };
+  }
+  // "Bank balance 45230": today's [[bank]] box, no AI (kept apart from the pocket).
+  const bank = step.text.length < 80 ? bankFromSentence(step.text) : null;
+  if (bank) {
+    await window.__journalFlush?.();
+    const r = await addBank(opts.store, bank, { actor: ctx.actor });
+    step.lines.push(`✓ bank “${r.line}”`);
+    return { answer: `🏦 Saved “${r.line}” under [[bank]] in today's note.`, fast: true };
   }
   if (fast?.kind === "math") {
     const r = await runAssistantTool({ name: "math_add", arguments: { lines: fast.lines } }, ctx);
