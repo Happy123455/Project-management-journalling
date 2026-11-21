@@ -167,7 +167,8 @@ export async function startLive(onState: (s: LiveState) => void, engine0?: Engin
       emit();
     });
   };
-  const chunker = live ? new PauseChunker(onPiece) : new SpeechChunker(onPiece);
+  // Live: a sentence goes at a pause, or after 8 s at most (a room that never goes quiet still gets answers).
+  const chunker = live ? new PauseChunker(onPiece, 0.7, 0.012, 8) : new SpeechChunker(onPiece);
 
   const ctx = new AudioContext();
   const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
