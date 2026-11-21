@@ -29,6 +29,31 @@ fn root(app: &AppHandle) -> PathBuf {
     app.path().app_local_data_dir().unwrap_or_else(|_| std::env::temp_dir()).join("whisper")
 }
 
+/// Models copied onto the phone from the Mac (adb push to the app's own folder on the shared
+/// storage, which needs no permission): moved into the app on first look. For a phone whose
+/// connection to GitHub keeps dropping mid-download (21 Nov).
+fn take_side_loaded(app: &AppHandle) {
+    if !cfg!(target_os = "android") {
+        return;
+    }
+    let shared = PathBuf::from(format!("/storage/emulated/0/Android/data/{}/files/whisper", app.config().identifier));
+    for (id, _) in MODELS {
+        let from = shared.join(id);
+        let need = [format!("{id}-encoder.int8.onnx"), format!("{id}-decoder.int8.onnx"), format!("{id}-tokens.txt")];
+        if installed(app, id) || need.iter().any(|f| !from.join(f).exists()) {
+            continue;
+        }
+        let to = root(app).join(id);
+        let copied = fs::create_dir_all(&to).is_ok() && need.iter().all(|f| fs::copy(from.join(f), to.join(f)).is_ok());
+        if copied && fs::write(to.join(".done"), "ok").is_ok() {
+            let _ = fs::write(root(app).join("model"), id);
+            let _ = fs::remove_dir_all(&from);
+        } else {
+            let _ = fs::remove_dir_all(&to);
+        }
+    }
+}
+
 fn installed(app: &AppHandle, id: &str) -> bool {
     root(app).join(id).join(".done").exists()
 }
@@ -44,6 +69,7 @@ fn chosen(app: &AppHandle) -> Option<String> {
 
 #[tauri::command]
 pub fn whisper_info(app: AppHandle) -> Value {
+    take_side_loaded(&app);
     json!({
         "models": MODELS.iter().map(|(id, mb)| json!({ "id": id, "sizeMb": mb, "installed": installed(&app, id) })).collect::<Vec<_>>(),
         "model": chosen(&app),
