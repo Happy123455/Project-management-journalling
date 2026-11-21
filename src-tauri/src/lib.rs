@@ -74,8 +74,8 @@ mod kokoro;
 #[cfg(desktop)]
 mod mcp;
 
-/// Whisper speech recognition for the voice graph (sherpa-onnx, like Kokoro).
-#[cfg(desktop)]
+/// Whisper speech recognition for the voice graph and live agents (sherpa-onnx, like Kokoro), on
+/// the Mac and the phone (Hapi, 21 Nov: Android's own engine misheard the live agents).
 mod whisper;
 
 /// Instant sync between the phone and the Mac over Wi-Fi (both listen: see direct.rs).
@@ -216,5 +216,14 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
 
 #[cfg(mobile)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![direct::direct_start, direct::direct_reply, direct::direct_scan]
+    tauri::generate_handler![
+        direct::direct_start,
+        direct::direct_reply,
+        direct::direct_scan,
+        whisper::whisper_info,
+        whisper::download_whisper,
+        whisper::remove_whisper,
+        whisper::whisper_transcribe,
+        whisper::whisper_release
+    ]
 }

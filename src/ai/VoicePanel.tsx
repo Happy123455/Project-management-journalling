@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { JournalStore } from "../store";
 import { formatDuration } from "../lib/capture";
 import { showError } from "../lib/toast";
-import { onMac, whisperInfo, type WhisperInfo } from "./voice";
+import { inApp, onMac, whisperInfo, type WhisperInfo } from "./voice";
 import { graphNames } from "./voiceGraph";
 import { cancelVoice, finishVoice, recordingVoice, resetVoice, showingVoice, startVoice, subscribeVoice, voicePanelOpen, voiceSession } from "./voiceSession";
 
@@ -20,12 +20,12 @@ export const useVoiceSession = () => useSyncExternalStore(subscribeVoice, voiceS
 /** Opens the mind map on a graph (App listens). */
 export const openGraphInMindMap = (name: string) => window.dispatchEvent(new CustomEvent("journal:open-mind-map", { detail: { graph: name } }));
 
-/** The Mac's Whisper: which model, or a button to download one. */
-function WhisperRow() {
+/** Whisper on this device (Mac or phone): which model, or a button to download one. */
+export function WhisperRow() {
   const [info, setInfo] = useState<WhisperInfo | null>(null);
   const [progress, setProgress] = useState("");
   useEffect(() => {
-    if (!onMac()) return;
+    if (!inApp()) return;
     let live = true;
     let off = () => {};
     void whisperInfo().then((i) => live && setInfo(i));
@@ -44,8 +44,9 @@ function WhisperRow() {
       off();
     };
   }, []);
-  if (!onMac() || !info) return <p className="hint">☁️ Transcribed by Gemini as you talk (silences aren't sent).</p>;
-  if (info.model) return <p className="hint">🖥️ Whisper ({info.model}) transcribes on this Mac: the audio never leaves it.</p>;
+  if (!inApp() || !info) return <p className="hint">☁️ Transcribed by Gemini as you talk (silences aren't sent).</p>;
+  const here = onMac() ? "this Mac" : "this phone";
+  if (info.model) return <p className="hint">{onMac() ? "🖥️" : "📱"} Whisper ({info.model}) transcribes on {here}: the audio never leaves it.</p>;
   const base = info.models.find((m) => m.id === "base");
   const download = async () => {
     try {
@@ -63,7 +64,7 @@ function WhisperRow() {
         progress || "Downloading Whisper…"
       ) : (
         <button type="button" className="ai-save" onClick={() => void download()}>
-          ⬇ Whisper on this Mac ({base?.sizeMb ?? 208} MB, once)
+          ⬇ Whisper on {onMac() ? "this Mac" : "this phone"} ({base?.sizeMb ?? 208} MB, once)
         </button>
       )}
     </p>

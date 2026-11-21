@@ -48,4 +48,16 @@ describe("live agents", () => {
     c.flush();
     expect(got).toHaveLength(2);
   });
+
+  it("hears pauses in a noisy room (the bar rises with the room's own sound)", () => {
+    const got: number[] = [];
+    const c = new PauseChunker((s) => got.push(s.length / SPEECH_RATE));
+    const noise = (sec: number, amp: number) => Float32Array.from({ length: Math.round(sec * SPEECH_RATE) }, (_, i) => amp * Math.sin(i / 3) + 0.02 * Math.sin(i / 7));
+    // A fan louder than the fixed bar (0.012) the whole time.
+    c.push(noise(3, 0));
+    expect(got).toHaveLength(0);
+    c.push(noise(1.2, 0.25));
+    c.push(noise(1, 0));
+    expect(got).toHaveLength(1);
+  });
 });

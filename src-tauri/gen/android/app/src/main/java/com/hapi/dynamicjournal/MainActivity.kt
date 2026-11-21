@@ -424,6 +424,9 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
+    // The page can be inspected over USB (chrome://inspect) from the Mac this phone trusts for adb,
+    // so a live agent that "can't hear" can be checked in place (21 Nov). Nothing else can reach it.
+    WebView.setWebContentsDebuggingEnabled(true)
     // Back (button or edge swipe) is the journal's: it closes the panel on top or goes back a note.
     // Only when the journal has nothing to go back to does the app go to the background (never
     // closing it, which also lost the WebView's state).

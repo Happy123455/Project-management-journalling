@@ -1241,6 +1241,7 @@ version = "0.1.0"
 dependencies = [
  "bzip2 0.5.2",
  "keyring",
+ "objc2-app-kit",
  "rodio",
  "serde",
  "serde_json",

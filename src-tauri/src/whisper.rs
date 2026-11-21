@@ -1,4 +1,4 @@
-//! Whisper speech recognition on the Mac (sherpa-onnx, already here for Kokoro): the voice graph's
+//! Whisper speech recognition on the Mac and the phone (sherpa-onnx, already here for Kokoro): the voice graph's
 //! live transcription without sending audio anywhere. The model is downloaded once into the app's
 //! local data folder (never synced or backed up), loaded only while a recording runs, and released
 //! when it stops, so it costs nothing the rest of the time.
@@ -20,7 +20,8 @@ const URL_BASE: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/
 const RATE: i32 = 16_000;
 
 static DOWNLOADING: Mutex<Option<String>> = Mutex::new(None);
-static ENGINE: Mutex<Option<(String, Arc<OfflineRecognizer>)>> = Mutex::new(None);
+/// The loaded model: (model id, language, recognizer).
+static ENGINE: Mutex<Option<(String, String, Arc<OfflineRecognizer>)>> = Mutex::new(None);
 
 fn root(app: &AppHandle) -> PathBuf {
     app.path().app_local_data_dir().unwrap_or_else(|_| std::env::temp_dir()).join("whisper")
@@ -133,7 +134,7 @@ pub fn download_whisper(app: AppHandle, model: String) {
 #[tauri::command]
 pub fn remove_whisper(app: AppHandle, model: String) {
     let mut engine = ENGINE.lock().unwrap_or_else(|e| e.into_inner());
-    if engine.as_ref().is_some_and(|(id, _)| *id == model) {
+    if engine.as_ref().is_some_and(|(id, _, _)| *id == model) {
         *engine = None;
     }
     if MODELS.iter().any(|(id, _)| *id == model) {
@@ -141,12 +142,13 @@ pub fn remove_whisper(app: AppHandle, model: String) {
     }
 }
 
-/// The recognizer, loaded once per recording.
-fn engine(app: &AppHandle) -> Result<Arc<OfflineRecognizer>, String> {
+/// The recognizer, loaded once per recording. `lang`: "en", "gu"… or "" to let Whisper guess
+/// (short live sentences are often guessed wrong, so live agents say which).
+fn engine(app: &AppHandle, lang: &str) -> Result<Arc<OfflineRecognizer>, String> {
     let id = chosen(app).ok_or("No Whisper model downloaded")?;
     let mut slot = ENGINE.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((loaded, r)) = &*slot {
-        if *loaded == id {
+    if let Some((loaded, l, r)) = &*slot {
+        if *loaded == id && l == lang {
             return Ok(r.clone());
         }
     }
@@ -158,25 +160,33 @@ fn engine(app: &AppHandle) -> Result<Arc<OfflineRecognizer>, String> {
             encoder: path(format!("{id}-encoder.int8.onnx")),
             decoder: path(format!("{id}-decoder.int8.onnx")),
             // Empty: Whisper finds the language itself (English, Gujarati, Hindi…).
-            language: Some(String::new()),
+            language: Some(lang.to_string()),
             task: Some("transcribe".into()),
             tail_paddings: -1,
             ..Default::default()
         },
         tokens: path(format!("{id}-tokens.txt")),
-        // Two threads: quick enough for live pieces, gentle on the battery.
-        num_threads: 2,
+        // Two threads on the Mac: quick enough for live pieces, gentle on the battery. The phone's
+        // cores are slower: four, so a sentence is back in about a second.
+        num_threads: if cfg!(target_os = "android") { 4 } else { 2 },
         provider: Some("cpu".into()),
         ..Default::default()
     };
     let r = Arc::new(OfflineRecognizer::create(&config).ok_or("Whisper didn't load")?);
-    *slot = Some((id, r.clone()));
+    *slot = Some((id, lang.to_string(), r.clone()));
     Ok(r)
 }
 
 /// Transcribes one piece: 16 kHz mono 16-bit little-endian PCM as the raw request body.
 #[tauri::command]
 pub async fn whisper_transcribe(app: AppHandle, request: Request<'_>) -> Result<String, String> {
+    let lang: String = request
+        .headers()
+        .get("x-lang")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.trim().to_lowercase())
+        .filter(|v| v.len() <= 3 && v.chars().all(|c| c.is_ascii_lowercase()))
+        .unwrap_or_default();
     let bytes = match request.body() {
         InvokeBody::Raw(b) => b.clone(),
         _ => return Err("Send the audio as raw bytes".into()),
@@ -185,7 +195,7 @@ pub async fn whisper_transcribe(app: AppHandle, request: Request<'_>) -> Result<
         return Err("Pieces must be under 30 seconds".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let recognizer = engine(&app)?;
+        let recognizer = engine(&app, &lang)?;
         let samples: Vec<f32> = bytes.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0).collect();
         let stream = recognizer.create_stream();
         stream.accept_waveform(RATE, &samples);

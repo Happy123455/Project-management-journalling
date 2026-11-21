@@ -42,6 +42,8 @@ interface Agent {
   live?: boolean;
   /** Words being heard, and the short answer shown by the bubble. */
   heard?: string;
+  /** Live: what the ear is doing right now (hearing you, writing it down). */
+  ear?: string;
   say?: string;
 }
 
@@ -163,7 +165,7 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
     if (!l) return;
     lives.current.delete(id);
     l.ear?.stop();
-    patch(id, { live: false, heard: "" });
+    patch(id, { live: false, heard: "", ear: "" });
   };
   const turn = async (a: Agent, text: string, ctl: AbortController) => {
     const actor = actorOf(a);
@@ -203,8 +205,10 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
           patch(a.id, { heard: text });
           l.chain = l.chain.then(() => turn(a, text, l.ctl));
         },
-        (heard) => lives.current.get(a.id) === l && patch(a.id, { heard }),
+        (ear) => lives.current.get(a.id) === l && patch(a.id, { ear }),
         (note) => say(a.id, note, 6000),
+        // The ring round the bubble swells with the voice it hears (no re-render: a CSS variable).
+        (level) => document.querySelector<HTMLElement>(`.agent-bubble[data-agent-key="${a.id}"]`)?.style.setProperty("--lvl", Math.min(1, level * 4).toFixed(2)),
       );
       l.ear = ear;
       // Tapped off while the microphone was starting.
@@ -294,6 +298,7 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
             aria-live="polite"
           >
             {a.heard ? <i>{a.heard}</i> : a.say ? <span>{a.say}</span> : null}
+            {a.live ? <small className="agent-ear">{a.ear || "🎙️ Listening…"}</small> : null}
           </div>
         ) : null,
       )}

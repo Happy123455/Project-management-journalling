@@ -151,12 +151,22 @@ export class PauseChunker {
     private maxSec = 15,
   ) {}
 
+  /** The room's own sound (a fan, a busy street): speech must stand out from it. */
+  private floor = -1;
+  /** Was the last window louder than the room (for the live "hearing you" sign). */
+  speaking = false;
+
   push(samples: Float32Array) {
     const win = Math.round(SPEECH_RATE / 10);
     for (let i = 0; i < samples.length; i += win) {
       const end = Math.min(samples.length, i + win);
       const sec = (end - i) / SPEECH_RATE;
-      if (rms(samples, i, end) >= this.level) {
+      const r = rms(samples, i, end);
+      // The floor follows quiet windows quickly and loud ones slowly, so talking doesn't raise it.
+      this.floor = this.floor < 0 ? r : r < this.floor ? this.floor * 0.7 + r * 0.3 : this.floor * 0.995 + r * 0.005;
+      // A noisy room (Hapi, 21 Nov: it never heard a pause) moves the bar up with it.
+      this.speaking = r >= Math.max(this.level, this.floor * 2.5);
+      if (this.speaking) {
         this.voiced += sec;
         this.quiet = 0;
       } else this.quiet += sec;

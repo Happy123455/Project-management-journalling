@@ -4652,4 +4652,8 @@ html.agent-dragging .ac-arrow:not(.away) { transition: none; }
 .agent-caption:empty { display: none; }
 .agent-caption.left { transform: translate(calc(-100% - 36px), -50%); }
 .agent-caption i { opacity: 0.85; }
+.agent-caption .agent-ear { display: block; font-size: 11px; opacity: 0.7; }
+.agent-caption .agent-ear:first-child { font-size: 12px; opacity: 0.85; }
+/* The voice it hears, as a swelling halo (--lvl 0…1 from listen.ts). */
+.agent-bubble.live { box-shadow: 0 0 0 calc(var(--lvl, 0) * 16px) rgba(56, 189, 248, 0.35), 0 8px 22px rgba(56, 189, 248, 0.45); transition: left 0.3s var(--spring), top 0.3s var(--spring), transform 0.2s ease, opacity 0.2s ease, box-shadow 0.12s linear; }
 @media (prefers-reduced-motion: reduce) { .agent-bubble.live::after { animation: none; } }

@@ -19,8 +19,11 @@ export interface WhisperInfo {
   downloading: string | null;
 }
 
+/** The app, Mac or phone (not a plain browser): Whisper can run here. */
+export const inApp = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
 export async function whisperInfo(): Promise<WhisperInfo | null> {
-  if (!onMac()) return null;
+  if (!inApp()) return null;
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     return await invoke<WhisperInfo>("whisper_info");
@@ -30,7 +33,7 @@ export async function whisperInfo(): Promise<WhisperInfo | null> {
   }
 }
 
-/** The engine to use: Whisper on the Mac when a model is downloaded, else Gemini. */
+/** The engine to use: Whisper (Mac or phone) when a model is downloaded, else Gemini. */
 export async function pickEngine(): Promise<Engine> {
   const info = await whisperInfo();
   return info?.model ? "whisper" : "gemini";
@@ -39,10 +42,11 @@ export async function pickEngine(): Promise<Engine> {
 const TRANSCRIBE_MODELS = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-flash-latest"];
 
 /** One piece's words. `before`: the end of what was said just before (helps with cut words). */
-export async function transcribe(engine: Engine, samples: Float32Array, before = "", fetchImpl?: typeof fetch): Promise<string> {
+export async function transcribe(engine: Engine, samples: Float32Array, before = "", fetchImpl?: typeof fetch, lang = ""): Promise<string> {
   if (engine === "whisper") {
     const { invoke } = await import("@tauri-apps/api/core");
-    return clean(await invoke<string>("whisper_transcribe", pcm16(samples)));
+    // lang: "en", "gu", "hi"… or "" (Whisper guesses; on short sentences it can guess wrong).
+    return clean(await invoke<string>("whisper_transcribe", pcm16(samples), { headers: { "x-lang": lang } }));
   }
   const { text } = await geminiText(
     TRANSCRIBE_MODELS,
@@ -89,6 +93,10 @@ export interface LiveState {
   waiting: number;
   engine: Engine;
   note?: string;
+  /** Pieces with speech-like sound that came back as no words. */
+  missed?: number;
+  /** Live: the voice is louder than the room right now. */
+  speaking?: boolean;
 }
 
 /**
@@ -100,6 +108,15 @@ export interface LiveRecording {
   cancel(): void;
 }
 
+/** The language live agents are spoken to in (Whisper): English unless journal.liveLang says ("" = guess). */
+export function liveLang(): string {
+  try {
+    return localStorage.getItem("journal.liveLang") ?? "en";
+  } catch {
+    return "en";
+  }
+}
+
 /** live: cut at every pause (live agents), not every 12–24 s. */
 export async function startLive(onState: (s: LiveState) => void, engine0?: Engine, live = false): Promise<LiveRecording> {
   let engine = engine0 ?? (await pickEngine());
@@ -107,6 +124,7 @@ export async function startLive(onState: (s: LiveState) => void, engine0?: Engin
   const startedAt = new Date();
   const release = holdAwake();
   const state: LiveState = { seconds: 0, level: 0, text: "", waiting: 0, engine };
+  const lang = live ? liveLang() : "";
   const emit = () => onState({ ...state });
 
   // The whole talk, compressed, to keep with the note.
@@ -128,7 +146,8 @@ export async function startLive(onState: (s: LiveState) => void, engine0?: Engin
     queue = queue.then(async () => {
       if (cancelled) return;
       try {
-        parts[index] = await transcribe(engine, piece, parts.slice(0, index).join(" "));
+        parts[index] = await transcribe(engine, piece, parts.slice(0, index).join(" "), undefined, lang);
+        if (!parts[index]) state.missed = (state.missed ?? 0) + 1;
       } catch (e) {
         if (engine === "whisper") {
           // Whisper failed: the rest (and this piece) with Gemini.
@@ -167,6 +186,7 @@ export async function startLive(onState: (s: LiveState) => void, engine0?: Engin
     let peak = 0;
     for (let i = 0; i < s.length; i += 8) peak = Math.max(peak, Math.abs(s[i]));
     state.level = Math.max(peak, state.level * 0.7);
+    if (chunker instanceof PauseChunker) state.speaking = chunker.speaking;
     state.seconds = (Date.now() - startedAt.getTime()) / 1000;
     // The meter and timer at most 4 times a second, and not at all off screen.
     const now = performance.now();
@@ -191,7 +211,7 @@ export async function startLive(onState: (s: LiveState) => void, engine0?: Engin
     release();
   };
   const freeWhisper = async () => {
-    if (!onMac()) return;
+    if (!inApp()) return;
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("whisper_release");

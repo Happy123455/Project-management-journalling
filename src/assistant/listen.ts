@@ -1,7 +1,7 @@
 // Items 12 and 13: speech to text for the assistant and the talk box. On the phone, Android's own
 // speech engine (MainActivity.kt ListenBridge: quick, free, words appear while talking); if it's
 // missing or fails, the journal's recorder (ai/voice.ts: Whisper on the Mac, else Gemini).
-import { startLive, type LiveRecording } from "../ai/voice";
+import { inApp, onMac, startLive, whisperInfo, type LiveRecording } from "../ai/voice";
 
 declare global {
   interface Window {
@@ -111,10 +111,16 @@ export interface LiveEar {
  * Live listening (agent bubbles): keeps listening until stop(), and hands over each sentence as
  * soon as it's finished (a pause), while `onHeard` shows the words still coming.
  */
-export async function listenLive(onSentence: (text: string) => void, onHeard: (text: string) => void, onNote?: (note: string) => void): Promise<LiveEar> {
+export async function listenLive(
+  onSentence: (text: string) => void,
+  onHeard: (text: string) => void,
+  onNote?: (note: string) => void,
+  onLevel?: (level: number) => void,
+): Promise<LiveEar> {
   // Android's own engine misheard words and kept failing with "error 11" (server disconnected)
   // between sentences (Hapi, 21 Nov). Live talk now records and transcribes each sentence with
-  // Gemini on the phone (Whisper on the Mac); journal.liveEar = "android" brings the old engine back.
+  // Whisper on the device (Mac or phone; Gemini until it's downloaded); journal.liveEar = "android"
+  // brings the old engine back.
   let useAndroid = false;
   try {
     useAndroid = localStorage.getItem("journal.liveEar") === "android";
@@ -125,7 +131,7 @@ export async function listenLive(onSentence: (text: string) => void, onHeard: (t
   if (!useAndroid && bridge?.available?.()) {
     // The microphone may be refused to the page: then Android's engine after all.
     try {
-      return await recorderLive(onSentence, onHeard, onNote);
+      return await recorderLive(onSentence, onHeard, onNote, onLevel);
     } catch (e) {
       onNote?.(`Recorder unavailable (${e instanceof Error ? e.message : String(e)}); using Android's listening.`);
       useAndroid = true;
@@ -164,10 +170,29 @@ export async function listenLive(onSentence: (text: string) => void, onHeard: (t
       },
     };
   }
-  return recorderLive(onSentence, onHeard, onNote);
+  return recorderLive(onSentence, onHeard, onNote, onLevel);
 }
 
-async function recorderLive(onSentence: (text: string) => void, onHeard: (text: string) => void, onNote?: (note: string) => void): Promise<LiveEar> {
+/**
+ * The phone gets Whisper once (Hapi asked for it, 21 Nov: "the best speech to text… on my
+ * mobile"): the base model (~200 MB) downloads in the background the first time a bubble listens;
+ * Gemini transcribes until it's there.
+ */
+async function getWhisper(onNote?: (note: string) => void) {
+  if (!inApp() || onMac()) return;
+  const info = await whisperInfo();
+  if (!info || info.model || info.downloading) return;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("download_whisper", { model: "base" });
+    onNote?.("Getting Whisper for this phone (once, ~200 MB). Gemini listens until then.");
+  } catch {
+    // An app build without Whisper.
+  }
+}
+
+async function recorderLive(onSentence: (text: string) => void, onHeard: (text: string) => void, onNote?: (note: string) => void, onLevel?: (level: number) => void): Promise<LiveEar> {
+  void getWhisper(onNote);
   // The recorder (Whisper on the Mac, Gemini on the phone): it cuts at pauses; each new piece of text is a sentence once
   // nothing is waiting and nothing new came for a moment.
   let sent = 0;
@@ -178,10 +203,18 @@ async function recorderLive(onSentence: (text: string) => void, onHeard: (text: 
     sent = latest.length;
     if (fresh) onSentence(fresh);
   };
+  let note = "";
+  let missed = 0;
   const rec = await startLive((s) => {
-    if (s.note) onNote?.(s.note);
+    if (s.note && s.note !== note) onNote?.((note = s.note));
     if (s.text.length > latest.length) latest = s.text;
-    onHeard(s.waiting ? "…" : "");
+    onLevel?.(s.level);
+    // What it's doing, always in sight (Hapi, 21 Nov: "I can't see if it's detecting anything").
+    if ((s.missed ?? 0) > missed) {
+      missed = s.missed ?? 0;
+      onNote?.("Heard something but no words: say it again, a bit closer?");
+    }
+    onHeard(s.waiting ? `✍️ Writing down… (${s.engine === "whisper" ? "Whisper" : "Gemini"})` : s.speaking ? "🎙️ Hearing you…" : "");
     window.clearTimeout(timer);
     if (!s.waiting && latest.length > sent) timer = window.setTimeout(flush, 250);
   }, undefined, true);
