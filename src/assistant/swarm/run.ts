@@ -20,6 +20,24 @@ const MAX_PIECES = 14;
 const running = new WeakSet<Element>();
 let live = 0;
 
+/** How fast the shows play (2 = twice as fast): live agents use quick ones. Read when a show starts. */
+let rate = 1;
+export const swarmRate = () => rate;
+export function atRate<T>(r: number, f: () => T): T {
+  const old = rate;
+  rate = r;
+  try {
+    return f();
+  } finally {
+    rate = old;
+  }
+}
+/** Speeds up a show's animations; returns how long it now lasts. */
+export function speedUp(anims: Animation[], T: number, r: number): number {
+  if (r !== 1) for (const a of anims) a.playbackRate = r;
+  return T / r;
+}
+
 export function swarmOff(): boolean {
   try {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return true;
@@ -146,6 +164,7 @@ export function swarmOn(el: HTMLElement | null | undefined, task: SwarmTask = {}
 
 function play(el: HTMLElement, box: DOMRect, pieces: Piece[], plan: SwarmPlan): Promise<void> {
   const T = plan.totalMs;
+  const r = rate;
   const off = (ms: number) => Math.min(1, Math.max(0, ms / T));
   const root = node(`swarm swarm-${plan.kind}`, document.body);
   root.setAttribute("aria-hidden", "true");
@@ -244,8 +263,9 @@ function play(el: HTMLElement, box: DOMRect, pieces: Piece[], plan: SwarmPlan): 
       root.remove();
       resolve();
     };
+    const len = speedUp(anims, T, r);
     anims[0].finished.then(end, end);
     // In case the block is redrawn mid-way (its animation then never ends).
-    window.setTimeout(end, T + 200);
+    window.setTimeout(end, len + 200);
   });
 }

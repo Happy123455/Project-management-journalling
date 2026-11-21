@@ -1,5 +1,5 @@
 import { cursorFx } from "../AgentCursors";
-import { swarmOff, swarmOn } from "./run";
+import { atRate, swarmOff, swarmOn } from "./run";
 import { demolish, type GoneBlock } from "./gone";
 import { likeness } from "./correct";
 import { correctOver } from "./correctRun";
@@ -40,7 +40,8 @@ function snapshot(pm: HTMLElement | null): Before[] {
   });
 }
 
-export function watchEdit(task: SwarmTask & { actor?: string; why?: string }) {
+/** fast: a live agent's edit, shown at double speed. */
+export function watchEdit(task: SwarmTask & { actor?: string; why?: string; fast?: boolean }) {
   if (swarmOff()) return () => undefined;
   const before = snapshot(editorRoot());
   /** Call once the tool is done. */
@@ -97,9 +98,11 @@ export function watchEdit(task: SwarmTask & { actor?: string; why?: string }) {
       // The agent's arrows go back to its bubble while the show plays.
       if (shown && task.actor) cursorFx({ key: task.actor, phase: "think", soft: true });
       const who = task.actor ?? "Agent";
-      for (const p of pairs.filter((x) => onScreen(x.el)).slice(0, 2)) void correctOver(p.el, p.was.text, p.el.textContent ?? "", { why: task.why, who: `Editor · ${who}` });
-      for (const b of deleted.slice(0, 2)) void demolish(now, b.gone!, who);
-      for (const el of builds.filter(onScreen).slice(-2)) void swarmOn(el, task);
+      atRate(task.fast ? 2.2 : 1, () => {
+        for (const p of pairs.filter((x) => onScreen(x.el)).slice(0, 2)) void correctOver(p.el, p.was.text, p.el.textContent ?? "", { why: task.why, who: `Editor · ${who}` });
+        for (const b of deleted.slice(0, 2)) void demolish(now, b.gone!, who);
+        for (const el of builds.filter(onScreen).slice(-2)) void swarmOn(el, task);
+      });
     };
     window.setTimeout(look, 140);
   };

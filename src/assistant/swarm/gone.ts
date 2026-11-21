@@ -1,4 +1,4 @@
-import { ARROW, ease, node, piecesOf, swarmOff } from "./run";
+import { ARROW, ease, node, piecesOf, speedUp, swarmOff, swarmRate } from "./run";
 import { haptic } from "../../lib/haptic";
 
 /**
@@ -28,6 +28,7 @@ export interface GoneBlock {
 }
 
 function finish(root: HTMLElement, anims: Animation[], T: number, extra?: () => void): Promise<void> {
+  T = speedUp(anims, T, swarmRate());
   return new Promise<void>((resolve) => {
     let over = false;
     const end = () => {

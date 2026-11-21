@@ -5,7 +5,7 @@
 // downloaded, Gemini transcribes each piece. Silent pieces are dropped, so pauses cost nothing.
 import { pickAudioType } from "../lib/capture";
 import { holdAwake } from "../lib/power";
-import { base64, downsample, pcm16, SpeechChunker, wavFile } from "../lib/wav";
+import { base64, downsample, pcm16, PauseChunker, SpeechChunker, wavFile } from "../lib/wav";
 import { geminiText } from "./decide";
 
 export type Engine = "whisper" | "gemini";
@@ -100,7 +100,8 @@ export interface LiveRecording {
   cancel(): void;
 }
 
-export async function startLive(onState: (s: LiveState) => void, engine0?: Engine): Promise<LiveRecording> {
+/** live: cut at every pause (live agents), not every 12–24 s. */
+export async function startLive(onState: (s: LiveState) => void, engine0?: Engine, live = false): Promise<LiveRecording> {
   let engine = engine0 ?? (await pickEngine());
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
   const startedAt = new Date();
@@ -113,13 +114,14 @@ export async function startLive(onState: (s: LiveState) => void, engine0?: Engin
   const rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
   const blobs: Blob[] = [];
   rec.ondataavailable = (e) => e.data.size && blobs.push(e.data);
-  rec.start(5000);
+  // Live talk keeps no recording (it can run for an hour).
+  if (!live) rec.start(5000);
 
   // Pieces for transcription, one at a time, in order.
   const parts: string[] = [];
   let queue = Promise.resolve();
   let cancelled = false;
-  const chunker = new SpeechChunker((piece) => {
+  const onPiece = (piece: Float32Array) => {
     state.waiting++;
     emit();
     const index = parts.push("") - 1;
@@ -145,7 +147,8 @@ export async function startLive(onState: (s: LiveState) => void, engine0?: Engin
       state.text = parts.filter(Boolean).join(" ");
       emit();
     });
-  });
+  };
+  const chunker = live ? new PauseChunker(onPiece) : new SpeechChunker(onPiece);
 
   const ctx = new AudioContext();
   const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));

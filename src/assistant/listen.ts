@@ -101,3 +101,76 @@ function androidListen(bridge: NonNullable<Window["JournalListen"]>, onText: (t:
     },
   };
 }
+
+export interface LiveEar {
+  stop(): void;
+  engine: "android" | "recorder";
+}
+
+/**
+ * Live listening (agent bubbles): keeps listening until stop(), and hands over each sentence as
+ * soon as it's finished (a pause), while `onHeard` shows the words still coming.
+ */
+export async function listenLive(onSentence: (text: string) => void, onHeard: (text: string) => void, onNote?: (note: string) => void): Promise<LiveEar> {
+  const bridge = window.JournalListen;
+  if (bridge?.available?.()) {
+    const id = `v${Date.now().toString(36)}`;
+    let stopped = false;
+    const lang = navigator.language || "en-IN";
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<ListenDetail>).detail;
+      if (!d || d.id !== id || stopped) return;
+      if (d.kind === "partial") onHeard(d.text ?? "");
+      else if (d.kind === "final") {
+        onHeard("");
+        if (d.text?.trim()) onSentence(d.text.trim());
+      } else if (d.kind === "error" && d.error && !/no.?match|speech.?timeout|busy|client/i.test(d.error)) onNote?.(d.error);
+      if (d.kind === "end" || d.kind === "error") {
+        if (d.kind === "error" && /permission|insufficient|not.?available/i.test(d.error ?? "")) {
+          stopped = true;
+          window.removeEventListener("journal:listen", on);
+          return;
+        }
+        // A pause ended it: listen again for the next sentence.
+        window.setTimeout(() => !stopped && bridge.start(id, lang), 120);
+      }
+    };
+    window.addEventListener("journal:listen", on);
+    bridge.start(id, lang);
+    return {
+      engine: "android",
+      stop: () => {
+        stopped = true;
+        window.removeEventListener("journal:listen", on);
+        bridge.cancel();
+      },
+    };
+  }
+  // The recorder (Whisper on the Mac): it cuts at pauses; each new piece of text is a sentence once
+  // nothing is waiting and nothing new came for a moment.
+  let sent = 0;
+  let timer = 0;
+  let latest = "";
+  const flush = () => {
+    const fresh = latest.slice(sent).trim();
+    sent = latest.length;
+    if (fresh) onSentence(fresh);
+  };
+  const rec = await startLive((s) => {
+    if (s.note) onNote?.(s.note);
+    if (s.text.length > latest.length) latest = s.text;
+    onHeard(s.waiting ? "…" : "");
+    window.clearTimeout(timer);
+    if (!s.waiting && latest.length > sent) timer = window.setTimeout(flush, 250);
+  }, undefined, true);
+  return {
+    engine: "recorder",
+    stop: () => {
+      window.clearTimeout(timer);
+      void rec.stop().then((r) => {
+        latest = r.text.length > latest.length ? r.text : latest;
+        flush();
+      });
+    },
+  };
+}

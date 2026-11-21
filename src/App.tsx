@@ -542,6 +542,13 @@ function App() {
   // when that can't be done (typing right now, another note) is the note reopened.
   const dayNow = useRef(day);
   dayNow.current = day;
+  // Live agents write into the day on screen (today while a page or tag is open).
+  const routeKind = useRef(route.kind);
+  routeKind.current = route.kind;
+  useEffect(() => {
+    window.__journalOpenDay = () => (routeKind.current === "day" ? dayNow.current : null);
+    return () => void delete window.__journalOpenDay;
+  }, []);
   useEffect(() => {
     const reload = () => {
       setSyncTick((n) => n + 1);

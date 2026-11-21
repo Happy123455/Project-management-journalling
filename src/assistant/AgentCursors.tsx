@@ -9,6 +9,8 @@ import { createPortal } from "react-dom";
  */
 
 export const CURSOR_EVENT = "journal:agent-cursor";
+/** A bubble moved (dragged): the arrows circling it follow (they stayed behind before, 21 Nov). */
+export const BUBBLE_MOVED = "journal:agent-bubble-moved";
 
 export type CursorPhase = "think" | "act" | "done";
 export interface CursorMsg {
@@ -139,9 +141,21 @@ export function AgentCursors() {
     // The bubble can be dragged and the page scrolls: follow the anchor while something runs.
     const follow = () => tick((n) => n + 1);
     window.addEventListener("resize", follow);
+    // Only redraws while something runs (no runs: nothing is drawn, the event is ignored).
+    let frame = 0;
+    const moved = () => {
+      // After the bubble is drawn at its new spot.
+      if (!runsRef.current.length || frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        tick((n) => n + 1);
+      });
+    };
+    window.addEventListener(BUBBLE_MOVED, moved);
     return () => {
       window.removeEventListener(CURSOR_EVENT, on);
       window.removeEventListener("resize", follow);
+      window.removeEventListener(BUBBLE_MOVED, moved);
       for (const id of stale.current.values()) window.clearTimeout(id);
     };
   }, []);

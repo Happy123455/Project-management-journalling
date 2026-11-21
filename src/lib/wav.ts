@@ -134,3 +134,62 @@ export class SpeechChunker {
     if (rms(piece) >= this.silence) this.onPiece(piece, start);
   }
 }
+
+/**
+ * For live talk: a piece ends at the first real pause after some speech (about 0.7 s quiet), so
+ * each sentence is transcribed as soon as it's said. Silence on its own is never handed out.
+ */
+export class PauseChunker {
+  private parts: Float32Array[] = [];
+  private len = 0;
+  private voiced = 0;
+  private quiet = 0;
+  constructor(
+    private onPiece: (samples: Float32Array, startSec: number) => void,
+    private pauseSec = 0.7,
+    private level = 0.012,
+    private maxSec = 15,
+  ) {}
+
+  push(samples: Float32Array) {
+    const win = Math.round(SPEECH_RATE / 10);
+    for (let i = 0; i < samples.length; i += win) {
+      const end = Math.min(samples.length, i + win);
+      const sec = (end - i) / SPEECH_RATE;
+      if (rms(samples, i, end) >= this.level) {
+        this.voiced += sec;
+        this.quiet = 0;
+      } else this.quiet += sec;
+    }
+    this.parts.push(samples);
+    this.len += samples.length;
+    if (this.voiced >= 0.35 && (this.quiet >= this.pauseSec || this.len >= this.maxSec * SPEECH_RATE)) this.cut();
+    else if (this.voiced < 0.35 && this.len > 3 * SPEECH_RATE) {
+      // Only quiet so far: keep the last bit (a word may be starting).
+      const keep = this.parts.slice(-1);
+      this.parts = keep;
+      this.len = keep[0]?.length ?? 0;
+      this.voiced = 0;
+    }
+  }
+
+  flush() {
+    if (this.voiced >= 0.35) this.cut();
+    this.parts = [];
+    this.len = 0;
+  }
+
+  private cut() {
+    const piece = new Float32Array(this.len);
+    let o = 0;
+    for (const p of this.parts) {
+      piece.set(p, o);
+      o += p.length;
+    }
+    this.parts = [];
+    this.len = 0;
+    this.voiced = 0;
+    this.quiet = 0;
+    this.onPiece(piece, 0);
+  }
+}
