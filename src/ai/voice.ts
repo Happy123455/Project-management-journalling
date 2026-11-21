@@ -17,6 +17,8 @@ export interface WhisperInfo {
   models: { id: string; sizeMb: number; installed: boolean }[];
   model: string | null;
   downloading: string | null;
+  /** Why the last download failed. */
+  error?: string | null;
 }
 
 /** The app, Mac or phone (not a plain browser): Whisper can run here. */

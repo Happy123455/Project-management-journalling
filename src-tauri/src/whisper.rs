@@ -20,6 +20,8 @@ const URL_BASE: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/
 const RATE: i32 = 16_000;
 
 static DOWNLOADING: Mutex<Option<String>> = Mutex::new(None);
+/// Why the last download failed (shown in Settings, and readable when the phone "can't get it").
+static LAST_ERROR: Mutex<Option<String>> = Mutex::new(None);
 /// The loaded model: (model id, language, recognizer).
 static ENGINE: Mutex<Option<(String, String, Arc<OfflineRecognizer>)>> = Mutex::new(None);
 
@@ -46,6 +48,7 @@ pub fn whisper_info(app: AppHandle) -> Value {
         "models": MODELS.iter().map(|(id, mb)| json!({ "id": id, "sizeMb": mb, "installed": installed(&app, id) })).collect::<Vec<_>>(),
         "model": chosen(&app),
         "downloading": *DOWNLOADING.lock().unwrap_or_else(|e| e.into_inner()),
+        "error": *LAST_ERROR.lock().unwrap_or_else(|e| e.into_inner()),
     })
 }
 
@@ -76,14 +79,57 @@ impl<R: Read> Read for Counting<R> {
 
 fn fetch(app: &AppHandle, id: &str) -> Result<u64, String> {
     let part = root(app).join(".part");
-    let _ = fs::remove_dir_all(&part);
+    // A half-downloaded archive is kept (resumed below); anything half-unpacked is not.
+    let _ = fs::remove_dir_all(part.join(format!("sherpa-onnx-whisper-{id}")));
     fs::create_dir_all(&part).map_err(|e| e.to_string())?;
-    let response = ureq::get(&format!("{URL_BASE}{id}.tar.bz2")).call().map_err(|e| e.to_string())?;
-    let total = response.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok()).unwrap_or(0);
-    let mut counting = Counting { inner: response.into_body().into_reader(), received: 0, last: 0, total, app: app.clone(), model: id.to_string() };
-    tar::Archive::new(bzip2::read::BzDecoder::new(std::io::BufReader::with_capacity(1 << 16, &mut counting)))
+    // The archive goes to a file first, picking up where it stopped if the connection drops (the
+    // phone moving between Wi-Fi and mobile data broke a straight-through unpack, 21 Nov).
+    let archive = part.join("model.tar.bz2");
+    let url = format!("{URL_BASE}{id}.tar.bz2");
+    let mut total = 0u64;
+    let mut tries = 0;
+    loop {
+        let have = fs::metadata(&archive).map(|m| m.len()).unwrap_or(0);
+        if total > 0 && have >= total {
+            break;
+        }
+        let mut req = ureq::get(&url);
+        if have > 0 {
+            req = req.header("Range", &format!("bytes={have}-"));
+        }
+        let result = req.call().map_err(|e| e.to_string()).and_then(|response| {
+            let resumed = response.status().as_u16() == 206;
+            let len: u64 = response.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok()).unwrap_or(0);
+            let start = if resumed { have } else { 0 };
+            total = start + len;
+            let mut file = fs::OpenOptions::new().create(true).write(true).append(resumed).truncate(!resumed).open(&archive).map_err(|e| e.to_string())?;
+            let mut counting = Counting { inner: response.into_body().into_reader(), received: start, last: start, total, app: app.clone(), model: id.to_string() };
+            std::io::copy(&mut counting, &mut file).map_err(|e| e.to_string())?;
+            Ok(len == 0)
+        });
+        match result {
+            // No length given: whatever came is all of it.
+            Ok(true) => break,
+            Ok(false) => {}
+            Err(e) => {
+                tries += 1;
+                if tries >= 6 {
+                    return Err(format!("download kept stopping: {e}"));
+                }
+                std::thread::sleep(std::time::Duration::from_secs(2 * tries));
+            }
+        }
+    }
+    let received = fs::metadata(&archive).map(|m| m.len()).unwrap_or(0);
+    let file = fs::File::open(&archive).map_err(|e| e.to_string())?;
+    tar::Archive::new(bzip2::read::BzDecoder::new(std::io::BufReader::with_capacity(1 << 16, file)))
         .unpack(&part)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            // A bad archive is fetched again next time.
+            let _ = fs::remove_file(&archive);
+            format!("couldn't unpack the download: {e}")
+        })?;
+    let _ = fs::remove_file(&archive);
     let unpacked = part.join(format!("sherpa-onnx-whisper-{id}"));
     let need = [format!("{id}-encoder.int8.onnx"), format!("{id}-decoder.int8.onnx"), format!("{id}-tokens.txt")];
     if need.iter().any(|f| !unpacked.join(f).exists()) {
@@ -103,7 +149,7 @@ fn fetch(app: &AppHandle, id: &str) -> Result<u64, String> {
     fs::rename(&unpacked, &target).map_err(|e| e.to_string())?;
     let _ = fs::remove_dir_all(&part);
     let _ = fs::write(root(app).join("model"), id);
-    Ok(counting.received)
+    Ok(received)
 }
 
 #[tauri::command]
@@ -118,13 +164,16 @@ pub fn download_whisper(app: AppHandle, model: String) {
         }
         *downloading = Some(model.clone());
     }
+    *LAST_ERROR.lock().unwrap_or_else(|e| e.into_inner()) = None;
     std::thread::spawn(move || {
         let result = fetch(&app, &model);
         *DOWNLOADING.lock().unwrap_or_else(|e| e.into_inner()) = None;
         match result {
             Ok(received) => progress(&app, &model, "done", received, received, ""),
             Err(e) => {
-                let _ = fs::remove_dir_all(root(&app).join(".part"));
+                *LAST_ERROR.lock().unwrap_or_else(|p| p.into_inner()) = Some(e.clone());
+                // The archive stays for the next try to resume; a half-unpacked folder doesn't.
+                let _ = fs::remove_dir_all(root(&app).join(".part").join(format!("sherpa-onnx-whisper-{model}")));
                 progress(&app, &model, "error", 0, 0, &e);
             }
         }

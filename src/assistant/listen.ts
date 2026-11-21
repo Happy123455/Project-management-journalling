@@ -185,7 +185,7 @@ async function getWhisper(onNote?: (note: string) => void) {
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("download_whisper", { model: "base" });
-    onNote?.("Getting Whisper for this phone (once, ~200 MB). Gemini listens until then.");
+    onNote?.(info.error ? `Whisper download failed last time (${info.error}); trying again. Gemini listens meanwhile.` : "Getting Whisper for this phone (once, ~200 MB). Gemini listens until then.");
   } catch {
     // An app build without Whisper.
   }
