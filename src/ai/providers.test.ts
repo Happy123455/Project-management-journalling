@@ -26,14 +26,14 @@ import { fallbackChain, restingModels, tierOf, unusable } from "./gemini";
 describe("Gemini fallbacks", () => {
   it("goes down from the model asked for: Pro → Flash → Flash-Lite", () => {
     const chain = fallbackChain("gemini-3.1-pro-preview", undefined, 0, new Map());
-    expect(chain.map(tierOf)).toEqual(["pro", "flash", "flash", "flash", "lite", "lite"]);
+    expect(chain.map(tierOf)).toEqual(["pro", "flash", "flash", "flash", "lite", "lite", "lite"]);
     expect(chain[0]).toBe("gemini-3.1-pro-preview");
-    expect(fallbackChain("gemini-3.8-flash", undefined, 0, new Map()).map(tierOf)).toEqual(["flash", "flash", "flash", "lite", "lite"]);
+    expect(fallbackChain("gemini-3.8-flash", undefined, 0, new Map()).map(tierOf)).toEqual(["flash", "flash", "flash", "lite", "lite", "lite"]);
     // Lite has nothing lower: Flash is the spare, never Pro.
-    expect(fallbackChain("gemini-3.5-flash-lite", undefined, 0, new Map()).map(tierOf)).toEqual(["lite", "lite", "flash", "flash", "flash"]);
+    expect(fallbackChain("gemini-3.5-flash-lite", undefined, 0, new Map()).map(tierOf)).toEqual(["lite", "lite", "lite", "flash", "flash", "flash"]);
   });
   it("follows the order set in Settings", () => {
-    expect(fallbackChain("gemini-3.1-pro-preview", ["pro", "lite", "flash"], 0, new Map()).map(tierOf)).toEqual(["pro", "lite", "lite", "flash", "flash", "flash"]);
+    expect(fallbackChain("gemini-3.1-pro-preview", ["pro", "lite", "flash"], 0, new Map()).map(tierOf)).toEqual(["pro", "lite", "lite", "lite", "flash", "flash", "flash"]);
   });
   it("puts a model that just failed last for 10 minutes, but never leaves nothing", () => {
     const rest = new Map([["gemini-3.1-pro-preview", 1000]]);
