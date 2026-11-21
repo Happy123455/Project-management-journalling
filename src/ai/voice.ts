@@ -36,7 +36,7 @@ export async function pickEngine(): Promise<Engine> {
   return info?.model ? "whisper" : "gemini";
 }
 
-const TRANSCRIBE_MODELS = ["gemini-flash-lite-latest", "gemini-3.5-flash-lite", "gemini-flash-latest"];
+const TRANSCRIBE_MODELS = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-flash-latest"];
 
 /** One piece's words. `before`: the end of what was said just before (helps with cut words). */
 export async function transcribe(engine: Engine, samples: Float32Array, before = "", fetchImpl?: typeof fetch): Promise<string> {

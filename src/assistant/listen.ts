@@ -112,8 +112,26 @@ export interface LiveEar {
  * soon as it's finished (a pause), while `onHeard` shows the words still coming.
  */
 export async function listenLive(onSentence: (text: string) => void, onHeard: (text: string) => void, onNote?: (note: string) => void): Promise<LiveEar> {
+  // Android's own engine misheard words and kept failing with "error 11" (server disconnected)
+  // between sentences (Hapi, 21 Nov). Live talk now records and transcribes each sentence with
+  // Gemini on the phone (Whisper on the Mac); journal.liveEar = "android" brings the old engine back.
+  let useAndroid = false;
+  try {
+    useAndroid = localStorage.getItem("journal.liveEar") === "android";
+  } catch {
+    // No storage.
+  }
   const bridge = window.JournalListen;
-  if (bridge?.available?.()) {
+  if (!useAndroid && bridge?.available?.()) {
+    // The microphone may be refused to the page: then Android's engine after all.
+    try {
+      return await recorderLive(onSentence, onHeard, onNote);
+    } catch (e) {
+      onNote?.(`Recorder unavailable (${e instanceof Error ? e.message : String(e)}); using Android's listening.`);
+      useAndroid = true;
+    }
+  }
+  if (useAndroid && bridge?.available?.()) {
     const id = `v${Date.now().toString(36)}`;
     let stopped = false;
     const lang = navigator.language || "en-IN";
@@ -146,7 +164,11 @@ export async function listenLive(onSentence: (text: string) => void, onHeard: (t
       },
     };
   }
-  // The recorder (Whisper on the Mac): it cuts at pauses; each new piece of text is a sentence once
+  return recorderLive(onSentence, onHeard, onNote);
+}
+
+async function recorderLive(onSentence: (text: string) => void, onHeard: (text: string) => void, onNote?: (note: string) => void): Promise<LiveEar> {
+  // The recorder (Whisper on the Mac, Gemini on the phone): it cuts at pauses; each new piece of text is a sentence once
   // nothing is waiting and nothing new came for a moment.
   let sent = 0;
   let timer = 0;

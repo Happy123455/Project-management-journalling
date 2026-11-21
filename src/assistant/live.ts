@@ -263,7 +263,7 @@ export interface LiveResult {
 }
 
 /** One sentence heard while live. */
-export async function liveTurn(text: string, ctx: LiveCtx, signal?: AbortSignal): Promise<LiveResult> {
+export async function liveTurn(text: string, ctx: LiveCtx, signal?: AbortSignal, confirm?: (q: string) => Promise<boolean>): Promise<LiveResult> {
   const said = text.trim();
   if (!said) return { say: "", model: "", ok: true };
   const { plan, model } = await askFast(said, ctx, signal);
@@ -271,7 +271,7 @@ export async function liveTurn(text: string, ctx: LiveCtx, signal?: AbortSignal)
   if (!plan) return { say: "Didn't get that, say it again?", model, ok: false };
   if (plan.action === "none") return { say: "", model, ok: true };
   if (plan.action === "other") {
-    const r = await runAssistant({ store: ctx.store, text: said, actor: ctx.actor, signal });
+    const r = await runAssistant({ store: ctx.store, text: said, actor: ctx.actor, signal, confirm });
     return { say: r.answer.split("\n")[0].slice(0, 160), model: r.fast ? "" : "Gemini", ok: true };
   }
   const last = ctx.last;

@@ -12,7 +12,7 @@ import { createPortal } from "react-dom";
 import type { JournalStore } from "../store";
 import { haptic } from "../lib/haptic";
 import { ASSISTANT_ACTOR } from "./runner";
-import { CommandBar, type AgentStatus } from "./CommandBar";
+import { AGENT_ANSWER, CommandBar, type AgentStatus } from "./CommandBar";
 import { dismissBubble } from "./swarm/gone";
 import { swarmOff } from "./swarm/run";
 import { listenLive, type LiveEar } from "./listen";
@@ -132,6 +132,24 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
 
   // ── Live ──
   const lives = useRef(new Map<string, { ear: LiveEar | null; ctl: AbortController; chain: Promise<void> }>());
+  /** A live agent's open yes/no (a deletion…): a tap or a spoken "yes" says yes. */
+  const asks = useRef(new Map<string, (yes: boolean) => void>());
+  const askLive = (id: string, q: string) =>
+    new Promise<boolean>((resolve) => {
+      haptic("warn", 1);
+      const done = (yes: boolean) => {
+        asks.current.delete(id);
+        window.clearTimeout(t);
+        patch(id, { status: "run" });
+        say(id, yes ? "OK, doing it" : "Left it", 1500);
+        resolve(yes);
+      };
+      // No answer in a minute: no.
+      const t = window.setTimeout(() => done(false), 60_000);
+      asks.current.set(id, done);
+      patch(id, { status: "ask" });
+      say(id, `${q} Tap = yes, hold = no`, 60_000);
+    });
   const ctxs = useRef(new Map<string, LiveCtx>());
   const sayTimer = useRef(new Map<string, number>());
   const say = (id: string, text: string, ms = 5000) => {
@@ -154,7 +172,7 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
     patch(a.id, { status: "run", heard: text });
     cursorFx({ key: actor, phase: "think", anchor: `.agent-bubble[data-agent-key="${a.id}"]` });
     try {
-      const r = await liveTurn(text, ctx, ctl.signal);
+      const r = await liveTurn(text, ctx, ctl.signal, (q) => askLive(a.id, q));
       patch(a.id, { status: r.ok ? "done" : "fail", heard: "", last: r.say || text });
       if (r.say) say(a.id, r.say);
       haptic(r.ok ? "tick" : "warn", 0.6);
@@ -178,6 +196,10 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
     try {
       const ear = await listenLive(
         (text) => {
+          // An open question is answered by voice too.
+          const answer = asks.current.get(a.id);
+          if (answer && /^(yes|yeah|yep|ok|okay|sure|do it|go ahead|haan|ha|ji)\b/i.test(text.trim())) return answer(true);
+          if (answer && /^(no|nope|cancel|stop|don'?t|nahi|na)\b/i.test(text.trim())) return answer(false);
           patch(a.id, { heard: text });
           l.chain = l.chain.then(() => turn(a, text, l.ctl));
         },
@@ -231,7 +253,13 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
           onTap={() => {
             haptic("tap", 0.5);
             patch(a.id, { unseen: false });
-            // Tap: live on or off (its chat, if open, folds).
+            // Tap: yes to its question; else live on or off (its chat, if open, folds).
+            const answer = asks.current.get(a.id);
+            if (answer) return answer(true);
+            if (a.status === "ask") {
+              window.dispatchEvent(new CustomEvent(AGENT_ANSWER, { detail: { key: a.id, yes: true } }));
+              return say(a.id, "OK, doing it", 1500);
+            }
             if (open === a.id) return setOpen(null);
             if (lives.current.has(a.id)) {
               stopLive(a.id);
@@ -240,6 +268,9 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
           }}
           onHold={() => {
             haptic("press", 1);
+            // Hold: no to its question.
+            const answer = asks.current.get(a.id);
+            if (answer) return answer(false);
             stopLive(a.id);
             setOpen((o) => (o === a.id ? null : a.id));
             patch(a.id, { unseen: false });

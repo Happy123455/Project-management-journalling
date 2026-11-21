@@ -42,6 +42,8 @@ export const forgetConvo = (key: string) => convos.delete(key);
 
 /** What a floating agent's bubble shows while it's folded away. */
 export type AgentStatus = "idle" | "run" | "ask" | "done" | "fail";
+/** Answers an agent bubble's yes/no question: detail { key, yes }. */
+export const AGENT_ANSWER = "journal:agent-answer";
 
 /** A floating agent (dragged up from Home): the same assistant, in a panel under its bubble. */
 export interface AgentChrome {
@@ -216,8 +218,19 @@ export function CommandBar({ store, request, onClose, agent }: { store: JournalS
   useEffect(() => {
     if (!onStatus) return;
     const last = turns[turns.length - 1];
-    onStatus(ask ? "ask" : running || last?.status === "run" ? "run" : !last ? "idle" : last.status === "fail" ? "fail" : "done", last ? (last.answer || last.q).slice(0, 120) : "");
+    onStatus(ask ? "ask" : running || last?.status === "run" ? "run" : !last ? "idle" : last.status === "fail" ? "fail" : "done", ask ? ask.q : last ? (last.answer || last.q).slice(0, 120) : "");
   }, [turns, ask, running, onStatus]);
+  // A tap on the bubble answers its question (Hapi, 21 Nov: "approve anything with a tap").
+  const agentKey = agent?.key;
+  useEffect(() => {
+    if (!ask || !agentKey) return;
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ key: string; yes: boolean }>).detail;
+      if (d?.key === agentKey) ask.answer(d.yes);
+    };
+    window.addEventListener(AGENT_ANSWER, on);
+    return () => window.removeEventListener(AGENT_ANSWER, on);
+  }, [ask, agentKey]);
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [turns, ask]);
