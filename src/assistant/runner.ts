@@ -184,7 +184,8 @@ export async function runAssistant(opts: RunOpts): Promise<RunResult> {
   const update = () => opts.onUpdate?.(steps.map((s) => ({ ...s, lines: [...s.lines] })));
   update();
   const settings = { ...loadAiSettings(), provider: "gemini" as const };
-  const model = steps.length > 1 ? modelFor(settings, "grammar") : modelFor(settings, "chat");
+  // The agents use the quickest Gemini (Hapi, 21 Nov): Flash was overloaded (503s) and Pro is over quota.
+  const model = modelFor(settings, "chat");
   let allFast = true;
   const done: string[] = [];
   for (let i = 0; i < steps.length; i++) {

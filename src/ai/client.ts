@@ -76,7 +76,8 @@ async function callGemini(key: string, model: string, req: AiRequest) {
     };
   };
   // Pro waits as long as Settings says; quick tasks give up on a slow fast model sooner.
-  const fast = req.task === "organise" ? 90_000 : req.images?.length ? 30_000 : 20_000;
+  // 21 Nov: Flash often sat 10–30 s on a 503 (busy at Google): give up sooner, a Lite answers in ~1 s.
+  const fast = req.task === "organise" ? 90_000 : req.images?.length ? 30_000 : 12_000;
   const r = await geminiCall({ key, model, body, timeoutMs: req.timeoutMs, fastTimeoutMs: fast });
   const [input, output] = usageOf(r.json);
   return { text: answerText(r.json), model: r.model, input, output, note: r.note };

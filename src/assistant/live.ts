@@ -50,10 +50,10 @@ export interface LiveCtx {
   said: string[];
 }
 
-/** Fastest first. Small models answer a table in a second or two on the M-series Mac. */
+/** Fastest first (21 Nov on Hapi's Mac: llama3.2 ~48 tok/s, qwen3:8b ~23, qwen3:14b ~13). */
 export const LOCAL_FAST = ["qwen3:4b", "qwen3:1.7b", "gemma3:4b", "llama3.2:3b", "llama3.2", "qwen2.5:3b", "phi4-mini", "qwen3:8b", "gemma3:12b", "qwen3:14b"];
 /** Gemini's quickest first; the chain moves on when one is busy or gone. */
-export const GEMINI_FAST = ["gemini-flash-lite-latest", "gemini-3.5-flash-lite", "gemini-flash-latest", "gemini-3.8-flash"];
+export const GEMINI_FAST = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-3.8-flash"];
 
 const onMac = () => "__TAURI_INTERNALS__" in window && !window.JournalSecrets;
 
