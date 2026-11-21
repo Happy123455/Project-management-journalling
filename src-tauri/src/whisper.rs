@@ -252,19 +252,50 @@ fn engine(app: &AppHandle, lang: &str) -> Result<Arc<OfflineRecognizer>, String>
     Ok(r)
 }
 
+/// Plain base64 (standard alphabet, padding optional).
+fn unbase64(s: &str) -> Vec<u8> {
+    let val = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' | b'-' => Some(62),
+        b'/' | b'_' => Some(63),
+        _ => None,
+    };
+    let mut out = Vec::with_capacity(s.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for v in s.bytes().filter_map(val) {
+        acc = (acc << 6) | v as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    out
+}
+
 /// Transcribes one piece: 16 kHz mono 16-bit little-endian PCM as the raw request body.
 #[tauri::command]
 pub async fn whisper_transcribe(app: AppHandle, request: Request<'_>) -> Result<String, String> {
+    let in_body = match request.body() {
+        InvokeBody::Json(v) => v.get("lang").and_then(|l| l.as_str()).map(str::to_string),
+        _ => None,
+    };
     let lang: String = request
         .headers()
         .get("x-lang")
         .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .or(in_body)
         .map(|v| v.trim().to_lowercase())
         .filter(|v| v.len() <= 3 && v.chars().all(|c| c.is_ascii_lowercase()))
         .unwrap_or_default();
     let bytes = match request.body() {
         InvokeBody::Raw(b) => b.clone(),
-        _ => return Err("Send the audio as raw bytes".into()),
+        // The phone's bridge only carries JSON: the samples come as base64 there.
+        InvokeBody::Json(v) => v.get("pcm").and_then(|p| p.as_str()).map(unbase64).ok_or("Send the audio as raw bytes or { pcm: base64 }")?,
     };
     if bytes.len() > RATE as usize * 2 * 30 {
         return Err("Pieces must be under 30 seconds".into());

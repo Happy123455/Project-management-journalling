@@ -48,7 +48,9 @@ export async function transcribe(engine: Engine, samples: Float32Array, before =
   if (engine === "whisper") {
     const { invoke } = await import("@tauri-apps/api/core");
     // lang: "en", "gu", "hi"… or "" (Whisper guesses; on short sentences it can guess wrong).
-    return clean(await invoke<string>("whisper_transcribe", pcm16(samples), { headers: { "x-lang": lang } }));
+    // The Mac takes the samples as raw bytes; the phone's bridge carries only JSON (base64 there).
+    const body = onMac() ? pcm16(samples) : { pcm: base64(pcm16(samples)), lang };
+    return clean(await invoke<string>("whisper_transcribe", body, { headers: { "x-lang": lang } }));
   }
   const { text } = await geminiText(
     TRANSCRIBE_MODELS,
