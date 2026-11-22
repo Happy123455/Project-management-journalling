@@ -121,14 +121,33 @@ export function liveLang(): string {
   }
 }
 
-/** live: cut at every pause (live agents), not every 12–24 s. */
-export async function startLive(onState: (s: LiveState) => void, engine0?: Engine, live = false): Promise<LiveRecording> {
+/**
+ * The phone gets Whisper once (Hapi asked for it, 21 Nov: "the best speech to text… on my
+ * mobile"): the base model (~200 MB) downloads in the background the first time anything
+ * listens; Gemini transcribes until it's there.
+ */
+async function getWhisper(onNote?: (note: string) => void) {
+  if (!inApp() || onMac()) return;
+  const info = await whisperInfo();
+  if (!info || info.model || info.downloading) return;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("download_whisper", { model: "base" });
+    onNote?.("Getting Whisper for this phone (once, ~200 MB). Gemini listens until then.");
+  } catch {
+    // An app build without Whisper.
+  }
+}
+
+/** live: cut at every pause (live agents), not every 12–24 s. lang: Whisper's language ("" = guess). */
+export async function startLive(onState: (s: LiveState) => void, engine0?: Engine, live = false, lang0?: string): Promise<LiveRecording> {
   let engine = engine0 ?? (await pickEngine());
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
   const startedAt = new Date();
   const release = holdAwake();
   const state: LiveState = { seconds: 0, level: 0, text: "", waiting: 0, engine };
-  const lang = live ? liveLang() : "";
+  if (engine === "gemini") void getWhisper((note) => onState({ ...state, note }));
+  const lang = lang0 ?? (live ? liveLang() : "");
   const emit = () => onState({ ...state });
 
   // The whole talk, compressed, to keep with the note.
@@ -240,5 +259,93 @@ export async function startLive(onState: (s: LiveState) => void, engine0?: Engin
       cancelled = true;
       void shutdown().then(freeWhisper);
     },
+  };
+}
+
+/**
+ * A saved recording (a watch voice note, an audio file) in words with Whisper on the device:
+ * decoded, 16 kHz mono, cut into ≤25 s pieces. Null when Whisper isn't here (the caller uses Gemini).
+ */
+export async function whisperFile(bytes: ArrayBuffer, lang = ""): Promise<string | null> {
+  if ((await pickEngine()) !== "whisper") return null;
+  const ctx = new AudioContext();
+  try {
+    const audio = await ctx.decodeAudioData(bytes.slice(0));
+    const mono = new Float32Array(audio.length);
+    for (let c = 0; c < audio.numberOfChannels; c++) {
+      const ch = audio.getChannelData(c);
+      for (let i = 0; i < ch.length; i++) mono[i] += ch[i] / audio.numberOfChannels;
+    }
+    const s = downsample(mono, audio.sampleRate);
+    const step = 16_000 * 25;
+    const parts: string[] = [];
+    for (let i = 0; i < s.length; i += step) parts.push(await transcribe("whisper", s.subarray(i, i + step), parts.join(" "), undefined, lang));
+    return parts.filter(Boolean).join(" ");
+  } finally {
+    void ctx.close().catch(() => {});
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("whisper_release");
+    } catch {
+      // Nothing loaded.
+    }
+  }
+}
+
+export interface PcmRecording {
+  /** Ends it: all the 16 kHz samples. */
+  stop(): Promise<Float32Array>;
+  cancel(): void;
+  seconds(): number;
+}
+
+/** Records the microphone as 16 kHz samples, nothing transcribed (the 📞 call sends the audio itself). */
+export async function recordPcm(onLevel?: (level: number) => void): Promise<PcmRecording> {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  const release = holdAwake();
+  const ctx = new AudioContext();
+  const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
+  await ctx.audioWorklet.addModule(url);
+  URL.revokeObjectURL(url);
+  const source = ctx.createMediaStreamSource(stream);
+  const tap = new AudioWorkletNode(ctx, "journal-tap");
+  const mute = ctx.createGain();
+  mute.gain.value = 0;
+  source.connect(tap).connect(mute).connect(ctx.destination);
+  const pieces: Float32Array[] = [];
+  let n = 0;
+  let level = 0;
+  let lastUi = 0;
+  tap.port.onmessage = (e: MessageEvent<Float32Array>) => {
+    const s = downsample(e.data, ctx.sampleRate);
+    pieces.push(s);
+    n += s.length;
+    let peak = 0;
+    for (let i = 0; i < s.length; i += 8) peak = Math.max(peak, Math.abs(s[i]));
+    level = Math.max(peak, level * 0.7);
+    const now = performance.now();
+    if (onLevel && now - lastUi > 120) {
+      lastUi = now;
+      onLevel(level);
+    }
+  };
+  const shutdown = async () => {
+    tap.port.onmessage = null;
+    source.disconnect();
+    tap.disconnect();
+    await ctx.close().catch(() => {});
+    stream.getTracks().forEach((t) => t.stop());
+    release();
+  };
+  return {
+    async stop() {
+      await shutdown();
+      const out = new Float32Array(n);
+      let at = 0;
+      for (const p of pieces) (out.set(p, at), (at += p.length));
+      return out;
+    },
+    cancel: () => void shutdown(),
+    seconds: () => n / 16_000,
   };
 }

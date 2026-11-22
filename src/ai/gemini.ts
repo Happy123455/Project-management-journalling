@@ -96,6 +96,12 @@ export interface GeminiCall {
   allowEmpty?: boolean;
   /** Don't show the "used Flash" note (the caller says it). */
   quiet?: boolean;
+  /**
+   * How long to keep trying when every model in the chain failed (rounds again, lightest model
+   * first, with short rests). 22 Nov, Hapi: "I don't want to see the Gemini error… use lighter
+   * model… try that again and again. But I want result." Default 4 minutes; 0 = one round.
+   */
+  retryForMs?: number;
 }
 
 export interface GeminiResult {
@@ -131,21 +137,57 @@ export function fallbackNote(asked: string, used: string, why: string): string {
 
 let lastNote = { text: "", at: 0 };
 function showNote(text: string) {
-  // Once in a while, not on every request while Pro rests.
+  // 22 Nov, Hapi: no Gemini notices at all; it just answers. Kept in the console for debugging.
   if (text === lastNote.text && Date.now() - lastNote.at < 5 * 60_000) return;
   lastNote = { text, at: Date.now() };
-  void import("../lib/toast").then(({ showToast }) => showToast(`🤖 ${text}`, "info", undefined, { background: true })).catch(() => {});
+  console.info(`[gemini] ${text}`);
 }
+
+export const DEFAULT_RETRY_MS = 4 * 60_000;
+/** The rest between rounds: 2 s, 4 s, 8 s… at most 20 s. */
+export const roundRest = (round: number) => Math.min(20_000, 2000 * 2 ** Math.max(0, round - 1));
+/** Later rounds go lightest first: a Lite answer now beats a Pro answer never. */
+export const lightFirst = (chain: string[]) => {
+  const rank = { lite: 0, flash: 1, pro: 2 } as const;
+  return [...chain].sort((a, b) => rank[tierOf(a)] - rank[tierOf(b)]);
+};
+/** Errors that another try can't fix (a bad key, a refused request). */
+class Final extends Error {}
+const pause = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((ok, no) => {
+    const t = setTimeout(ok, ms);
+    signal?.addEventListener("abort", () => (clearTimeout(t), no(new DOMException("Stopped", "AbortError"))), { once: true });
+  });
 
 /** Models that answered 400 to a thinkingConfig: asked without it from then on. */
 const noThinking = new Set<string>();
 /** Gemini 3 models take thinkingLevel; older ones (and any that refused it) don't. */
 export const canSetThinking = (m: string) => !noThinking.has(m) && /gemini-(?:[3-9]|flash|pro)/.test(m);
 
-/** One Gemini generateContent request, falling back along the chain. */
+/**
+ * One Gemini generateContent request, falling back along the chain; when the whole chain fails
+ * (busy, quota, no network), it rests and goes round again, lightest first, until `retryForMs`.
+ */
 export async function geminiCall(c: GeminiCall): Promise<GeminiResult> {
-  const { order, waitS } = fallbackPrefs();
-  const chain = c.chain?.length ? [...new Set(c.chain)] : fallbackChain(c.model, order);
+  const until = Date.now() + (c.retryForMs ?? DEFAULT_RETRY_MS);
+  let chain0 = c.chain?.length ? [...new Set(c.chain)] : fallbackChain(c.model, fallbackPrefs().order);
+  for (let round = 0; ; round++) {
+    try {
+      return await geminiRound(c, chain0, round > 0);
+    } catch (e) {
+      if (e instanceof Final || (e as { name?: string })?.name === "AbortError" || c.signal?.aborted) throw e instanceof Final ? new Error(e.message) : e;
+      const rest = roundRest(round + 1);
+      if (Date.now() + rest >= until) throw e;
+      console.info(`[gemini] round ${round + 1} failed (${e instanceof Error ? e.message : String(e)}); again in ${rest / 1000} s`);
+      await pause(rest, c.signal);
+      // Failed models rest, but a retry still tries them all (resting ones are no reason to give up).
+      chain0 = lightFirst(chain0);
+    }
+  }
+}
+
+async function geminiRound(c: GeminiCall, chain: string[], retry: boolean): Promise<GeminiResult> {
+  const { waitS } = fallbackPrefs();
   const first = c.chain?.length ? c.chain[0] : c.model;
   const http = c.fetchImpl ?? (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window ? (await import("@tauri-apps/plugin-http")).fetch : fetch);
   const skipped: GeminiResult["skipped"] = [];
@@ -173,7 +215,10 @@ export async function geminiCall(c: GeminiCall): Promise<GeminiResult> {
       c.signal?.removeEventListener("abort", onAbort);
       if (c.signal?.aborted) throw new DOMException("Stopped", "AbortError");
       const timedOut = ctl.signal.aborted || (e instanceof DOMException ? e.name === "TimeoutError" || e.name === "AbortError" : /timed? ?out|abort/i.test(String(e)));
-      if (!timedOut) throw new Error(`Couldn't reach Gemini: ${e instanceof Error ? e.message : String(e)}`);
+      if (!timedOut) {
+        // No network for a moment: the round fails and is tried again after a rest.
+        throw new Error(`Couldn't reach Gemini: ${e instanceof Error ? e.message : String(e)}`);
+      }
       resting.set(m, Date.now());
       skipped.push({ model: m, why: `no answer in ${Math.round(limit / 1000)} s` });
       lastError = new Error(`Gemini (${m}) didn't answer in ${Math.round(limit / 1000)} s.`);
@@ -184,7 +229,7 @@ export async function geminiCall(c: GeminiCall): Promise<GeminiResult> {
       if (!res.ok) {
         const message = await errorText(res);
         // A bad key or a refused request won't change with another model.
-        if (res.status === 401 || res.status === 403 || (res.status === 400 && /API key/i.test(message))) throw new Error(message);
+        if (res.status === 401 || res.status === 403 || (res.status === 400 && /API key/i.test(message))) throw new Final(message);
         // The model doesn't take thinkingConfig: the same model again, without it.
         if (res.status === 400 && /thinking/i.test(message) && !noThinking.has(m)) {
           noThinking.add(m);
@@ -198,7 +243,7 @@ export async function geminiCall(c: GeminiCall): Promise<GeminiResult> {
       }
       json = (await res.json()) as GeminiJson;
     } catch (e) {
-      if (e instanceof Error && !/JSON/i.test(e.message)) throw e;
+      if (e instanceof Final || (e instanceof Error && !/JSON/i.test(e.message))) throw e;
       resting.set(m, Date.now());
       skipped.push({ model: m, why: "sent an unreadable answer" });
       lastError = new Error("Gemini sent an unreadable answer.");
@@ -215,7 +260,7 @@ export async function geminiCall(c: GeminiCall): Promise<GeminiResult> {
       continue;
     }
     resting.delete(m);
-    const why = firstResting ? "is resting" : skipped[0]?.why;
+    const why = firstResting || retry ? "is resting" : skipped[0]?.why;
     const note = m !== first && why ? fallbackNote(first, m, why) : undefined;
     if (note && !c.quiet) showNote(note);
     return { json, model: m, skipped, note };

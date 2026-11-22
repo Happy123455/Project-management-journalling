@@ -1,7 +1,8 @@
-// Items 12 and 13: speech to text for the assistant and the talk box. On the phone, Android's own
-// speech engine (MainActivity.kt ListenBridge: quick, free, words appear while talking); if it's
-// missing or fails, the journal's recorder (ai/voice.ts: Whisper on the Mac, else Gemini).
-import { inApp, onMac, startLive, whisperInfo, type LiveRecording } from "../ai/voice";
+// Items 12 and 13: speech to text for the assistant and the talk box. 22 Nov, Hapi: "use the
+// whisper model wherever we have to make a speech to text". So: the journal's recorder with
+// Whisper on the device (ai/voice.ts, Mac and phone; Gemini only until the model is there).
+// Android's own engine only when the page can't get the microphone (or journal.liveEar = "android").
+import { liveLang, startLive, type LiveRecording } from "../ai/voice";
 
 declare global {
   interface Window {
@@ -12,6 +13,15 @@ declare global {
       stop(): void;
       cancel(): void;
     };
+  }
+}
+
+/** journal.liveEar = "android": Android's own speech engine instead of Whisper. */
+function androidWanted(): boolean {
+  try {
+    return localStorage.getItem("journal.liveEar") === "android";
+  } catch {
+    return false;
   }
 }
 
@@ -30,19 +40,31 @@ export const canListen = () => !!window.JournalListen?.available?.() || (typeof 
  * Starts listening. `onText` gets the words so far (with the part still being heard). Android's
  * engine stops at a pause, so it's started again until stop() (a long talk keeps going).
  */
-export async function startListening(onText: (text: string) => void, onNote?: (note: string) => void): Promise<Listening> {
+export async function startListening(
+  onText: (text: string) => void,
+  onNote?: (note: string) => void,
+  o: { lang?: string; onLevel?: (level: number) => void; onWaiting?: (pieces: number) => void } = {},
+): Promise<Listening> {
   const bridge = window.JournalListen;
-  if (bridge?.available?.()) {
-    try {
-      return androidListen(bridge, onText, onNote);
-    } catch {
-      // Fall through to the recorder.
-    }
+  if (bridge?.available?.() && androidWanted()) return androidListen(bridge, onText, onNote);
+  let rec: LiveRecording | null;
+  try {
+    rec = await startLive(
+      (s) => {
+        onText(s.text);
+        if (s.note) onNote?.(s.note);
+        o.onLevel?.(s.level);
+        o.onWaiting?.(s.waiting);
+      },
+      undefined,
+      false,
+      o.lang ?? liveLang(),
+    );
+  } catch (e) {
+    // The page can't have the microphone: Android's engine after all.
+    if (bridge?.available?.()) return androidListen(bridge, onText, onNote);
+    throw e;
   }
-  let rec: LiveRecording | null = await startLive((s) => {
-    onText(s.text);
-    if (s.note) onNote?.(s.note);
-  });
   return {
     engine: "recorder",
     stop: async () => {
@@ -121,12 +143,7 @@ export async function listenLive(
   // between sentences (Hapi, 21 Nov). Live talk now records and transcribes each sentence with
   // Whisper on the device (Mac or phone; Gemini until it's downloaded); journal.liveEar = "android"
   // brings the old engine back.
-  let useAndroid = false;
-  try {
-    useAndroid = localStorage.getItem("journal.liveEar") === "android";
-  } catch {
-    // No storage.
-  }
+  let useAndroid = androidWanted();
   const bridge = window.JournalListen;
   if (!useAndroid && bridge?.available?.()) {
     // The microphone may be refused to the page: then Android's engine after all.
@@ -173,26 +190,7 @@ export async function listenLive(
   return recorderLive(onSentence, onHeard, onNote, onLevel);
 }
 
-/**
- * The phone gets Whisper once (Hapi asked for it, 21 Nov: "the best speech to text… on my
- * mobile"): the base model (~200 MB) downloads in the background the first time a bubble listens;
- * Gemini transcribes until it's there.
- */
-async function getWhisper(onNote?: (note: string) => void) {
-  if (!inApp() || onMac()) return;
-  const info = await whisperInfo();
-  if (!info || info.model || info.downloading) return;
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("download_whisper", { model: "base" });
-    onNote?.(info.error ? `Whisper download failed last time (${info.error}); trying again. Gemini listens meanwhile.` : "Getting Whisper for this phone (once, ~200 MB). Gemini listens until then.");
-  } catch {
-    // An app build without Whisper.
-  }
-}
-
 async function recorderLive(onSentence: (text: string) => void, onHeard: (text: string) => void, onNote?: (note: string) => void, onLevel?: (level: number) => void): Promise<LiveEar> {
-  void getWhisper(onNote);
   // The recorder (Whisper on the Mac, Gemini on the phone): it cuts at pauses; each new piece of text is a sentence once
   // nothing is waiting and nothing new came for a moment.
   let sent = 0;

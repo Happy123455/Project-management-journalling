@@ -827,6 +827,23 @@ class MainActivity : TauriActivity() {
       webView?.post { webView?.evaluateJavascript(js, null) }
     }
 
+    // Utterance ids are "<run>:<offset of this chunk>:<last?>".
+    private val progress = object : UtteranceProgressListener() {
+      override fun onStart(utteranceId: String) {}
+      override fun onRangeStart(utteranceId: String, start: Int, end: Int, frame: Int) {
+        val parts = utteranceId.split(":")
+        val offset = parts.getOrNull(1)?.toIntOrNull() ?: return
+        emit("range", parts[0], offset + start)
+      }
+      override fun onDone(utteranceId: String) {
+        val parts = utteranceId.split(":")
+        if (parts[2] == "1") emit("done", parts[0])
+      }
+      @Deprecated("Deprecated in Java")
+      override fun onError(utteranceId: String) = emit("error", utteranceId.split(":")[0])
+      override fun onError(utteranceId: String, errorCode: Int) = emit("error", utteranceId.split(":")[0])
+    }
+
     private fun withTts(action: (TextToSpeech) -> Unit) {
       tts?.let { if (ready) return action(it) }
       waiting = { tts?.let(action) }
@@ -835,22 +852,7 @@ class MainActivity : TauriActivity() {
         if (status != TextToSpeech.SUCCESS) return@TextToSpeech
         val engine = tts ?: return@TextToSpeech
         bestVoice(engine)?.let { engine.voice = it }
-        engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-          // Utterance ids are "<run>:<offset of this chunk>:<last?>".
-          override fun onStart(utteranceId: String) {}
-          override fun onRangeStart(utteranceId: String, start: Int, end: Int, frame: Int) {
-            val parts = utteranceId.split(":")
-            val offset = parts.getOrNull(1)?.toIntOrNull() ?: return
-            emit("range", parts[0], offset + start)
-          }
-          override fun onDone(utteranceId: String) {
-            val parts = utteranceId.split(":")
-            if (parts[2] == "1") emit("done", parts[0])
-          }
-          @Deprecated("Deprecated in Java")
-          override fun onError(utteranceId: String) = emit("error", utteranceId.split(":")[0])
-          override fun onError(utteranceId: String, errorCode: Int) = emit("error", utteranceId.split(":")[0])
-        })
+        engine.setOnUtteranceProgressListener(progress)
         ready = true
         waiting?.invoke()
         waiting = null
@@ -884,6 +886,48 @@ class MainActivity : TauriActivity() {
       }
     }
 
+    /** Google's speech engine (it has Gujarati; Samsung's doesn't), for speakLang. */
+    private var langTts: TextToSpeech? = null
+    private var langReady = false
+
+    /**
+     * Speaks in another language (Gujarati "gu-IN" for the 📞 call) with Google's voice for it.
+     * False when it surely has none (the page then uses Gemini's voice; an "error" event does too).
+     */
+    @JavascriptInterface
+    fun speakLang(text: String, rate: Float, id: String, lang: String): Boolean {
+      kokoro.stop()
+      tts?.stop()
+      val want = Locale.forLanguageTag(lang)
+      val go = { engine: TextToSpeech ->
+        engine.stop()
+        val voice = engine.voices
+          ?.filter { it.locale.language == want.language }
+          ?.sortedWith(compareBy<Voice>({ it.features.contains("notInstalled") }, { it.isNetworkConnectionRequired }, { -it.quality }))
+          ?.firstOrNull()
+        if (voice != null) engine.voice = voice else engine.language = want
+        engine.setSpeechRate(rate)
+        speakChunks(engine, text, id)
+      }
+      val warm = langTts?.takeIf { langReady }
+      if (warm != null) {
+        val has = warm.voices?.any { it.locale.language == want.language } == true || warm.isLanguageAvailable(want) >= TextToSpeech.LANG_AVAILABLE
+        if (!has) return false
+        go(warm)
+        return true
+      }
+      val google = try { packageManager.getPackageInfo("com.google.android.tts", 0); "com.google.android.tts" } catch (_: Exception) { null }
+      langTts = TextToSpeech(this@MainActivity, { status ->
+        val engine = langTts
+        if (status != TextToSpeech.SUCCESS || engine == null) return@TextToSpeech emit("error", id)
+        engine.setOnUtteranceProgressListener(progress)
+        langReady = true
+        val has = engine.voices?.any { it.locale.language == want.language } == true || engine.isLanguageAvailable(want) >= TextToSpeech.LANG_AVAILABLE
+        if (has) go(engine) else emit("error", id)
+      }, google)
+      return true
+    }
+
     @JavascriptInterface fun voiceInfo(): String = kokoro.info()
     @JavascriptInterface fun downloadVoice(model: String) = kokoro.download(model)
     @JavascriptInterface fun removeVoice(model: String) = kokoro.remove(model)
@@ -897,6 +941,10 @@ class MainActivity : TauriActivity() {
     private fun systemSpeak(text: String, rate: Float, id: String) = withTts { engine ->
       engine.stop()
       engine.setSpeechRate(rate)
+      speakChunks(engine, text, id)
+    }
+
+    private fun speakChunks(engine: TextToSpeech, text: String, id: String) {
       // Long text goes in chunks the engine accepts, split after a sentence or a space.
       val max = TextToSpeech.getMaxSpeechInputLength() - 100
       var start = 0
@@ -920,6 +968,7 @@ class MainActivity : TauriActivity() {
     fun stop() {
       kokoro.stop()
       tts?.stop()
+      langTts?.stop()
     }
 
     fun shutdown() {
@@ -927,6 +976,9 @@ class MainActivity : TauriActivity() {
       tts?.shutdown()
       tts = null
       ready = false
+      langTts?.shutdown()
+      langTts = null
+      langReady = false
     }
   }
 }

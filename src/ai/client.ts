@@ -206,8 +206,16 @@ export async function askAi<T = unknown>(req: AiRequest): Promise<AiAnswer<T>> {
     const key = await getKey(settings.provider);
     if (!key) throw new AiUnavailableError("no-key");
     if (settings.provider === "gemini") {
-      result = await callGemini(key, model, req);
-      model = result.model;
+      try {
+        result = await callGemini(key, model, req);
+        model = result.model;
+      } catch (e) {
+        // 22 Nov, Hapi: "I want result." Gemini gave nothing after minutes of tries: the Mac's own model.
+        if ((e as { name?: string })?.name === "AbortError" || req.files?.length || !(await localAvailable())) throw e;
+        settings = { ...settings, provider: "local" };
+        model = modelFor(settings, req.task);
+        result = await callOllama(model, req);
+      }
     } else result = await callClaude(key, model, req);
   }
   recordUsage(model, result.input, result.output);

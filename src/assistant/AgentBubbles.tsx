@@ -4,9 +4,12 @@
 // to open or fold its chat; drag it back onto Home and it merges in and closes.
 // Light on the battery: no timers or frames of its own; only CSS moves while a bubble is busy.
 //
-// Live (Hapi, 21 Nov: "like Gemini Live, no big chat"): a tap makes a bubble listen until it's
-// tapped again; each sentence is done at once by the fastest model (live.ts) and its block is
-// changed in place when corrected. Holding a bubble opens the old chat.
+// Live (Hapi, 21 Nov: "like Gemini Live, no big chat"): no big chat; what you say is done by the
+// fastest model (live.ts) and its block is changed in place when corrected. Holding a bubble
+// opens the old chat.
+// 22 Nov, Hapi: no end-of-speech guessing ("even when I done talking it's still listening so it
+// doesn't execute"). Tap = start recording, tap again = that's my answer: it's written down
+// (Whisper) and done. Tap again to talk again.
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import type { JournalStore } from "../store";
@@ -15,7 +18,7 @@ import { ASSISTANT_ACTOR } from "./runner";
 import { AGENT_ANSWER, CommandBar, type AgentStatus } from "./CommandBar";
 import { dismissBubble } from "./swarm/gone";
 import { swarmOff } from "./swarm/run";
-import { listenLive, type LiveEar } from "./listen";
+import { startListening, type Listening } from "./listen";
 import { liveTurn, type LiveCtx } from "./live";
 import { BUBBLE_MOVED, cursorFx } from "./AgentCursors";
 
@@ -133,7 +136,7 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
   };
 
   // ── Live ──
-  const lives = useRef(new Map<string, { ear: LiveEar | null; ctl: AbortController; chain: Promise<void> }>());
+  const lives = useRef(new Map<string, { ear: Listening | null; ctl: AbortController; chain: Promise<void> }>());
   /** A live agent's open yes/no (a deletion…): a tap or a spoken "yes" says yes. */
   const asks = useRef(new Map<string, (yes: boolean) => void>());
   const askLive = (id: string, q: string) =>
@@ -160,11 +163,12 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
     if (text) sayTimer.current.set(id, window.setTimeout(() => patch(id, { say: "" }), ms));
   };
   const actorOf = (a: Agent) => (a.n === 1 ? ASSISTANT_ACTOR : `${ASSISTANT_ACTOR} ${a.n}`);
+  /** Drops a recording without doing anything (hold, merge, closing). */
   const stopLive = (id: string) => {
     const l = lives.current.get(id);
     if (!l) return;
     lives.current.delete(id);
-    l.ear?.stop();
+    l.ear?.cancel();
     patch(id, { live: false, heard: "", ear: "" });
   };
   const turn = async (a: Agent, text: string, ctl: AbortController) => {
@@ -186,42 +190,65 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
       cursorFx({ key: actor, phase: "done" });
     }
   };
+  /** Second tap: the recording is the answer. Written down, then done. */
+  const submit = async (a: Agent) => {
+    const l = lives.current.get(a.id);
+    if (!l) return;
+    lives.current.delete(a.id);
+    haptic("press", 0.8);
+    patch(a.id, { live: false, ear: "", heard: "✍️ Writing down…" });
+    document.querySelector<HTMLElement>(`.agent-bubble[data-agent-key="${a.id}"]`)?.style.setProperty("--lvl", "0");
+    let text = "";
+    try {
+      text = (await l.ear?.stop())?.trim() ?? "";
+    } catch (e) {
+      patch(a.id, { heard: "" });
+      return say(a.id, `Couldn't write it down: ${e instanceof Error ? e.message : String(e)}`, 8000);
+    }
+    if (!text) {
+      patch(a.id, { heard: "" });
+      return say(a.id, "Didn't catch any words. Tap to try again.", 4000);
+    }
+    // An open question is answered by voice too.
+    const answer = asks.current.get(a.id);
+    if (answer && /^(yes|yeah|yep|ok|okay|sure|do it|go ahead|haan|ha|ji)\b/i.test(text)) return answer(true);
+    if (answer && /^(no|nope|cancel|stop|don'?t|nahi|na)\b/i.test(text)) return answer(false);
+    patch(a.id, { heard: text });
+    l.chain = l.chain.then(() => turn(a, text, l.ctl));
+  };
+  /** First tap: record until the next tap (no guessing when you're done). */
   const goLive = async (a: Agent) => {
-    // One live bubble at a time (one microphone).
-    for (const other of [...lives.current.keys()]) if (other !== a.id) stopLive(other);
+    // One microphone: another bubble's recording is sent as its answer.
+    for (const other of [...lives.current.keys()]) {
+      const b = agentsRef.current.find((x) => x.id === other);
+      if (other !== a.id) void (b ? submit(b) : stopLive(other));
+    }
     if (lives.current.has(a.id)) return;
-    const l = { ear: null as LiveEar | null, ctl: new AbortController(), chain: Promise.resolve() };
+    const l = { ear: null as Listening | null, ctl: new AbortController(), chain: Promise.resolve() };
     lives.current.set(a.id, l);
-    patch(a.id, { live: true, heard: "" });
-    say(a.id, "Listening… tap to stop", 2600);
+    patch(a.id, { live: true, heard: "", ear: "🎙️ Recording… tap when done" });
     haptic("press", 0.8);
     try {
-      const ear = await listenLive(
-        (text) => {
-          // An open question is answered by voice too.
-          const answer = asks.current.get(a.id);
-          if (answer && /^(yes|yeah|yep|ok|okay|sure|do it|go ahead|haan|ha|ji)\b/i.test(text.trim())) return answer(true);
-          if (answer && /^(no|nope|cancel|stop|don'?t|nahi|na)\b/i.test(text.trim())) return answer(false);
-          patch(a.id, { heard: text });
-          l.chain = l.chain.then(() => turn(a, text, l.ctl));
-        },
-        (ear) => lives.current.get(a.id) === l && patch(a.id, { ear }),
+      const ear = await startListening(
+        (text) => lives.current.get(a.id) === l && patch(a.id, { heard: text }),
         (note) => say(a.id, note, 6000),
-        // The ring round the bubble swells with the voice it hears (no re-render: a CSS variable).
-        (level) => document.querySelector<HTMLElement>(`.agent-bubble[data-agent-key="${a.id}"]`)?.style.setProperty("--lvl", Math.min(1, level * 4).toFixed(2)),
+        {
+          // The ring round the bubble swells with the voice it hears (no re-render: a CSS variable).
+          onLevel: (level) => document.querySelector<HTMLElement>(`.agent-bubble[data-agent-key="${a.id}"]`)?.style.setProperty("--lvl", Math.min(1, level * 4).toFixed(2)),
+        },
       );
       l.ear = ear;
-      // Tapped off while the microphone was starting.
-      if (lives.current.get(a.id) !== l) ear.stop();
+      // Tapped again (or dropped) while the microphone was starting.
+      if (lives.current.get(a.id) !== l) ear.cancel();
     } catch (e) {
       lives.current.delete(a.id);
-      patch(a.id, { live: false });
+      patch(a.id, { live: false, ear: "" });
       say(a.id, `Can't listen: ${e instanceof Error ? e.message : String(e)}`, 8000);
     }
   };
   useEffect(
     () => () => {
-      for (const l of lives.current.values()) l.ear?.stop();
+      for (const l of lives.current.values()) l.ear?.cancel();
       lives.current.clear();
     },
     [],
@@ -265,10 +292,8 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
               return say(a.id, "OK, doing it", 1500);
             }
             if (open === a.id) return setOpen(null);
-            if (lives.current.has(a.id)) {
-              stopLive(a.id);
-              say(a.id, "Stopped listening", 1600);
-            } else void goLive(a);
+            if (lives.current.has(a.id)) void submit(a);
+            else void goLive(a);
           }}
           onHold={() => {
             haptic("press", 1);
@@ -298,7 +323,7 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
             aria-live="polite"
           >
             {a.heard ? <i>{a.heard}</i> : a.say ? <span>{a.say}</span> : null}
-            {a.live ? <small className="agent-ear">{a.ear || "🎙️ Listening…"}</small> : null}
+            {a.live ? <small className="agent-ear">{a.ear || "🎙️ Recording… tap when done"}</small> : null}
           </div>
         ) : null,
       )}

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from "vitest";
-import { geminiCall, restingModels, answerText } from "./gemini";
+import { geminiCall, restingModels, answerText, lightFirst, roundRest } from "./gemini";
 
 const ok = (text: string) => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text }] }, finishReason: "STOP" }] }), { status: 200 });
 type Fake = (model: string, init: RequestInit) => Promise<Response>;
@@ -38,5 +38,27 @@ describe("one Gemini path with fallbacks", () => {
     const p = call((_m, init) => hang(init), { signal: ctl.signal, timeoutMs: 10_000 });
     ctl.abort();
     await expect(p).rejects.toThrow("Stopped");
+  });
+});
+
+describe("Gemini keeps trying until it answers", () => {
+  beforeEach(() => restingModels.clear());
+  it("every model busy, then the lightest answers on a later round", async () => {
+    let n = 0;
+    const r = await geminiCall({
+      key: "k",
+      model: "gemini-3.1-pro-preview",
+      body: () => ({}),
+      timeoutMs: 40,
+      quiet: true,
+      retryForMs: 20_000,
+      fetchImpl: fakeFetch((m) => Promise.resolve(++n <= 7 ? new Response("{}", { status: 503 }) : ok(`from ${m}`))),
+    });
+    expect(n).toBe(8);
+    expect(r.model).toContain("lite");
+  });
+  it("lightFirst and roundRest", () => {
+    expect(lightFirst(["gemini-3.1-pro-preview", "gemini-3.8-flash", "gemini-3.5-flash-lite"])[0]).toBe("gemini-3.5-flash-lite");
+    expect([1, 2, 3, 9].map(roundRest)).toEqual([2000, 4000, 8000, 20000]);
   });
 });

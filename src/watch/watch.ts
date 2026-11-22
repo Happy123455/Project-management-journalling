@@ -1,4 +1,5 @@
 import type { JSONContent } from "@tiptap/react";
+import { whisperFile } from "../ai/voice";
 import type { JournalStore } from "../store";
 import { askAi } from "../ai/client";
 import { mediaNode } from "../editor/attachments";
@@ -122,6 +123,14 @@ function appendToDay(store: JournalStore, day: string, blocks: JSONContent[]) {
 const para = (text: string, indent = 0): JSONContent => ({ type: "paragraph", ...(indent ? { attrs: { indent } } : {}), ...(text ? { content: [{ type: "text", text }] } : {}) });
 
 async function transcribe(mime: string, data: string): Promise<string> {
+  // Whisper on the device first (22 Nov: Whisper wherever speech becomes text); Gemini if it can't.
+  try {
+    const bin = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+    const t = await whisperFile(bin.buffer);
+    if (t !== null) return t;
+  } catch {
+    // Not decodable here: Gemini.
+  }
   const a = await askAi({
     task: "describe",
     cloud: true,

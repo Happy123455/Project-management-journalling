@@ -55,6 +55,8 @@ import { findBlock, recordRun, setScheduled, startScheduler, thisDevice } from "
 import { ChatView } from "./ChatView";
 import { AiBadge } from "./AiBadge";
 import { VoiceBadge } from "./ai/VoicePanel";
+import { OPEN_TALK, openTalk, TalkPanel } from "./talk/TalkPanel";
+import type { TalkMode } from "./talk/talk";
 import { startMacWorker } from "./ai/chatRunner";
 import { RelativeTime } from "./calendar/RelativeTime";
 import { NexusView, type NexusTab, type NexusTarget } from "./NexusView";
@@ -138,6 +140,14 @@ function App() {
     return () => window.removeEventListener(YT_HISTORY_EVENT, on);
   }, []);
   const [moneyOpen, setMoneyOpen] = useState<false | true | "bank">(false);
+  // 🎤 Reflective interview / 📞 Gujarati call (talk/TalkPanel.tsx), one tap from the day header.
+  const [talkMode, setTalkMode] = useState<TalkMode | null>(null);
+  useEffect(() => {
+    const on = (e: Event) => void flush().then(() => setTalkMode((e as CustomEvent<TalkMode>).detail));
+    window.addEventListener(OPEN_TALK, on);
+    return () => window.removeEventListener(OPEN_TALK, on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [yearShown, setYearShown] = useState(() => new Date().getFullYear());
   // What the main area shows: today's/any day's page, a named page, or a tag.
   const [route, setRoute] = useState<{ kind: "day" } | { kind: "page"; page: NamedPage } | { kind: "tag"; tag: string }>({ kind: "day" });
@@ -956,6 +966,8 @@ function App() {
     }
   };
   const islandActions: MenuAction[] = [
+    { icon: "🎤", label: "Interview me", run: () => openTalk("interview") },
+    { icon: "📞", label: "Gujarati call", run: () => openTalk("call") },
     { icon: "🎙", label: "Talk + type", run: () => void newTalkSession() },
     { icon: "☰", label: "Menu", run: () => setDrawerOpen(true) },
     { icon: "🔎", label: "Search text", run: () => setSearchOpen(true) },
@@ -1477,6 +1489,8 @@ function App() {
                 <>
                   <button type="button" onClick={() => setDrawerOpen(true)} aria-label="Open menu">☰</button>
                   <button type="button" onClick={() => setSearchOpen(true)} aria-label="Search">🔍</button>
+                  <button type="button" onClick={() => openTalk("interview")} aria-label="Interview me" title="🎤 Reflective interview: it asks about your day, you talk, press Send">🎤</button>
+                  <button type="button" onClick={() => openTalk("call")} aria-label="Gujarati call" title="📞 Gujarati call: talk in Gujarati, saved in English with the Gujarati under it">📞</button>
                   <button type="button" onClick={() => setRoutineOpen(true)} aria-label="Routine">🧭</button>
                   <button type="button" onClick={async () => (await flush(), setChatOpen(true))} aria-label="Chat view">💬</button>
                 </>
@@ -1765,6 +1779,7 @@ function App() {
       )}
       {assist && store && <CommandBar key={assist.n} store={store} request={assist} onClose={() => setAssist(null)} />}
       {store && <AgentBubbles store={store} />}
+      {store && talkMode && <TalkPanel store={store} mode={talkMode} onClose={() => setTalkMode(null)} />}
       <AgentCursors />
       {ytChart && store && <YoutubeChartSheet store={store} day={ytChart} onClose={() => setYtChart(null)} />}
       {tabsOpen && (

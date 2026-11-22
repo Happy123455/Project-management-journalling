@@ -38,6 +38,8 @@ declare global {
       removeVoice?(model: string): void;
       setVoiceModel?(model: string): void;
       setVoice?(voice: number): void;
+      /** System voice in another language (Gujarati "gu-IN"); false when there's none. */
+      speakLang?(text: string, rate: number, id: string, lang: string): boolean;
     };
     __journalVoiceProgress?: (p: VoiceProgress) => void;
     __journalSpeech?: (event: "range" | "done" | "error", id: string, index?: number) => void;
