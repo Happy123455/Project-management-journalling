@@ -301,12 +301,24 @@ export interface PcmRecording {
 
 /** Records the microphone as 16 kHz samples, nothing transcribed (the 📞 call sends the audio itself). */
 export async function recordPcm(onLevel?: (level: number) => void, onChunk?: (samples16k: Float32Array) => void): Promise<PcmRecording> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-  const release = holdAwake();
+  // 25 Nov, Hapi: slow to start, the phone's volume jumped while listening, and the mic stayed on.
+  // Echo cancellation / noise suppression put Android into "call" audio mode (the call volume
+  // stream), so they're off; the mic and the audio graph start side by side; and anything opened
+  // is closed again if a later step fails.
   const ctx = new AudioContext();
   const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
-  await ctx.audioWorklet.addModule(url);
+  const [got, loaded] = await Promise.allSettled([
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 } }),
+    ctx.audioWorklet.addModule(url),
+  ]);
   URL.revokeObjectURL(url);
+  if (got.status === "rejected" || loaded.status === "rejected") {
+    if (got.status === "fulfilled") got.value.getTracks().forEach((t) => t.stop());
+    await ctx.close().catch(() => {});
+    throw got.status === "rejected" ? got.reason : (loaded as PromiseRejectedResult).reason;
+  }
+  const stream = got.value;
+  const release = holdAwake();
   const source = ctx.createMediaStreamSource(stream);
   const tap = new AudioWorkletNode(ctx, "journal-tap");
   const mute = ctx.createGain();
@@ -330,12 +342,15 @@ export async function recordPcm(onLevel?: (level: number) => void, onChunk?: (sa
       onLevel(level);
     }
   };
+  let closed = false;
   const shutdown = async () => {
+    if (closed) return;
+    closed = true;
+    stream.getTracks().forEach((t) => t.stop());
     tap.port.onmessage = null;
     source.disconnect();
     tap.disconnect();
     await ctx.close().catch(() => {});
-    stream.getTracks().forEach((t) => t.stop());
     release();
   };
   return {

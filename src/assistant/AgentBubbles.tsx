@@ -129,6 +129,9 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
 
   const patch = useCallback((id: string, p: Partial<Agent>) => setAgents((list) => list.map((a) => (a.id === id ? { ...a, ...p } : a))), []);
   const remove = useCallback((id: string) => {
+    // Closing a bubble always lets go of the microphone (25 Nov: it kept recording).
+    const m = mics.current.get(id);
+    if (m) (mics.current.delete(id), (m.cancelled = true), m.pcm?.cancel());
     brains.current.get(id)?.close();
     brains.current.delete(id);
     setAgents((list) => list.filter((a) => a.id !== id));
@@ -216,6 +219,8 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
     const m = mics.current.get(a.id);
     if (!m) return;
     mics.current.delete(a.id);
+    // Still starting: the mic is let go the moment it opens.
+    m.cancelled = true;
     haptic("press", 0.8);
     levelEl(a.id)?.style.setProperty("--lvl", "0");
     const since = new Date(Date.now() - 1000).toISOString();
@@ -262,7 +267,7 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
     mics.current.set(a.id, m);
     const brain = brainOf(a);
     brain.begin();
-    patch(a.id, { live: true, heard: "", ear: "🎙️ Listening… tap when done", say: "", stage: "", undo: undefined });
+    patch(a.id, { live: true, heard: "", ear: "🎙️ Opening the mic…", say: "", stage: "", undo: undefined });
     haptic("press", 0.8);
     try {
       const pcm = await recordPcm(
@@ -273,9 +278,11 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
         },
         (chunk) => brain.audio(chunk),
       );
-      // Tapped again (or dropped) while the microphone was starting.
-      if (m.cancelled) return pcm.cancel();
+      // Tapped again, closed or dropped while the microphone was starting.
+      if (m.cancelled || mics.current.get(a.id) !== m) return pcm.cancel();
       m.pcm = pcm;
+      patch(a.id, { ear: "🎙️ Listening… tap when done" });
+      haptic("tick", 0.5);
     } catch (e) {
       mics.current.delete(a.id);
       brain.cancel();
@@ -283,9 +290,24 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
       say(a.id, `Can't use the microphone: ${e instanceof Error ? e.message : String(e)}`, 8000);
     }
   };
+  // The app goes to the background: no bubble keeps the microphone.
+  useEffect(() => {
+    const away = () => {
+      if (document.visibilityState !== "hidden") return;
+      for (const [id, m] of [...mics.current]) {
+        mics.current.delete(id);
+        m.cancelled = true;
+        m.pcm?.cancel();
+        brains.current.get(id)?.cancel();
+        patch(id, { live: false, heard: "", ear: "" });
+      }
+    };
+    document.addEventListener("visibilitychange", away);
+    return () => document.removeEventListener("visibilitychange", away);
+  }, [patch]);
   useEffect(
     () => () => {
-      for (const m of mics.current.values()) m.pcm?.cancel();
+      for (const m of mics.current.values()) ((m.cancelled = true), m.pcm?.cancel());
       mics.current.clear();
       for (const b of brains.current.values()) b.close();
       brains.current.clear();
