@@ -897,3 +897,44 @@ export function setCells(data: SheetData, patch: Record<string, unknown>): Sheet
   }
   return { ...data, cells, rows, cols };
 }
+
+// ───── Moving rows and columns (Hapi, 25 Nov) ─────
+
+/** Where index i ends up when the line at `from` is moved to `to` (the others shift to make room). */
+export function movedIndex(i: number, from: number, to: number): number {
+  if (i === from) return to;
+  if (from < to && i > from && i <= to) return i - 1;
+  if (from > to && i >= to && i < from) return i + 1;
+  return i;
+}
+
+/** Moves a row or a column; cells, widths and every formula reference follow it, like Excel. */
+export function moveLine(data: SheetData, kind: "row" | "col", from: number, to: number): SheetData {
+  const max = kind === "row" ? data.rows : data.cols;
+  if (from === to || from < 0 || to < 0 || from >= max || to >= max) return data;
+  const mapRef = (r: number, c: number) => (kind === "row" ? { r: movedIndex(r, from, to), c } : { r, c: movedIndex(c, from, to) });
+  const fixFormula = (v: string) =>
+    v.startsWith("=")
+      ? v.replace(/(\$?)([A-Za-z]{1,2})(\$?)(\d{1,4})\b/g, (all, d1: string, col: string, d2: string, row: string) => {
+          const r = Number(row) - 1;
+          const c = colIndex(col);
+          if (!(c >= 0 && c < data.cols && r >= 0 && r < data.rows)) return all;
+          const m = mapRef(r, c);
+          return `${d1}${colName(m.c)}${d2}${m.r + 1}`;
+        })
+      : v;
+  const cells: Record<string, string> = {};
+  for (const [k, v] of Object.entries(data.cells)) {
+    const p = parseRef(k);
+    if (!p) continue;
+    const m = mapRef(p.r, p.c);
+    cells[refName(m.r, m.c)] = fixFormula(v);
+  }
+  let widths = data.widths;
+  if (kind === "col" && widths) {
+    widths = [...widths];
+    const [w] = widths.splice(from, 1);
+    widths.splice(to, 0, w);
+  }
+  return { ...data, cells, ...(widths ? { widths } : {}) };
+}

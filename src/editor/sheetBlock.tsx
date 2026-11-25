@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { mergeAttributes, Node } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
-import { colIndex, colName, display, emptySheet, evaluate, fill, isError, MAX_COLS, MAX_ROWS, normRange, parseSheet, refName, setCells, sheetText, type Range, type SheetData } from "../lib/sheet";
+import { colIndex, colName, display, emptySheet, evaluate, fill, isError, MAX_COLS, MAX_ROWS, moveLine, normRange, parseSheet, refName, setCells, sheetText, type Range, type SheetData } from "../lib/sheet";
 
 /**
  * ▦ A spreadsheet table in the note (a "sheet" block): arrow keys, Enter and Tab move like a
@@ -389,6 +389,48 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
     save({ ...data, cells, rows: kind === "row" ? data.rows - 1 : data.rows, cols: kind === "col" ? data.cols - 1 : data.cols });
   };
 
+  /** Moves the active row or column (25 Nov); the selection goes with it. */
+  const moveActive = (kind: "row" | "col", to: number) => {
+    const from = kind === "row" ? active.r : active.c;
+    const max = kind === "row" ? data.rows : data.cols;
+    if (to < 0 || to >= max || to === from) return;
+    save(moveLine(data, kind, from, to));
+    const next = kind === "row" ? { r: to, c: active.c } : { r: active.r, c: to };
+    setActive(next);
+    setAnchor(next);
+  };
+  /** Drag a row number or column letter onto another to move it there. */
+  const lineDrag = useRef<{ kind: "row" | "col"; from: number; to: number } | null>(null);
+  const [dragLine, setDragLine] = useState<{ kind: "row" | "col"; from: number; to: number } | null>(null);
+  const lineDown = (kind: "row" | "col", i: number) => (e: React.PointerEvent) => {
+    if (!editable) return;
+    e.stopPropagation();
+    lineDrag.current = { kind, from: i, to: i };
+    setDragLine(lineDrag.current);
+    const onMoveL = (ev: PointerEvent) => {
+      const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-line]");
+      const d = lineDrag.current;
+      if (!d || !el || el.dataset.line !== d.kind) return;
+      const to = Number(el.dataset.i);
+      if (to !== d.to) (lineDrag.current = { ...d, to }), setDragLine(lineDrag.current);
+    };
+    const onUpL = () => {
+      window.removeEventListener("pointermove", onMoveL);
+      window.removeEventListener("pointerup", onUpL);
+      const d = lineDrag.current;
+      lineDrag.current = null;
+      setDragLine(null);
+      if (d && d.to !== d.from) {
+        save(moveLine(data, d.kind, d.from, d.to));
+        const next = d.kind === "row" ? { r: d.to, c: active.c } : { r: active.r, c: d.to };
+        setActive(next);
+        setAnchor(next);
+      }
+    };
+    window.addEventListener("pointermove", onMoveL);
+    window.addEventListener("pointerup", onUpL);
+  };
+
   const activeRaw = raw(active.r, active.c);
   const fillCorner = sel;
   return (
@@ -451,6 +493,10 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
             <button type="button" onClick={addCol} title="Add a column">+ Col</button>
             <button type="button" onClick={() => removeLine("row")} title={`Delete row ${active.r + 1}`}>− Row</button>
             <button type="button" onClick={() => removeLine("col")} title={`Delete column ${colName(active.c)}`}>− Col</button>
+            <button type="button" onClick={() => moveActive("row", active.r - 1)} disabled={active.r <= 0} title="Move this row up">↑</button>
+            <button type="button" onClick={() => moveActive("row", active.r + 1)} disabled={active.r >= data.rows - 1} title="Move this row down">↓</button>
+            <button type="button" onClick={() => moveActive("col", active.c - 1)} disabled={active.c <= 0} title="Move this column left">←</button>
+            <button type="button" onClick={() => moveActive("col", active.c + 1)} disabled={active.c >= data.cols - 1} title="Move this column right">→</button>
           </span>
         )}
       </div>
@@ -460,14 +506,14 @@ function SheetView({ node, updateAttributes, editor, selected }: NodeViewProps) 
             <tr>
               <th className="sheet-corner" />
               {Array.from({ length: shownCols }, (_, c) => (
-                <th key={c} className={c >= sel.c0 && c <= sel.c1 ? "on" : ""} style={data.widths?.[c] ? { width: data.widths[c], minWidth: data.widths[c] } : undefined}>{colName(c)}</th>
+                <th key={c} data-line="col" data-i={c} onPointerDown={lineDown("col", c)} className={`${c >= sel.c0 && c <= sel.c1 ? "on" : ""}${dragLine?.kind === "col" && dragLine.to === c ? " drop" : ""}${dragLine?.kind === "col" && dragLine.from === c ? " lifting" : ""}`} style={data.widths?.[c] ? { width: data.widths[c], minWidth: data.widths[c] } : undefined}>{colName(c)}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {Array.from({ length: shownRows }, (_, r) => (
               <tr key={r}>
-                <th className={r >= sel.r0 && r <= sel.r1 ? "on" : ""}>{r + 1}</th>
+                <th data-line="row" data-i={r} onPointerDown={lineDown("row", r)} className={`${r >= sel.r0 && r <= sel.r1 ? "on" : ""}${dragLine?.kind === "row" && dragLine.to === r ? " drop" : ""}${dragLine?.kind === "row" && dragLine.from === r ? " lifting" : ""}`}>{r + 1}</th>
                 {Array.from({ length: shownCols }, (_, c) => {
                   const key = refName(r, c);
                   const v = values.get(key);
@@ -537,3 +583,5 @@ export const SheetBlock = Node.create({
 
 /** A new table, ready to type in. */
 export const newSheetContent = () => ({ type: "sheetBlock", attrs: { data: JSON.stringify(emptySheet(5, 4)) } });
+/** A plain bordered table (no letters, numbers or formulas round it). */
+export const newTableContent = () => ({ type: "sheetBlock", attrs: { data: JSON.stringify({ ...emptySheet(3, 3), mode: "table" }) } });
