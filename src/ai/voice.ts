@@ -300,7 +300,7 @@ export interface PcmRecording {
 }
 
 /** Records the microphone as 16 kHz samples, nothing transcribed (the 📞 call sends the audio itself). */
-export async function recordPcm(onLevel?: (level: number) => void): Promise<PcmRecording> {
+export async function recordPcm(onLevel?: (level: number) => void, onChunk?: (samples16k: Float32Array) => void): Promise<PcmRecording> {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
   const release = holdAwake();
   const ctx = new AudioContext();
@@ -319,6 +319,7 @@ export async function recordPcm(onLevel?: (level: number) => void): Promise<PcmR
   tap.port.onmessage = (e: MessageEvent<Float32Array>) => {
     const s = downsample(e.data, ctx.sampleRate);
     pieces.push(s);
+    onChunk?.(s);
     n += s.length;
     let peak = 0;
     for (let i = 0; i < s.length; i += 8) peak = Math.max(peak, Math.abs(s[i]));

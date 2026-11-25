@@ -118,8 +118,16 @@ export async function askLocal(req: AiRequest & { model?: string }): Promise<{ t
   return { text: r.text, model };
 }
 
-/** Is Ollama running on this Mac? */
+/**
+ * Should the Mac's own model do this? Only when Settings → AI says "Local" and Ollama is running
+ * (25 Nov: Hapi has Gemini now and doesn't want the Mac hot, so Gemini is the default there too).
+ */
 export async function localAvailable(): Promise<boolean> {
+  return loadAiSettings().provider === "local" && ollamaUp();
+}
+
+/** Is Ollama running on this Mac (whatever Settings says)? */
+export async function ollamaUp(): Promise<boolean> {
   try {
     const http = (await import("@tauri-apps/plugin-http")).fetch;
     return (await http(`${OLLAMA_URL}/api/version`, { signal: AbortSignal.timeout(2000) })).ok;
@@ -195,7 +203,7 @@ export async function askAi<T = unknown>(req: AiRequest): Promise<AiAnswer<T>> {
     settings = { ...settings, provider: "gemini" };
   }
   if (settings.provider === "local" && req.cloud && (await getKey("gemini"))) settings = { ...settings, provider: "gemini" };
-  if (settings.provider === "local" && !(await localAvailable())) {
+  if (settings.provider === "local" && !(await ollamaUp())) {
     if (!(await getKey("gemini"))) throw new Error("The local model (Ollama) isn't running, and there's no Gemini key to fall back on.");
     settings = { ...settings, provider: "gemini" };
   }
@@ -211,7 +219,7 @@ export async function askAi<T = unknown>(req: AiRequest): Promise<AiAnswer<T>> {
         model = result.model;
       } catch (e) {
         // 22 Nov, Hapi: "I want result." Gemini gave nothing after minutes of tries: the Mac's own model.
-        if ((e as { name?: string })?.name === "AbortError" || req.files?.length || !(await localAvailable())) throw e;
+        if ((e as { name?: string })?.name === "AbortError" || req.files?.length || !(await ollamaUp())) throw e;
         settings = { ...settings, provider: "local" };
         model = modelFor(settings, req.task);
         result = await callOllama(model, req);

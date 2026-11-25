@@ -397,6 +397,9 @@ export function CommandBar({ store, request, onClose, agent }: { store: JournalS
           <button type="button" className="cmd-help-btn cmd-mini-btn" onClick={() => ((autoMini.current = false), setMini(!mini))} aria-label={mini ? "Open the chat" : "Fold the chat to a small bar"} aria-expanded={!mini}>
             {mini ? "▴" : "▾"}
           </button>
+          <button type="button" className="cmd-help-btn" onClick={() => (onClose(), window.dispatchEvent(new Event("journal:open-chat")))} aria-label="Day chat and AI chat" title="💬 The day as chat · 🤖 AI chat">
+            💬
+          </button>
           <button type="button" className="cmd-help-btn" aria-expanded={help} onClick={() => setHelp(!help)} aria-label="What can I ask?">
             ?
           </button>

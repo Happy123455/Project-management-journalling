@@ -213,6 +213,8 @@ export function readLine(line: string, day: string): Txn | null {
   const info = paren?.[1] ?? "";
   const ref = /ref\s+(\d{6,})/i.exec(info)?.[1];
   const acct = /([A-Za-z][\w ]*?)\s*••(\d{3,6})/.exec(info);
+  const bal = /\bbal\s+₹\s*([\d,]+(?:\.\d+)?)/i.exec(info)?.[1];
+  const method = /(?:^|·)\s*(UPI|NEFT|IMPS|RTGS|ATM|Card)\s*(?:·|$)/.exec(info)?.[1];
   return {
     direction,
     amount,
@@ -220,6 +222,8 @@ export function readLine(line: string, day: string): Txn | null {
     category: (tag?.[1] ?? (direction === "credit" ? "income" : "other")).toLowerCase(),
     ...(acct ? { bank: acct[1].trim(), account: acct[2] } : {}),
     ...(ref ? { ref } : {}),
+    ...(method ? { method } : {}),
+    ...(bal ? { balance: num(bal) } : {}),
     at,
     source: "note",
     line,

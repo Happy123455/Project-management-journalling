@@ -12,6 +12,8 @@ declare global {
       schedule(json: string): void;
       setUpcoming(json: string): void;
       takeOpenDay(): string;
+      /** 💭 Opened from the Quick thought launcher / side key (once). */
+      takeThought?(): boolean;
       askNotify(): void;
     };
   }

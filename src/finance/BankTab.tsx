@@ -6,7 +6,7 @@ import { pocketState, type PocketEntry } from "../lib/pocket";
 import { showError, showToast } from "../lib/toast";
 import { addBank, loadBank } from "./bank";
 import { loadPocket } from "./pocket";
-import { loadStatements } from "./bankStatement";
+import { loadLiveStatements } from "./bankStatement";
 import { BankHistory } from "./BankHistory";
 import type { SavedStatements } from "../lib/bankStatement";
 import { FINANCE_EVENT } from "./capture";
@@ -47,7 +47,7 @@ export function BankTab({ store, onOpenDay }: { store: JournalStore; onOpenDay: 
   const [statements, setStatements] = useState<SavedStatements | null>(null);
   useEffect(() => {
     const load = () => {
-      void loadStatements(store).then(setStatements).catch(() => setStatements(null));
+      void loadLiveStatements(store).then(setStatements).catch(() => setStatements(null));
       void loadBank(store).then(setEntries).catch(() => setEntries([]));
       void loadPocket(store).then(setCash).catch(() => setCash([]));
     };

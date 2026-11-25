@@ -4684,3 +4684,39 @@ html.agent-dragging .ac-arrow:not(.away) { transition: none; }
 .talk-dots i:nth-child(3) { animation-delay: 0.4s; }
 @keyframes talk-dot { 0%, 100% { opacity: 0.25; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } }
 @media (prefers-reduced-motion: reduce) { .talk-dots i { animation: none; opacity: 0.6; } }
+
+/* 🏦 Balance bar + month/day tint (25 Nov) */
+.bank-margin-card > div:first-child { flex: 1; min-width: 0; }
+.bank-fill { position: relative; display: block; height: 8px; margin-top: 7px; border-radius: 99px; background: color-mix(in srgb, var(--text, #888) 10%, transparent); overflow: hidden; }
+.bank-fill i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.bank-fill b { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; background: color-mix(in srgb, #ef4444 70%, transparent); }
+.bank-day { border-left-width: 4px; }
+.bank-day.picked { outline: 2px solid #0ea5e9; outline-offset: -1px; }
+.bh-tint { pointer-events: none; }
+
+/* 🎙️ Talk: language switch + the voice pill (25 Nov) */
+.talk-lang { display: inline-flex; padding: 2px; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); }
+.talk-top .talk-lang button { border: 0; background: transparent; padding: 5px 12px; font-size: 13px; }
+.talk-top .talk-lang button.on { background: var(--text); color: var(--bg); }
+.talk-engine { font-size: 12px; color: #16a34a; white-space: nowrap; }
+.talk-bottom { position: relative; }
+.voice-pill-wave { display: block; width: 100%; height: 92px; margin: -4px 0 4px; color: var(--text); opacity: 0.85; pointer-events: none; }
+.talk-turn.ai.live p { opacity: 0.75; }
+
+/* 💭 Quick thought (25 Nov) */
+.thought-wrap { position: fixed; inset: 0; z-index: 95; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(10px); }
+.thought-card { position: relative; width: min(560px, 100%); border-radius: 26px; background: var(--panel); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.14), 0 1px 0 rgba(255, 255, 255, 0.4) inset; padding: 16px 18px 6px; overflow: hidden; }
+.thought-top { display: flex; align-items: flex-start; gap: 10px; min-height: 28px; }
+.thought-text { flex: 1; margin: 0; font-size: 17px; line-height: 1.35; max-height: 7.5em; overflow: auto; }
+.thought-text.muted { color: var(--muted); }
+.thought-time { font-size: 13px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.thought-card .voice-pill-wave { height: 84px; margin: 0; }
+.thought-key { position: absolute; right: 16px; bottom: 18px; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; border: 0; background: color-mix(in srgb, var(--text) 9%, var(--panel)); color: var(--text); font-size: 18px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12); }
+.thought-pick { width: min(560px, 100%); display: flex; flex-direction: column; gap: 8px; }
+.thought-pick textarea { width: 100%; box-sizing: border-box; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 10px 12px; font: inherit; }
+.thought-ask { margin: 4px 0 0; font-weight: 600; }
+.thought-blocks { display: flex; flex-wrap: wrap; gap: 8px; }
+.thought-blocks button { border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 999px; padding: 8px 14px; font-size: 14px; }
+.thought-blocks button.today { border-color: var(--accent); }
+.thought-note { color: var(--muted); margin: 0; font-size: 13px; }
+.thought-cancel { border: 0; background: none; color: var(--muted); padding: 8px 16px; }

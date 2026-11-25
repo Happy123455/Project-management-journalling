@@ -23,4 +23,15 @@
             android:targetPackage="com.hapi.dynamicjournal"
             android:targetClass="com.hapi.dynamicjournal.CaptureActivity" />
     </shortcut>
+    <shortcut
+        android:shortcutId="quick_thought"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/quick_thought"
+        android:shortcutLongLabel="@string/quick_thought">
+        <intent
+            android:action="com.hapi.dynamicjournal.THOUGHT"
+            android:targetPackage="com.hapi.dynamicjournal"
+            android:targetClass="com.hapi.dynamicjournal.MainActivity" />
+    </shortcut>
 </shortcuts>

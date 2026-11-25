@@ -56,6 +56,7 @@ import { ChatView } from "./ChatView";
 import { AiBadge } from "./AiBadge";
 import { VoiceBadge } from "./ai/VoicePanel";
 import { OPEN_TALK, openTalk, TalkPanel } from "./talk/TalkPanel";
+import { OPEN_THOUGHT, ThoughtCapture } from "./talk/ThoughtCapture";
 import type { TalkMode } from "./talk/talk";
 import { startMacWorker } from "./ai/chatRunner";
 import { RelativeTime } from "./calendar/RelativeTime";
@@ -176,6 +177,24 @@ function App() {
   const [nexusTab, setNexusTab] = useState<NexusTab>("history");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  // 💭 Quick thought (talk/ThoughtCapture.tsx): side key / launcher entry on the phone, ⌘⇧T on the Mac.
+  const [thoughtOpen, setThoughtOpen] = useState(false);
+  useEffect(() => {
+    const open = () => setThoughtOpen(true);
+    const fromPhone = () => window.JournalReminders?.takeThought?.() && setThoughtOpen(true);
+    const key = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "t") (e.preventDefault(), setThoughtOpen(true));
+    };
+    fromPhone();
+    window.addEventListener(OPEN_THOUGHT, open);
+    window.addEventListener("journal:thought-launch", fromPhone);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener(OPEN_THOUGHT, open);
+      window.removeEventListener("journal:thought-launch", fromPhone);
+      window.removeEventListener("keydown", key);
+    };
+  }, []);
   // A graph to show in the mind map (a voice graph's 🧠 Open), else the usual map.
   const [mindGraph, setMindGraph] = useState<string | null>(null);
   // An AI chat to open (from the 🤖 badge or an "Answer ready" toast).
@@ -257,6 +276,8 @@ function App() {
       void window.__journalFlush?.().then(() => setChatOpen(true));
     };
     window.addEventListener("journal:open-ai-chat", open);
+    const openChat = () => void window.__journalFlush?.().then(() => setChatOpen(true));
+    window.addEventListener("journal:open-chat", openChat);
     const openMind = (e: Event) => {
       setMindGraph((e as CustomEvent<{ graph?: string }>).detail?.graph ?? null);
       setChatOpen(false);
@@ -265,6 +286,7 @@ function App() {
     window.addEventListener("journal:open-mind-map", openMind);
     return () => {
       window.removeEventListener("journal:open-ai-chat", open);
+      window.removeEventListener("journal:open-chat", openChat);
       window.removeEventListener("journal:open-mind-map", openMind);
     };
   }, []);
@@ -966,13 +988,13 @@ function App() {
     }
   };
   const islandActions: MenuAction[] = [
-    { icon: "🎤", label: "Interview me", run: () => openTalk("interview") },
-    { icon: "📞", label: "Gujarati call", run: () => openTalk("call") },
+    { icon: "🎙️", label: "Talk (English / ગુજરાતી)", run: () => openTalk() },
+    { icon: "💭", label: "Quick thought", run: () => setThoughtOpen(true) },
     { icon: "🎙", label: "Talk + type", run: () => void newTalkSession() },
     { icon: "☰", label: "Menu", run: () => setDrawerOpen(true) },
     { icon: "🔎", label: "Search text", run: () => setSearchOpen(true) },
     { icon: "🧭", label: "Routine", run: () => setRoutineOpen(true) },
-    { icon: "💬", label: "Chat", run: () => void flush().then(() => setChatOpen(true)) },
+    { icon: "✦", label: "Assistant & chat", run: () => openAssist({ mode: "type" }) },
     { icon: "📅", label: "Year", run: () => openYear() },
     { icon: "🔔", label: "Coming up", run: () => setUpcomingOpen(true) },
     { icon: "💰", label: "Money", run: () => setMoneyOpen(true) },
@@ -1341,9 +1363,10 @@ function App() {
     {
       group: "AI & talk",
       items: [
-        { icon: "✦", label: "Assistant", title: "Assistant (Cmd/Ctrl+J)", run: () => (setDrawerOpen(false), openAssist({ mode: "type" })) },
+        { icon: "✦", label: "Assistant & chat", title: "Assistant (Cmd/Ctrl+J); 💬 chat is inside it", run: () => (setDrawerOpen(false), openAssist({ mode: "type" })) },
+        { icon: "🎙️", label: "Talk", title: "Talk out loud: English or ગુજરાતી", run: () => (setDrawerOpen(false), openTalk()) },
+        { icon: "💭", label: "Quick thought", title: "Say a thought, pick the block today (⌘⇧T; phone: side key)", run: () => (setDrawerOpen(false), setThoughtOpen(true)) },
         { icon: "🎙", label: "Talk + type", title: "Talk + type: a new prompt session", run: () => void newTalkSession() },
-        { icon: "💬", label: "Chat", title: "Chat view", run: () => void (setDrawerOpen(false), flush().then(() => setChatOpen(true))) },
         { icon: "⑂", label: "History", title: "Nexus: this note's history", run: () => void openNexus() },
       ],
     },
@@ -1489,10 +1512,9 @@ function App() {
                 <>
                   <button type="button" onClick={() => setDrawerOpen(true)} aria-label="Open menu">☰</button>
                   <button type="button" onClick={() => setSearchOpen(true)} aria-label="Search">🔍</button>
-                  <button type="button" onClick={() => openTalk("interview")} aria-label="Interview me" title="🎤 Reflective interview: it asks about your day, you talk, press Send">🎤</button>
-                  <button type="button" onClick={() => openTalk("call")} aria-label="Gujarati call" title="📞 Gujarati call: talk in Gujarati, saved in English with the Gujarati under it">📞</button>
+                  <button type="button" onClick={() => openTalk()} aria-label="Talk" title="🎙️ Talk: it asks about your day out loud, you talk, press Send. English or ગુજરાતી inside.">🎙️</button>
                   <button type="button" onClick={() => setRoutineOpen(true)} aria-label="Routine">🧭</button>
-                  <button type="button" onClick={async () => (await flush(), setChatOpen(true))} aria-label="Chat view">💬</button>
+                  <button type="button" onClick={() => openAssist({ mode: "type" })} aria-label="Assistant and chat" title="✦ Assistant · 💬 chat is inside">✦</button>
                 </>
               }
             />
@@ -1662,6 +1684,7 @@ function App() {
           day={day}
           onClose={() => (setChatOpen(false), setOpenAi(null))}
           openAi={openAi}
+          onAssistant={() => (setChatOpen(false), setOpenAi(null), openAssist({ mode: "type" }))}
           onChanged={() => {
             setPageVersion((n) => n + 1);
             setSyncTick((n) => n + 1);
@@ -1779,6 +1802,7 @@ function App() {
       )}
       {assist && store && <CommandBar key={assist.n} store={store} request={assist} onClose={() => setAssist(null)} />}
       {store && <AgentBubbles store={store} />}
+      {store && thoughtOpen && <ThoughtCapture store={store} onClose={() => setThoughtOpen(false)} />}
       {store && talkMode && <TalkPanel store={store} mode={talkMode} onClose={() => setTalkMode(null)} />}
       <AgentCursors />
       {ytChart && store && <YoutubeChartSheet store={store} day={ytChart} onClose={() => setYtChart(null)} />}

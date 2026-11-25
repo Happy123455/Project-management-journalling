@@ -62,6 +62,16 @@ const EMOJI = [
 export async function suggestIcon(title: string): Promise<string | null> {
   if (!isDesktopApp()) return null;
   const s = loadAiSettings();
+  if (s.provider !== "local") {
+    // 25 Nov: Gemini unless Settings says Local (keeps the Mac cool).
+    try {
+      const { askAi } = await import("../ai/client");
+      const a = await askAi<{ emoji?: string }>({ task: "chat", system: "You pick one emoji that best stands for a habit or project someone logs in their journal. Answer as JSON {\"emoji\": \"…\"} with exactly one emoji.", text: title, schema: { type: "object", properties: { emoji: { type: "string" } }, required: ["emoji"] }, maxTokens: 40 });
+      return /\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|\u200D\p{Extended_Pictographic}\uFE0F?)*/u.exec(String(a.json?.emoji ?? ""))?.[0] ?? null;
+    } catch {
+      return null;
+    }
+  }
   const model = s.models.local?.grammar || "llama3.2";
   try {
     const http = (await import("@tauri-apps/plugin-http")).fetch;

@@ -98,6 +98,18 @@
                 <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
             </intent-filter>
         </activity>
+        <!-- 💭 Quick thought: its own launcher entry, so Samsung's Side key (Double press → Open app) can start it. -->
+        <activity-alias
+            android:name=".ThoughtLauncher"
+            android:exported="true"
+            android:label="Quick thought"
+            android:icon="@mipmap/ic_launcher"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
         <!-- Health Connect (Android 14+): the same, from the system's permission screen. -->
         <activity-alias
             android:name="ViewPermissionUsageActivity"

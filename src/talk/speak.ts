@@ -40,7 +40,8 @@ export function speakEnglish(text: string): Promise<void> {
   });
 }
 
-const TTS_MODELS = ["gemini-2.5-flash-preview-tts", "gemini-2.5-flash-tts", "gemini-2.5-pro-preview-tts"];
+// ai.google.dev/gemini-api/docs/models, 25 Nov 2026 (the 2.5 preview TTS models were retired 17 Nov).
+const TTS_MODELS = ["gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts", "gemini-2.5-flash-tts"];
 
 /** Gemini's voice: 24 kHz PCM, played here. False when it couldn't. */
 async function geminiSpeak(text: string, my: number): Promise<boolean> {

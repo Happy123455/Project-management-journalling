@@ -1,7 +1,7 @@
 import type { JournalStore } from "../store";
 import { openPdf } from "../editor/pdf";
-import { mergeStatement, parseStatement, type ParsedStatement, type PdfItem, type SavedStatements } from "../lib/bankStatement";
-import { FINANCE_EVENT } from "./capture";
+import { liveStatement, mergeStatement, parseStatement, type ParsedStatement, type PdfItem, type SavedStatements } from "../lib/bankStatement";
+import { FINANCE_EVENT, loadTxns } from "./capture";
 import { loadBank } from "./bank";
 
 /** 🏦 Imported bank statements (src/lib/bankStatement.ts), kept as one file in the app's own data (and its sync folder). */
@@ -62,9 +62,16 @@ export async function importStatement(store: JournalStore, bytes: Uint8Array, pa
   return { saved: next, parsed, added };
 }
 
-/** What the bank holds now: the newest of the statement's last balance and a typed "Bank" balance. */
-export async function bankNow(store: JournalStore): Promise<{ saved: SavedStatements | null; balance: number | null; at: number }> {
+/** The statement carried on to now with typed balances and money the tracker read (src/lib/bankStatement.ts liveStatement). */
+export async function loadLiveStatements(store: JournalStore): Promise<SavedStatements | null> {
   const saved = await loadStatements(store);
+  const [txns, typed] = await Promise.all([loadTxns(store).catch(() => []), loadBank(store).catch(() => [])]);
+  return liveStatement(saved, txns, typed);
+}
+
+/** What the bank holds now: the newest of the statement's last balance (carried on by tracked money) and a typed "Bank" balance. */
+export async function bankNow(store: JournalStore): Promise<{ saved: SavedStatements | null; balance: number | null; at: number }> {
+  const saved = await loadLiveStatements(store);
   const t = saved?.txns[saved.txns.length - 1];
   let balance: number | null = null;
   let at = 0;

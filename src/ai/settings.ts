@@ -15,6 +15,8 @@ export interface AiSettings {
   macGrowsMap?: boolean;
   /** Mac: the local model has been made the default once (the person can switch back). */
   localDefaultSet?: boolean;
+  /** Mac: Gemini made the default once (25 Nov, Hapi got Gemini Pro and wants the Mac cool). */
+  geminiDefaultSet?: boolean;
   /** Mac: how the local model is kept cool (bursts with rests); "cool" unless changed. */
   cool?: CoolLevel;
   /** 🛢️ The evening oil-drop check runs by itself (on unless turned off). */
@@ -45,10 +47,10 @@ function read<T>(key: string, fallback: T): T {
 
 export function loadAiSettings(): AiSettings {
   const s = read(SETTINGS_KEY, DEFAULT_SETTINGS);
-  // Mac app: the local model (Ollama) becomes the default once; Gemini stays the fallback.
+  // Mac app: Gemini becomes the default once (25 Nov), so the Mac stays cool; Local stays one tap away.
   const desktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window && !window.JournalShare;
-  if (desktop && !s.localDefaultSet) {
-    const next = { ...s, provider: "local" as const, localDefaultSet: true };
+  if (desktop && !s.geminiDefaultSet) {
+    const next = { ...s, provider: "gemini" as const, localDefaultSet: true, geminiDefaultSet: true };
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
     } catch {

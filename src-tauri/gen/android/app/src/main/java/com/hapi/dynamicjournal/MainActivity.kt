@@ -130,6 +130,8 @@ class MainActivity : TauriActivity() {
     const val QUICK_NOTE = "com.hapi.dynamicjournal.QUICK_NOTE"
     /** From the floating bubble: open today and start a voice note. */
     const val VOICE_NOTE = "com.hapi.dynamicjournal.VOICE_NOTE"
+    /** 💭 Quick thought: the "Quick thought" launcher entry (Samsung Side key → Double press → Open app) and the icon shortcut. */
+    const val THOUGHT = "com.hapi.dynamicjournal.THOUGHT"
     private var current: java.lang.ref.WeakReference<MainActivity>? = null
 
     /** Something is waiting to be added to today (e.g. a bubble note): tell the page if it's open. */
@@ -143,12 +145,18 @@ class MainActivity : TauriActivity() {
 
   /** A day page to open, from a tapped reminder or the Coming up widget. */
   @Volatile private var pendingOpenDay: String? = null
+  @Volatile private var pendingThought = false
   private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
   /** Reminders: phone notifications, the Coming up widget and opening a day from them. Page: src/calendar/reminderBridge.ts. */
   inner class ReminderBridge {
     @JavascriptInterface fun schedule(json: String) = Reminders.schedule(this@MainActivity, json)
     @JavascriptInterface fun setUpcoming(json: String) = Reminders.setUpcoming(this@MainActivity, json)
+    @JavascriptInterface fun takeThought(): Boolean {
+      val t = pendingThought
+      pendingThought = false
+      return t
+    }
     @JavascriptInterface fun takeOpenDay(): String {
       val day = pendingOpenDay ?: return ""
       pendingOpenDay = null
@@ -372,6 +380,13 @@ class MainActivity : TauriActivity() {
   private fun handleIntent(intent: Intent?) {
     if (intent == null) return
     val action = intent.action
+    if (action == THOUGHT || intent.component?.className?.endsWith("ThoughtLauncher") == true) {
+      pendingThought = true
+      intent.action = null
+      intent.component = null
+      webView?.post { webView?.evaluateJavascript("window.dispatchEvent(new Event('journal:thought-launch'))", null) }
+      return
+    }
     if (action == Reminders.OPEN_DAY) {
       pendingOpenDay = intent.getStringExtra("day")
       intent.action = null

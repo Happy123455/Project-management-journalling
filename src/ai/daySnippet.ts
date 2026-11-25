@@ -7,7 +7,7 @@ import { countWords, docText } from "../lib/words";
 import { dayKey } from "../lib/timestamp";
 import { isTyping } from "../lib/toast";
 import { loadYoutubeDay, youtubeLine } from "../lib/youtubeDigest";
-import { askLocal, localAvailable } from "./client";
+import { askAi, askLocal, localAvailable } from "./client";
 import { loadAiSettings } from "./settings";
 import { actorFor } from "./providers";
 
@@ -39,7 +39,10 @@ export async function writeSnippets(store: JournalStore, now = new Date(), max =
   running = true;
   let n = 0;
   try {
-    if (!loadAiSettings().enabled || !(await localAvailable())) return 0;
+    if (!loadAiSettings().enabled) return 0;
+    // Mac's model when Settings says Local; otherwise Gemini's lightest (25 Nov: keep the Mac cool).
+    const local = await localAvailable();
+    const ask = async (text: string) => (local ? askLocal({ task: "grammar", system: SNIPPET_SYSTEM, text, maxTokens: 120 }) : askAi({ task: "chat", system: SNIPPET_SYSTEM, text, maxTokens: 120 }).then((a) => ({ text: a.text, model: a.model })));
     const days = (await store.listDays()).filter((d) => d <= dayKey(now)).sort().reverse().slice(0, 14);
     for (const day of days) {
       if (n >= max || document.visibilityState !== "visible") break;
@@ -50,10 +53,10 @@ export async function writeSnippets(store: JournalStore, now = new Date(), max =
       const words = countWords(text);
       if (!needsSnippet(page, words, now)) continue;
       const yt = await loadYoutubeDay(store, day).catch(() => null);
-      const r = await askLocal({ task: "grammar", system: SNIPPET_SYSTEM, text: `${text.slice(0, 6000)}${yt ? `\n\n(YouTube that day: ${youtubeLine(yt)})` : ""}`, maxTokens: 120 });
+      const r = await ask(`${text.slice(0, 6000)}${yt ? `\n\n(YouTube that day: ${youtubeLine(yt)})` : ""}`);
       const snippet = cleanSnippet(r.text);
       if (!snippet) continue;
-      await store.setDayProps(day, { snippet: { text: snippet, at: Date.now(), by: actorFor("local", r.model), words } }, actorFor("local", r.model));
+      await store.setDayProps(day, { snippet: { text: snippet, at: Date.now(), by: local ? actorFor("local", r.model) : "Gemini", words } }, local ? actorFor("local", r.model) : "Gemini");
       window.dispatchEvent(new CustomEvent("journal:snippet", { detail: day }));
       n++;
     }

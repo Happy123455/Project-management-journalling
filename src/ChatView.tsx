@@ -39,7 +39,7 @@ const SYSTEM =
   "never lecture or list. Use their language. The day's note so far is given for context.";
 
 /** A day as a chat: its log lines as bubbles; each message sent becomes a new log line. */
-export function ChatView({ store, day, onClose, onChanged, openAi }: { store: JournalStore; day: string; onClose: () => void; onChanged: () => void; openAi?: string | null }) {
+export function ChatView({ store, day, onClose, onChanged, openAi, onAssistant }: { store: JournalStore; day: string; onClose: () => void; onChanged: () => void; openAi?: string | null; onAssistant?: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [replies, setReplies] = useState<Reply[]>(() => readReplies(day));
@@ -132,6 +132,7 @@ export function ChatView({ store, day, onClose, onChanged, openAi }: { store: Jo
         <div className="chat-modes" role="tablist">
           <button type="button" role="tab" aria-selected={mode === "journal"} className={mode === "journal" ? "active" : ""} onClick={() => switchMode("journal")}>📓</button>
           <button type="button" role="tab" aria-selected={mode === "ai"} className={mode === "ai" ? "active" : ""} onClick={() => switchMode("ai")}>🤖</button>
+          {onAssistant && <button type="button" role="tab" aria-selected={false} onClick={onAssistant} title="✦ Assistant: it does things in the journal for you">✦</button>}
         </div>
         {mode === "journal" && <button
           type="button"

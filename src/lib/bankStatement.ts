@@ -295,3 +295,90 @@ export function forecastMargin(days: DayBalance[], balance: number, margin: numb
   const level = gap < 0 ? "under" : gap <= nearBy || (daysLeft !== null && daysLeft <= soonDays) ? "near" : "ok";
   return { level, balance, margin, perDay: Math.round(perDay * 100) / 100, daysLeft, crossDay: daysLeft !== null ? addDaysIso(today, daysLeft) : null };
 }
+
+/**
+ * The statement carried on to today (Hapi, 25 Nov: "it recognised the money but the bank bar
+ * didn't move"). After the statement's last entry come, in time order:
+ *  - balances typed in the 🏦 Bank tab ("Bank balance: 45230"): the balance jumps to that;
+ *  - money the tracker read from bank SMS / payment notifications / note lines (💰/💸): the balance
+ *    moves by it, or takes the bank's own "Avl Bal" when the message had one.
+ * Pocket cash, card spends, "not a payment" lines and other accounts are left out.
+ */
+export interface LiveTxn {
+  direction: "debit" | "credit";
+  amount: number;
+  at: number;
+  party?: string;
+  category?: string;
+  bank?: string;
+  account?: string;
+  method?: string;
+  ref?: string;
+  balance?: number;
+}
+export interface LiveBalance {
+  account: string;
+  amount: number;
+  at: number;
+}
+
+const dayOf = (ms: number) => {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const endOf = (day: string) => {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(y, m - 1, d, 23, 59, 59).getTime();
+};
+const cents = (n: number) => Math.round(n * 100) / 100;
+
+/** Whether a tracked payment moved this bank account (not cash, not a credit card, not another account). */
+export function movesBank(t: LiveTxn, account?: string): boolean {
+  if (t.category === "ignored" || t.method === "cash" || /pocket/i.test(t.bank ?? "")) return false;
+  const mine = account?.match(/(\d{3,6})\s*$/)?.[1];
+  if (mine && t.account && !mine.endsWith(t.account.slice(-4)) && !t.account.endsWith(mine.slice(-4))) return false;
+  return true;
+}
+
+export function liveStatement(saved: SavedStatements | null, tracked: LiveTxn[], typed: LiveBalance[]): SavedStatements | null {
+  const last = saved?.txns[saved.txns.length - 1];
+  const after = last ? endOf(last.day) : -Infinity;
+  type Ev = { at: number; kind: "typed"; amount: number } | { at: number; kind: "txn"; t: LiveTxn };
+  const evs: Ev[] = [
+    ...typed.filter((b) => /^bank$/i.test(b.account) && b.at > after).map((b) => ({ at: b.at, kind: "typed" as const, amount: b.amount })),
+    ...tracked.filter((t) => t.at > after && t.amount > 0 && movesBank(t, saved?.account)).map((t) => ({ at: t.at, kind: "txn" as const, t })),
+  ].sort((a, b) => a.at - b.at);
+  if (!evs.length) return saved;
+  const txns = [...(saved?.txns ?? [])];
+  let bal: number | null = last ? last.balance : null;
+  let order = last ? last.order + 1 : 0;
+  for (const e of evs) {
+    if (e.kind === "typed") {
+      if (bal !== null && Math.abs(e.amount - bal) < 0.005) continue;
+      const amount = bal === null ? 0 : cents(e.amount - bal);
+      bal = e.amount;
+      txns.push({ day: dayOf(e.at), order: order++, amount, balance: bal, text: "Balance you typed in 🏦 Bank", who: "Balance you typed" });
+      continue;
+    }
+    const t = e.t;
+    const signed = t.direction === "credit" ? t.amount : -t.amount;
+    let next: number | null = t.balance ?? (bal === null ? null : cents(bal + signed));
+    if (next === null) continue; // nothing to start from yet
+    bal = next;
+    txns.push({ day: dayOf(t.at), order: order++, amount: signed, balance: bal, text: `Read from ${t.bank ?? "a bank message"}${t.ref ? ` · ref ${t.ref}` : ""}`, who: t.party ?? (signed > 0 ? "Money in" : "Money out"), ...(t.ref ? { ref: t.ref } : {}) });
+  }
+  if (txns.length === (saved?.txns.length ?? 0)) return saved;
+  return { version: 1, account: saved?.account, periods: saved?.periods ?? [], txns };
+}
+
+/**
+ * Month + day colour (Hapi, 25 Nov): each month its own hue, and the shade goes from deep at the
+ * start of the month to light at its end.
+ */
+const MONTH_HUES = [215, 265, 150, 95, 45, 28, 5, 330, 300, 190, 240, 175];
+export function dayTint(day: string, alpha = 1): string {
+  const [y, m, d] = day.split("-").map(Number);
+  const len = new Date(y, m, 0).getDate();
+  const f = (d - 1) / Math.max(1, len - 1);
+  return `hsl(${MONTH_HUES[(m - 1) % 12]} ${Math.round(62 - f * 10)}% ${Math.round(34 + f * 40)}% / ${alpha})`;
+}

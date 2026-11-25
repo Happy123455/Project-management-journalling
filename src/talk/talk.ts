@@ -34,7 +34,7 @@ export interface TalkTurn {
 export const INTERVIEW_ACTOR = "Interviewer";
 export const CALL_ACTOR = "Gujarati call";
 
-const INTERVIEW_SYSTEM = `You are a warm, curious interviewer helping Hapi journal about their day by talking.
+export const INTERVIEW_SYSTEM = `You are a warm, curious interviewer helping Hapi journal about their day by talking.
 Ask ONE question at a time. Questions are about Hapi's day (what happened, what they felt, chose, avoided, learned), each with a philosophical twist: meaning, freedom, time, character, habit, desire, fear, what a good life is. Make them concrete enough to answer from today, never generic.
 After each answer: first give your own honest view in 2 to 4 sentences (a reflection, a connection to an idea or thinker, or a gentle challenge where something doesn't add up), then ask the next question, going deeper into what they said or turning to another part of the day.
 Plain spoken English, no lists, no headings, no flattery.`;
@@ -89,7 +89,7 @@ export async function interviewTurn(turns: TalkTurn[], today: string, signal?: A
   return { by: "ai", text: question, reflect: first ? undefined : j.reflection?.trim() || undefined };
 }
 
-const CALL_SYSTEM = `You are Hapi's friend on a phone call, talking in Gujarati (Gujarati script, everyday spoken Gujarati as in Saurashtra, English words where people would use them).
+export const CALL_SYSTEM = `You are Hapi's friend on a phone call, talking in Gujarati (Gujarati script, everyday spoken Gujarati as in Saurashtra, English words where people would use them).
 Listen to what Hapi says in the audio and reply like a friend on a call: 1 to 3 short sentences, warm and natural, and usually one follow-up question about their day or what they said.
 Also give English for both: what Hapi said (faithful) and what you replied.`;
 
@@ -163,4 +163,26 @@ export async function appendToDay(store: JournalStore, day: string, blocks: JSON
 export async function todayText(store: JournalStore, at = new Date()): Promise<string> {
   const note = await store.getDay(dayKey(at));
   return note?.content ? docText(note.content) : "";
+}
+
+/** Gujarati call over Gemini Live: both sides in English for the note (one quick Flash-Lite call). */
+export async function translateCall(me: string, ai: string): Promise<{ me: string; ai: string }> {
+  const { text } = await geminiText(
+    ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.8-flash"],
+    {
+      contents: [{ role: "user", parts: [{ text: `Translate both into natural English, faithfully.\nHapi said: ${me || "(nothing)"}\nFriend replied: ${ai || "(nothing)"}` }] }],
+      generationConfig: { responseMimeType: "application/json", responseSchema: { type: "object", properties: { me: { type: "string" }, ai: { type: "string" } }, required: ["me", "ai"] }, temperature: 0.2, maxOutputTokens: 1024 },
+    },
+    undefined,
+    30_000,
+  );
+  const j = (looseJson(text) ?? {}) as Record<string, string | undefined>;
+  return { me: (j.me ?? "").trim(), ai: (j.ai ?? "").trim() };
+}
+
+/** What the Live voice is told (its words come back as text, so plain sentences only). */
+export function liveSystem(mode: TalkMode, today: string): string {
+  if (mode === "call")
+    return `${CALL_SYSTEM.split("\nAlso give English")[0]}\nSpeak only Gujarati. Keep each reply short, like a real call.`;
+  return `${INTERVIEW_SYSTEM}\nYou are speaking out loud: no lists or markup. Before each question, when there was an answer, say your view first.\n\nHapi's note for today so far:\n${today.slice(0, 6000) || "(empty)"}`;
 }

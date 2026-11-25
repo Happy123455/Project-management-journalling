@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { JournalStore } from "../store";
 import { rupees } from "../lib/finance";
-import { balanceDays, marginInfo, type DayBalance, type SavedStatements } from "../lib/bankStatement";
+import { balanceDays, dayTint, marginInfo, type DayBalance, type SavedStatements } from "../lib/bankStatement";
 import { showError, showToast } from "../lib/toast";
 import { announceMargin } from "./BankAlert";
 import { importStatement, isPasswordError, readMargin, saveMargin } from "./bankStatement";
@@ -70,6 +70,12 @@ function HistoryChart({ days, margin, pick, onPick }: { days: DayBalance[]; marg
           <rect x="0" y={my} width={w} height={Math.max(0, h - my)} />
         </clipPath>
       </defs>
+      {days.map((day, i) => {
+        const x0 = x(t(day.day));
+        const x1 = i + 1 < days.length ? x(t(days[i + 1].day)) : w - 6;
+        const top = y(day.close);
+        return <rect key={day.day} className="bh-tint" x={x0} y={top} width={Math.max(0.6, x1 - x0)} height={Math.max(0, h - 12 - top)} fill={dayTint(day.day, 0.42)} />;
+      })}
       <rect className="bh-danger" x="0" y={my} width={w} height={Math.max(0, h - 10 - my)} />
       <line className="bh-margin" x1="0" x2={w} y1={my} y2={my} />
       <text className="bh-margin-label" x={w - 6} y={my - 4} textAnchor="end">safety {r0(margin)}</text>
@@ -141,6 +147,12 @@ export function BankHistory({ store, saved, onSaved, onOpenDay }: { store: Journ
 
   const last = days[days.length - 1];
   const gap = last ? last.close - margin : 0;
+  const stTo = saved?.periods.reduce((m, p) => (p.to && p.to > m ? p.to : m), "") ?? "";
+  const fromMsgs = stTo ? (saved?.txns.filter((t) => t.day > stTo).length ?? 0) : 0;
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  // The balance bar: full at twice the safety margin, the safety line at its middle.
+  const fill = last ? Math.max(0, Math.min(1, last.close / Math.max(1, margin * 2))) : 0;
 
   return (
     <section className="bank-history">
@@ -169,8 +181,12 @@ export function BankHistory({ store, saved, onSaved, onOpenDay }: { store: Journ
               <strong>{r2(last.close)}</strong>
               <small>
                 {gap < 0 ? `⚠ ${r2(-gap)} below your safety margin` : `${r2(gap)} above your safety margin`}
-                {gap < 0 && info.since ? ` since ${shortDay(info.since)}` : ""} · statement up to {shortDay(saved?.periods.reduce((m, p) => (p.to && p.to > m ? p.to : m), last.day) ?? last.day)}
+                {gap < 0 && info.since ? ` since ${shortDay(info.since)}` : ""} · {fromMsgs ? `statement to ${shortDay(stTo)} + ${fromMsgs} from your messages, last ${shortDay(last.day)}` : `up to ${shortDay(last.day)}`}
               </small>
+              <span className="bank-fill" role="meter" aria-valuemin={0} aria-valuemax={margin * 2} aria-valuenow={last.close} aria-label="Balance against twice the safety margin">
+                <i style={{ width: `${fill * 100}%`, background: `linear-gradient(90deg, ${dayTint(todayKey.slice(0, 8) + "01")}, ${dayTint(todayKey)})` }} />
+                <b aria-hidden />
+              </span>
             </div>
             <label className="bank-margin-edit">
               Safety
@@ -202,7 +218,7 @@ export function BankHistory({ store, saved, onSaved, onOpenDay }: { store: Journ
           </dl>
           <div className="bank-days" ref={listRef}>
             {[...days].reverse().map((d) => (
-              <div key={d.day} data-day={d.day} className={`bank-day${d === sel ? " picked" : ""}${d.close < margin ? " under" : ""}`}>
+              <div key={d.day} data-day={d.day} className={`bank-day${d === sel ? " picked" : ""}${d.close < margin ? " under" : ""}`} style={{ borderLeftColor: dayTint(d.day), background: dayTint(d.day, 0.08) }}>
                 <button type="button" className="bank-day-head" onClick={() => setPick(days.indexOf(d))} onDoubleClick={() => onOpenDay(d.day)}>
                   <span>{longDay(d.day)}</span>
                   <span className="bank-day-bal">{r2(d.close)}</span>
