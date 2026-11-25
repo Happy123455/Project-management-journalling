@@ -6,6 +6,7 @@ import type { JSONContent } from "@tiptap/core";
 import type { JournalStore } from "../store";
 import { runOneTool, toolsFor, type ToolCall } from "../ai/agent";
 import { AI_OPEN_EVENT } from "../ai/journalTools";
+import { openDayEditor as dayEd, openPageEditor } from "../editor/noteEdit";
 import { appendBlocks } from "../lib/append";
 import { readAloud } from "../lib/readAloud";
 import { showToast } from "../lib/toast";
@@ -107,8 +108,27 @@ async function noteFor(ctx: RunCtx, a: Record<string, unknown>): Promise<Note | 
   return { name: day, doc: page?.content ?? null, save: (doc) => ctx.store.saveDay({ day, content: doc, plainText: docText(doc), actor: ctx.actor }) };
 }
 
+/**
+ * Hapi, 25 Nov: "if it's editing something, I want to be in that note and see it". A note that isn't
+ * on screen is opened first, the way a person would (Home / week / month / year, navShow.ts), so the
+ * edit and its swarm play where Hapi can see them.
+ */
+async function bringIntoView(name: string) {
+  const isDay = /^\d{4}-\d{2}-\d{2}$/.test(name);
+  // Only in the app itself (tests and the MCP server have no screen to show it on).
+  if (typeof document === "undefined" || !document.querySelector(".nav-island, .month-calendar, .journal-editor")) return;
+  if (isDay ? dayEd(name) : openPageEditor(name)) return;
+  await new Promise<void>((r) => {
+    let over = false;
+    const done = () => !over && ((over = true), window.setTimeout(r, 300));
+    window.dispatchEvent(new CustomEvent(AI_OPEN_EVENT, { detail: { target: name, newTab: false, now: true, show: true, done } }));
+    window.setTimeout(done, 12_000);
+  });
+}
+
 /** Saves a note the assistant changed and shows it as it is now. */
 async function saved(note: Note, doc: JSONContent, said: string) {
+  await bringIntoView(note.name).catch(() => {});
   await window.__journalFlush?.();
   await note.save(doc);
   window.dispatchEvent(new Event("journal:reload-page"));

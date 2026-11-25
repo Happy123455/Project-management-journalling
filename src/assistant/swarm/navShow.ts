@@ -59,7 +59,45 @@ export async function showNavTo(day: string): Promise<boolean> {
   const say = me.querySelector<HTMLElement>(".nav-say")!;
   let at = { x: window.innerWidth * 0.5, y: window.innerHeight * 0.42 };
   me.style.transform = `translate3d(${at.x}px, ${at.y}px, 0)`;
-  me.animate([{ opacity: 0, transform: `translate3d(${at.x}px, ${at.y + 20}px, 0) scale(0.8)` }, { opacity: 1, transform: `translate3d(${at.x}px, ${at.y}px, 0)` }], { duration: 320, easing: "ease-out" });
+  // 25 Nov (Hapi): the agent's three arrows flow together like liquid into the one that navigates.
+  const from = [...document.querySelectorAll<HTMLElement>(".agent-cursors .ac-run, .agent-bubble.live, .agent-bubble")].slice(0, 3).map((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  while (from.length < 3) from.push({ x: at.x + [-120, 120, 0][from.length], y: at.y + [90, 90, 150][from.length] });
+  me.style.opacity = "0";
+  await Promise.all(
+    from.map((p, i) => {
+      const ghost = node("swarm-agent nav-agent nav-ghost", stage, ARROW);
+      ghost.style.setProperty("--h", String(200 + (i - 1) * 40));
+      const ang = (Math.atan2(at.y - p.y, at.x - p.x) * 180) / Math.PI;
+      return ghost
+        .animate(
+          [
+            { transform: `translate3d(${p.x}px, ${p.y}px, 0) scale(1)`, opacity: 0.9, filter: "blur(0px)" },
+            { transform: `translate3d(${(p.x + at.x) / 2}px, ${(p.y + at.y) / 2}px, 0) rotate(${ang - 90}deg) scale(0.8, 1.7)`, opacity: 0.85, filter: "blur(1.5px)", offset: 0.55 },
+            { transform: `translate3d(${at.x}px, ${at.y}px, 0) scale(0.4)`, opacity: 0, filter: "blur(3px)" },
+          ],
+          { duration: 520 + i * 60, easing: "cubic-bezier(0.55, 0, 0.25, 1)", fill: "forwards" },
+        )
+        .finished.catch(() => undefined)
+        .then(() => ghost.remove());
+    }),
+  );
+  me.style.opacity = "";
+  const blob = node("swarm-ripple", stage);
+  blob.style.setProperty("--h", "200");
+  Object.assign(blob.style, { left: `${at.x}px`, top: `${at.y}px` });
+  blob.animate([{ transform: "scale(0.3)", opacity: 0.8 }, { transform: "scale(1.8)", opacity: 0 }], { duration: 420, easing: "ease-out", fill: "forwards" }).finished.then(() => blob.remove(), () => blob.remove());
+  // Squash and stretch as the drops become one arrow.
+  me.animate(
+    [
+      { opacity: 0.6, transform: `translate3d(${at.x}px, ${at.y}px, 0) scale(1.45, 0.65)` },
+      { opacity: 1, transform: `translate3d(${at.x}px, ${at.y}px, 0) scale(0.85, 1.15)`, offset: 0.45 },
+      { opacity: 1, transform: `translate3d(${at.x}px, ${at.y}px, 0) scale(1)` },
+    ],
+    { duration: 380, easing: "cubic-bezier(0.2, 1.4, 0.4, 1)" },
+  );
   document.documentElement.classList.add("nav-showing");
   const tell = (s: string) => {
     say.textContent = s;

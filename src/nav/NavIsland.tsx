@@ -497,6 +497,7 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
             <Icon d={SEARCH} />
           </button>
         </div>
+        {joy != null && <LiquidNeck dx={joyX} dy={joy} broken={agentArm === 2} />}
         <button
           type="button"
           data-zone="home"
@@ -1098,5 +1099,47 @@ export function MacTabBar({ tabs, today, canBack, canForward, onBack, onForward,
         ＋
       </button>
     </nav>
+  );
+}
+
+/**
+ * 💧 Home drawn up (Hapi, 25 Nov): a liquid neck holds the button to its place, like water's surface
+ * tension, thinning as it's pulled; past halfway up it snaps and the button is a free drop (the agent).
+ * SVG "goo" (blur + alpha threshold) so the blobs merge and part like liquid. Only while dragging.
+ */
+function LiquidNeck({ dx, dy, broken }: { dx: number; dy: number; broken: boolean }) {
+  const origin = useRef<{ x: number; y: number } | null>(null);
+  const [o, setO] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>(".nav-island .nav-home");
+    if (!el || origin.current) return;
+    const r = el.getBoundingClientRect();
+    origin.current = { x: r.left + r.width / 2 - dx, y: r.top + r.height / 2 - dy };
+    setO(origin.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (!o) return null;
+  const dist = Math.hypot(dx, dy);
+  const reach = window.innerHeight * 0.5;
+  const t = Math.min(1, dist / reach);
+  const neck = broken ? 0 : Math.max(3, 22 * (1 - t) ** 1.4);
+  const base = broken ? 10 : 26 - 12 * t;
+  const bx = o.x + dx;
+  const by = o.y + dy;
+  return createPortal(
+    <svg className={`nav-liquid${broken ? " broken" : ""}`} width="100%" height="100%" aria-hidden>
+      <defs>
+        <filter id="nav-goo">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="b" />
+          <feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9" />
+        </filter>
+      </defs>
+      <g filter="url(#nav-goo)" fill="#8b5cf6">
+        <circle className="nav-liquid-base" cx={o.x} cy={o.y} r={base} />
+        {neck > 0 && <line x1={o.x} y1={o.y} x2={bx} y2={by} stroke="#8b5cf6" strokeWidth={neck} strokeLinecap="round" />}
+        <circle cx={bx} cy={by} r={30} />
+      </g>
+    </svg>,
+    document.body,
   );
 }

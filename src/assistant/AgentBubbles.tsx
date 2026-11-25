@@ -21,6 +21,7 @@ import { swarmOff } from "./swarm/run";
 import { startListening, type Listening } from "./listen";
 import { liveTurn, type LiveCtx } from "./live";
 import { BUBBLE_MOVED, cursorFx } from "./AgentCursors";
+import { VoicePill } from "../talk/VoicePill";
 
 export const AGENT_SPAWN = "journal:agent-spawn";
 export const spawnAgent = (x: number, y: number) => window.dispatchEvent(new CustomEvent(AGENT_SPAWN, { detail: { x, y } }));
@@ -217,6 +218,13 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
     l.chain = l.chain.then(() => turn(a, text, l.ctl));
   };
   /** First tap: record until the next tap (no guessing when you're done). */
+  // The voice level per bubble, for its recording cloud.
+  const levels = useRef(new Map<string, { current: number }>());
+  const levelOf = (id: string) => {
+    let r = levels.current.get(id);
+    if (!r) levels.current.set(id, (r = { current: 0 }));
+    return r;
+  };
   const goLive = async (a: Agent) => {
     // One microphone: another bubble's recording is sent as its answer.
     for (const other of [...lives.current.keys()]) {
@@ -234,7 +242,7 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
         (note) => say(a.id, note, 6000),
         {
           // The ring round the bubble swells with the voice it hears (no re-render: a CSS variable).
-          onLevel: (level) => document.querySelector<HTMLElement>(`.agent-bubble[data-agent-key="${a.id}"]`)?.style.setProperty("--lvl", Math.min(1, level * 4).toFixed(2)),
+          onLevel: (level) => (levelOf(a.id).current = level, 0) || document.querySelector<HTMLElement>(`.agent-bubble[data-agent-key="${a.id}"]`)?.style.setProperty("--lvl", Math.min(1, level * 4).toFixed(2)),
         },
       );
       l.ear = ear;
@@ -314,7 +322,21 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
         />
       ))}
       {agents.map((a) =>
-        (a.live || a.say) && !a.gone && open !== a.id ? (
+        a.live && !a.gone && open !== a.id ? (
+          // 25 Nov: a little glass cloud comes out of the bubble while it records; the words form
+          // in it as they're heard. Tap it (or the bubble) when you're done.
+          <button
+            key={`v${a.id}`}
+            type="button"
+            className={`agent-cloud${a.x > window.innerWidth / 2 ? " left" : ""}`}
+            style={{ left: a.x, top: a.y } as CSSProperties}
+            onClick={() => void submit(a)}
+            aria-label="Done talking: send it"
+          >
+            <VoicePill className="agent-cloud-wave" level={levelOf(a.id)} text={a.heard ?? ""} placeholder="Listening…" mode="listening" />
+            <small>{a.ear || "Tap when done"}</small>
+          </button>
+        ) : (a.live || a.say) && !a.gone && open !== a.id ? (
           // What it hears and what it did, in a small line by the bubble (no chat panel).
           <div
             key={`c${a.id}`}
