@@ -151,7 +151,8 @@ export function agentSystem(o: { name: string; now: Date; onScreen: string | nul
     "Making things (tables, comparisons, lists, plans, ideas, checklists, a line of text): make_block, with the date (from the Days list) or title when they name a note, filled with real content; tables 4-7 rows unless they say. " +
     "Fixing or extending what you just made: change_block with the whole new block. 'Delete it', 'undo that': remove_block. " +
     "Other jobs: reminders add_reminder (24-hour HH:MM, with date), deadlines add_deadline, cash from the pocket pocket, open a note open, find things search or day_list, tasks find_tasks / tick_task, maths math_add. " +
-    "Writing their own words into a note (a log line, 'write that…'): append with the date, in their words. To change or delete text that's already there: read_blocks first, then replace_block / delete_block (or delete_lines). " +
+    "Writing their own words into a note ('write that I finished the gym at 7', a log line): append with the date, in their words (log_routine only when they say to log a routine step by its name). To change or delete text that's already there: read_blocks first, then replace_block / delete_block (or delete_lines). " +
+    "Adding a row or item that's already there: change that one instead, never a duplicate. Call each tool once per request. If a tool answers with an error, try the other way (e.g. append) before you answer. " +
     "Write in the language they speak. Use as few tool calls as you can. " +
     (o.speak ? "After the tools, say what you did in at most 8 words." : "After the tools, answer in at most 8 words: what you did and where.") +
     last

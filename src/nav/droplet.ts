@@ -31,10 +31,14 @@ function stepWobble(w: Wobble, dt: number) {
   w.a += w.v * dt;
 }
 
-/** The neck's half-width at its waist for a pull `p` (0 = just drawn out, 1 = breaking). */
-export function waistFor(p: number, homeR: number): number {
+/**
+ * The neck's half-width at its waist: a thread of about the same volume gets thinner as it's
+ * drawn longer (width ~ 1/√length), and thinner still as the pull `p` (0..1) nears the break.
+ */
+export function waistFor(p: number, homeR: number, length = 90): number {
   const q = Math.min(1, Math.max(0, p));
-  return Math.max(0.8, homeR * 0.5 * (1 - q) ** 1.6 + 1.2 * (1 - q));
+  const vol = Math.min(homeR * 0.5, Math.sqrt(((homeR * 0.45) ** 2 * 90) / Math.max(40, length)));
+  return Math.max(0.7, vol * (1 - 0.88 * q ** 1.3));
 }
 
 /**
@@ -50,22 +54,23 @@ export function neckPath(a: Pt, ra: number, b: Pt, rb: number, waist: number, at
   const uy = dy / L;
   const P = (x: number, y: number) => `${(a.x + ux * x - uy * y).toFixed(1)},${(a.y + uy * x + ux * y).toFixed(1)}`;
   // Where the neck meets each body: a foot that narrows as the neck thins.
-  const footA = Math.min(ra * 0.92, waist + ra * 0.55);
-  const footB = Math.min(rb * 0.92, waist + rb * 0.5);
+  const footA = Math.min(ra * 0.8, waist * 1.6 + ra * 0.3);
+  const footB = Math.min(rb * 0.8, waist * 1.6 + rb * 0.25);
   const xa = Math.sqrt(Math.max(0, ra * ra - footA * footA));
   const xb = L - Math.sqrt(Math.max(0, rb * rb - footB * footB));
   if (xb <= xa) return "";
   const xw = xa + (xb - xa) * at;
-  const spanA = xw - xa;
-  const spanB = xb - xw;
-  // Concave sides: they curve in quickly from the foot, then run along the waist.
+  // Each side flares out only close to its body (surface tension), then runs as an even thread.
+  const fa = Math.min((xw - xa) * 0.8, ra * 0.9 + footA);
+  const fb = Math.min((xb - xw) * 0.8, rb * 0.9 + footB);
+  const mid = (f: number) => f * 0.5 + waist * 0.5;
   return [
     `M${P(xa, footA)}`,
-    `C${P(xa + spanA * 0.3, footA * 0.55 + waist * 0.45)} ${P(xw - spanA * 0.45, waist)} ${P(xw, waist)}`,
-    `C${P(xw + spanB * 0.45, waist)} ${P(xb - spanB * 0.3, footB * 0.55 + waist * 0.45)} ${P(xb, footB)}`,
+    `C${P(xa + fa * 0.3, mid(footA))} ${P(xa + fa, waist)} ${P(xw, waist)}`,
+    `C${P(xb - fb, waist)} ${P(xb - fb * 0.3, mid(footB))} ${P(xb, footB)}`,
     `L${P(xb, -footB)}`,
-    `C${P(xb - spanB * 0.3, -(footB * 0.55 + waist * 0.45))} ${P(xw + spanB * 0.45, -waist)} ${P(xw, -waist)}`,
-    `C${P(xw - spanA * 0.45, -waist)} ${P(xa + spanA * 0.3, -(footA * 0.55 + waist * 0.45))} ${P(xa, -footA)}`,
+    `C${P(xb - fb * 0.3, -mid(footB))} ${P(xb - fb, -waist)} ${P(xw, -waist)}`,
+    `C${P(xa + fa, -waist)} ${P(xa + fa * 0.3, -mid(footA))} ${P(xa, -footA)}`,
     "Z",
   ].join(" ");
 }
@@ -121,7 +126,8 @@ export class DropletFx {
   /** The drop has broken free (the agent is ready to be let go). */
   free = false;
 
-  constructor(dock: Pt, homeR: number, thumb: Pt, private onBreak?: () => void) {
+  /** host: where the drawing goes (beside the island, so the island and Home stay on top of it). */
+  constructor(dock: Pt, homeR: number, thumb: Pt, private onBreak?: () => void, host: HTMLElement = document.body) {
     this.H = dock;
     this.hr = homeR;
     this.D = { ...dock };
@@ -150,7 +156,7 @@ export class DropletFx {
     this.star = el("text", "nav-drop-star");
     this.star.textContent = "✦";
     this.svg.append(g, this.gloss, this.star);
-    document.body.append(this.svg);
+    host.append(this.svg);
     this.kick();
   }
 
@@ -166,7 +172,7 @@ export class DropletFx {
     this.attached = false;
     this.free = true;
     const L = Math.hypot(this.D.x - this.H.x, this.D.y - this.H.y);
-    const foot = waistFor(0.85, this.hr) + 3;
+    const foot = waistFor(0.85, this.hr, L) + 3;
     // It breaks near the drop (the thinnest part); the ends spring back into each body.
     this.tails = { a: Math.max(0, L * 0.62 - this.hr), b: Math.max(0, L * 0.38 - this.dr), foot, at: { x: this.H.x + (this.D.x - this.H.x) * 0.62, y: this.H.y + (this.D.y - this.H.y) * 0.62 } };
     this.satellite = { p: { ...this.tails.at }, r: 2.6 };
@@ -275,7 +281,8 @@ export class DropletFx {
     const showHome = this.attached || this.tails || Math.abs(this.wHome.a) > 0.004 || this.endAt;
     ell(this.home, H, showHome ? this.hr : 0, this.wHome);
     ell(this.drop, D, this.dr, this.wDrop, Math.min(0.18, speed / 4000));
-    this.neck.setAttribute("d", this.attached && this.going !== "home" ? neckPath(H, this.hr, D, this.dr, waistFor(this.pull, this.hr)) : this.attached && this.going === "home" ? neckPath(H, this.hr, D, this.dr, waistFor(0.2, this.hr)) : "");
+    const L = Math.hypot(D.x - H.x, D.y - H.y);
+    this.neck.setAttribute("d", this.attached ? neckPath(H, this.hr, D, this.dr, waistFor(this.going === "home" ? 0.2 : this.pull, this.hr, L)) : "");
     if (this.tails) {
       this.tailA.setAttribute("d", tailPath(H, this.hr, D, this.tails.a, this.tails.foot));
       this.tailB.setAttribute("d", tailPath(D, this.dr, H, this.tails.b, this.tails.foot));

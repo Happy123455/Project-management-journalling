@@ -124,14 +124,50 @@ export function stageFor(name: string, a: Record<string, unknown>, now = new Dat
   }
 }
 
-/** The answer when the model says nothing: from what the tools did. */
+/** Tools that only look (their result is the answer, not a change). */
+const LOOKS = /^(read|today|search|day_list|find|list_|usage|pocket_status|math_find|math_recalc|open)/;
+
+/** One change, said short: "📋 Table → Fri 27 Nov", "⏰ 18:00 Call mom → tomorrow". */
+export function changeSaid(c: { name: string; args: Record<string, unknown>; out: string }, now = new Date()): string {
+  const where = (s: string) => whereSaid(s, now);
+  const note = (re: RegExp) => c.out.match(re)?.[1];
+  switch (c.name) {
+    case "make_block": {
+      const m = c.out.match(/^Made an? (\w+) in ([^:\n]+?)(?: under .*)?:/);
+      if (!m) break;
+      const kind = m[1] === "table" ? "📋 Table" : m[1] === "checklist" ? "☑️ Checklist" : m[1] === "list" ? "📝 List" : "✍️ Written";
+      return `${kind} → ${where(m[2])}`;
+    }
+    case "change_block": {
+      const n = note(/ in ([^.\n]+)\. It's now/);
+      return `✏️ Changed${n ? ` → ${where(n)}` : ""}`;
+    }
+    case "remove_block":
+      return `🗑 Removed${note(/from ([^.\n]+)\./) ? ` from ${where(note(/from ([^.\n]+)\./)!)}` : ""}`;
+    case "add_reminder": {
+      const m = c.out.match(/^Reminder on ([^:]+): ⏰ (.+)$/m);
+      return m ? `⏰ ${m[2]} → ${where(m[1])}` : "⏰ Reminder set";
+    }
+    case "append":
+    case "put_under":
+    case "add_to_page": {
+      const n = typeof c.args.title === "string" && c.args.title ? c.args.title : typeof c.args.date === "string" && c.args.date ? c.args.date : note(/^Added (?:under .+ )?(?:to|in) ([^.(\n]+?)[.(]/);
+      return `✍️ Written${n ? ` → ${where(n.trim())}` : ""}`;
+    }
+    case "delete_lines":
+    case "delete_block":
+      return `🗑 ${c.out.split("\n")[0].replace(/^Done\.\s*/, "Deleted.").slice(0, 80)}`;
+  }
+  return c.out.split("\n")[0].replace(/\s*\(Shown in the app.*$/, "").slice(0, 120);
+}
+
+/** The answer from what the tools did (each change, short), or why it couldn't. */
 export function summaryOf(calls: { name: string; args: Record<string, unknown>; out: string; bad: boolean }[], now = new Date()): string {
   const good = calls.filter((c) => !c.bad);
-  const last = good[good.length - 1];
-  if (!last) return calls.length ? `Couldn't: ${calls[calls.length - 1].out.split("\n")[0].slice(0, 120)}` : "";
-  const made = last.out.match(/^Made an? (\w+) in ([^:\s]+)/);
-  if (made) return `${made[1] === "table" ? "📋 Table" : made[1] === "checklist" ? "☑️ Checklist" : made[1] === "list" ? "📝 List" : "✍️ Written"} → ${whereSaid(made[2], now)}`;
-  return last.out.split("\n")[0].slice(0, 140);
+  if (!good.length) return calls.length ? `Couldn't: ${calls[calls.length - 1].out.split("\n")[0].slice(0, 120)}` : "";
+  const changes = good.filter((c) => !LOOKS.test(c.name));
+  if (!changes.length) return good[good.length - 1].out.split("\n")[0].slice(0, 140);
+  return [...new Set(changes.map((c) => changeSaid(c, now)))].join(" · ");
 }
 
 type Call = { name: string; args: Record<string, unknown>; out: string; bad: boolean };
@@ -378,7 +414,10 @@ export class FloatingAgent {
         if (heard) this.history.push({ role: "user", content: heard });
         if (said) this.history.push({ role: "assistant", content: said });
         this.history = this.history.slice(-8);
-        finish({ heard, say: said || summaryOf(t.calls, this.now()) || (heard ? "Done." : "Didn't catch that."), ok: okAll, did, engine: "live" });
+        // A change made: said the same short way every time ("📋 Table → Fri 27 Nov"). Only looked
+        // or answered a question: its own words.
+        const changed = t.calls.some((c) => !c.bad && !LOOKS.test(c.name));
+        finish({ heard, say: (changed ? summaryOf(t.calls, this.now()) : said || summaryOf(t.calls, this.now())) || (heard ? "Done." : "Didn't catch that."), ok: okAll, did, engine: "live" });
       };
       t.done = end;
       t.activity = 0;
@@ -402,6 +441,13 @@ export class FloatingAgent {
     const ctx = t ? (t.ctx ??= this.runCtx()) : this.runCtx();
     const out: Record<string, unknown>[] = [];
     for (const c of calls) {
+      // The same call twice in one request (25 Nov probe: one reminder written twice): done once.
+      const key = `${c.name}|${JSON.stringify(c.args)}`;
+      const twice = t?.calls.find((x) => `${x.name}|${JSON.stringify(x.args)}` === key && !x.bad && !LOOKS.test(x.name));
+      if (twice) {
+        out.push({ result: `Already done in this request: ${twice.out.slice(0, 300)}` });
+        continue;
+      }
       const r = await this.tool(c.name, c.args, ctx);
       if (t) {
         t.calls.push({ name: c.name, args: c.args, out: r.out, bad: r.bad });
@@ -462,7 +508,8 @@ export class FloatingAgent {
       const busy = /demand|overload|unavailable|503|429|rate|quota/i.test(String(e)) ? "Gemini is busy right now. Tap and say it again in a moment." : /reach|network|fetch/i.test(String(e)) ? "No connection. Tap and say it again." : "Couldn't do that one. Tap and say it again.";
       return { heard, say: calls.some((c) => !c.bad) ? done : busy, ok: calls.some((c) => !c.bad), did: calls.map((c) => `${c.bad ? "⚠" : "✓"} ${c.name}`), engine: "text" };
     }
-    const say = r.text.split("\n")[0].slice(0, 160) || summaryOf(calls, this.now());
+    const changed = calls.some((c) => !c.bad && !LOOKS.test(c.name));
+    const say = (changed ? summaryOf(calls, this.now()) : r.text.split("\n")[0].slice(0, 160)) || summaryOf(calls, this.now());
     this.history.push({ role: "user", content: heard }, { role: "assistant", content: say });
     this.history = this.history.slice(-8);
     const did = calls.map((c) => `${c.bad ? "⚠" : "✓"} ${c.name}${typeof c.args.date === "string" ? ` ${c.args.date}` : ""}`);

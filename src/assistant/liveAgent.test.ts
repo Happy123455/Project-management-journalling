@@ -130,7 +130,8 @@ describe("the floating agent", () => {
     let r = await agent.finish(speech);
     expect(r.engine).toBe("live");
     expect(r.heard).toMatch(/cows and dogs/);
-    expect(r.say).toBe("Made the table on Friday.");
+    // A change is said the same short way every time (not the model's own words).
+    expect(r.say).toMatch(/^📋 Table → \w{3} \d+ \w{3}$|^📋 Table → (today|tomorrow)$/);
     const day = await store.getDay(inTwo);
     expect(day?.content?.content?.filter((b) => b.type === "sheetBlock")).toHaveLength(1);
     expect(await store.getDay(today)).toBeNull();
@@ -144,8 +145,7 @@ describe("the floating agent", () => {
     const sheets = (await store.getDay(inTwo))?.content?.content?.filter((b) => b.type === "sheetBlock") ?? [];
     expect(sheets).toHaveLength(1);
     expect(String(sheets[0].attrs?.data)).toContain("Lifespan");
-    // No answer from the model: said from what the tool did.
-    expect(r.say).toMatch(/Changed the table/);
+    expect(r.say).toMatch(/^✏️ Changed → /);
 
     agent.begin();
     r = await agent.finish(speech);
@@ -172,7 +172,7 @@ describe("the floating agent", () => {
     const r = await done;
     vi.useRealTimers();
     expect(r.engine).toBe("text");
-    expect(r.say).toBe("Written in today.");
+    expect(r.say).toBe("✍️ Written → today");
     expect(docText((await store.getDay(today))!.content!)).toContain("Finished the gym at 7");
     agent.close();
   });
@@ -182,6 +182,10 @@ describe("the floating agent", () => {
     expect(stageFor("make_block", { kind: "table", date: "2026-11-27" }, now)).toBe("📋 Making a table in Fri 27 Nov…");
     expect(stageFor("add_reminder", { date: "2026-11-26" }, now)).toBe("⏰ Reminder for tomorrow…");
     expect(summaryOf([{ name: "make_block", args: {}, out: "Made a table in 2026-11-27:\n| a |", bad: false }], now)).toBe("📋 Table → Fri 27 Nov");
+    expect(summaryOf([{ name: "add_reminder", args: {}, out: "Reminder on 2026-11-26: ⏰ 18:00 Call mom", bad: false }], now)).toBe("⏰ 18:00 Call mom → tomorrow");
+    expect(summaryOf([{ name: "change_block", args: {}, out: "Changed the table in 2026-11-27. It's now:\n| a |", bad: false }], now)).toBe("✏️ Changed → Fri 27 Nov");
+    expect(summaryOf([{ name: "append", args: { date: "2026-11-25" }, out: 'Added to 2026-11-25. (Shown in the app under Settings → AI changes as "Assistant", where it can be undone.)', bad: false }], now)).toBe("✍️ Written → today");
+    expect(summaryOf([{ name: "read_day", args: {}, out: "You went to the gym.", bad: false }], now)).toBe("You went to the gym.");
   });
 
   it("deletes small things without asking (Settings › Agent)", async () => {

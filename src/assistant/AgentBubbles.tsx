@@ -44,6 +44,8 @@ interface Agent {
   /** Finished (or asking) while folded away: a dot until it's opened. */
   unseen: boolean;
   merging?: { x: number; y: number };
+  /** Born from the drop pulled out of Home (it fades in where the drop is). */
+  fromDrop?: boolean;
   /** Its closing show is playing (the real bubble is hidden under it). */
   gone?: boolean;
   /** Listening (live). */
@@ -109,10 +111,11 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
       if (list.length >= MAX_AGENTS) return void haptic("warn", 1);
       const n = nextNumber(list);
       const id = `ag${Date.now().toString(36)}${n}`;
-      const agent: Agent = { id, n, ...clampPos(x, y), status: "idle", last: "", unseen: false };
+      const agent: Agent = { id, n, ...clampPos(x, y), status: "idle", last: "", unseen: false, fromDrop: !!document.querySelector(".nav-drop") };
       agentsRef.current = [...list, agent];
       setAgents(agentsRef.current);
-      // A new agent is live at once (no chat panel; hold it for that).
+      // A new agent is live at once (no chat panel; hold it for that). Its Gemini Live line opens now.
+      void brainOf(agent).warm();
       window.setTimeout(() => void goLive(agent), 260);
     };
     window.addEventListener(AGENT_SPAWN, on);
@@ -442,7 +445,7 @@ function Bubble({ agent, open, unseen, onTap, onHold, onMove, onNear, onDrop }: 
     <button
       ref={el}
       type="button"
-      className={`agent-bubble s-${agent.status}${agent.live ? " live" : ""}${open ? " open" : ""}${unseen ? " unseen" : ""}${agent.merging ? " merging" : ""}${agent.gone ? " gone" : ""}${drag.current?.near ? " near" : ""}${pos ? " dragging" : ""}`}
+      className={`agent-bubble s-${agent.status}${agent.live ? " live" : ""}${open ? " open" : ""}${unseen ? " unseen" : ""}${agent.merging ? " merging" : ""}${agent.gone ? " gone" : ""}${agent.fromDrop ? " from-drop" : ""}${drag.current?.near ? " near" : ""}${pos ? " dragging" : ""}`}
       style={{ left: x, top: y }}
       data-agent-key={agent.id}
       aria-label={`Agent ${agent.n}${agent.last ? `: ${agent.last}` : ""} (tap: listen or stop; hold: chat; drag onto Home: close)`}

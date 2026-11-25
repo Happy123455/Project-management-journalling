@@ -4783,3 +4783,16 @@ html.agent-dragging .ac-arrow:not(.away) { transition: none; }
 .agent-caption .agent-undo:active { transform: scale(0.86); background: rgba(255, 255, 255, 0.3); }
 @keyframes agent-blink { from { opacity: 0.35; transform: scale(0.8); } to { opacity: 1; transform: scale(1.1); } }
 @media (prefers-reduced-motion: reduce) { .agent-caption.busy .agent-ear::before { animation: none; } }
+
+/* 💧 The AI drop pinching off from Home (nav/droplet.ts): under the island, over the page. */
+.nav-drop { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 14; overflow: visible; }
+.nav-drop-body { fill: url(#nav-drop-fill); }
+.nav-drop-c0 { stop-color: rgb(var(--heat-rgb, 124, 58, 237)); }
+.nav-drop-c1 { stop-color: #8b5cf6; }
+.nav-drop-gloss { fill: rgba(255, 255, 255, 0.42); }
+.nav-drop-star { fill: #fff; text-anchor: middle; font-weight: 700; font-family: system-ui, sans-serif; transition: opacity 0.2s ease; }
+/* Home lets go of the thumb and springs back to its place while the drop is drawn out of it. */
+.nav-island.joying .nav-home.dropping, .nav-home.dropping { transform: none !important; transition: transform 0.45s cubic-bezier(0.2, 1.5, 0.35, 1) !important; }
+/* The new bubble takes over from the drop where it stands (the drop fades into it). */
+.agent-bubble.from-drop { animation: agent-from-drop 0.3s ease-out both; }
+@keyframes agent-from-drop { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }

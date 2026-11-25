@@ -12,6 +12,7 @@ import { joyLane } from "./joyPrefs";
 import { currentLoc, type Loc, type TabsState } from "./tabs";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
 import { haptic } from "../lib/haptic";
+import { DropletFx } from "./droplet";
 
 /** Line icons, drawn like the phone's own (thin, rounded). */
 const Icon = ({ d, size = 22 }: { d: ReactNode; size?: number }) => (
@@ -137,6 +138,17 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
   // agent: 0 the stick works; 1 drawn past its reach (paused); 2 in the top third (let go: an agent).
   const joyRun = useRef<{ frame: number; at: number; off: number; offX: number; travel: number; edge: boolean; armed: boolean; lift: number; days: number; acc: number; go: number; lane: number; side: number; agent: 0 | 1 | 2 } | null>(null);
   const [agentArm, setAgentArm] = useState<0 | 1 | 2>(0);
+  /** 💧 The AI drop drawn out of Home (droplet.ts), and where Home rests. */
+  const drop = useRef<DropletFx | null>(null);
+  const dock = useRef<{ x: number; y: number; r: number } | null>(null);
+  const [dropping, setDropping] = useState(false);
+  const reducedMotion = () => {
+    try {
+      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch {
+      return false;
+    }
+  };
   const [lane, setLane] = useState<{ x: number; w: number; side: number } | null>(null);
   const [joyX, setJoyX] = useState(0);
   const joyMode = useRef<ViewMode | null>(null);
@@ -186,6 +198,10 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     setJoyDays(0);
     setLane(null);
     setAgentArm(0);
+    setDropping(false);
+    // A drop still there (cancelled): back into Home.
+    if (drop.current) void drop.current.release("home");
+    drop.current = null;
     // Back to writing mode, without focusing the note (tap the text to type).
     if (joyMode.current === "live" && currentViewMode() === "reading") window.setTimeout(() => setViewMode("live"), 80);
     joyMode.current = null;
@@ -199,6 +215,8 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     if (joyMode.current === "live") setViewMode("reading");
     setJoy(0);
     const r = homeEl?.getBoundingClientRect();
+    // Where Home rests (it's pressed in a little now: the middle is right, the size is the layout's).
+    dock.current = r && homeEl ? { x: r.left + r.width / 2, y: r.top + r.height / 2, r: homeEl.offsetWidth / 2 } : null;
     // The button follows the thumb, so it only needs to clear the bottom edge before the stick engages.
     const lift = JOY_LIFT;
     const j = { frame: 0, at: performance.now(), off: 0, offX: 0, travel: 0, edge: false, armed: false, lift, days: 0, acc: 0, go: 0, lane: joyLane(), side: 0, agent: 0 as 0 | 1 | 2 };
@@ -398,10 +416,35 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
           window.scrollTo({ top: stickY.current, behavior: "auto" });
           stickY.current = null;
         }
-        if (agent === 2) haptic("press", 1);
+        if (agent === 2 && !drop.current?.free) haptic("press", 1);
         else if (j.agent === 2) haptic("tick", 0.5);
         j.agent = agent;
         setAgentArm(agent);
+        // 💧 High enough: Home lets go and springs back; a drop of it stays on the thumb, joined by
+        // a liquid neck that thins as it's pulled and pinches off in the top third (droplet.ts).
+        if (agent > 0 && !drop.current && dock.current && !reducedMotion()) {
+          const d = dock.current;
+          drop.current = new DropletFx({ x: d.x, y: d.y }, d.r, { x: e.clientX, y: e.clientY }, () => {
+            // Pinched off: Home jiggles back into shape too.
+            haptic("edge", 1);
+            navRef.current?.querySelector<HTMLElement>(".nav-home")?.animate(
+              [{ transform: "scale(1)" }, { transform: "scale(1.1, 0.88)" }, { transform: "scale(0.95, 1.06)" }, { transform: "scale(1.02, 0.98)" }, { transform: "scale(1)" }],
+              { duration: 520, easing: "ease-out" },
+            );
+          }, navRef.current?.parentElement ?? document.body);
+          setDropping(true);
+          haptic("press", 0.7);
+        } else if (agent === 0 && drop.current) {
+          // Back down: the drop runs back into Home, and Home is the joystick again.
+          void drop.current.release("home");
+          drop.current = null;
+          setDropping(false);
+        }
+      }
+      if (drop.current) {
+        const armY = window.innerHeight * 0.45;
+        const zoneY = window.innerHeight / 3;
+        drop.current.thumb({ x: e.clientX, y: e.clientY }, (armY - e.clientY) / (armY - zoneY));
       }
       if (!j.armed) {
         if (dy > -j.lift) return;
@@ -429,7 +472,11 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
       return;
     }
     if (s.mode === "joy") {
-      const agent = joyRun.current?.agent === 2;
+      const d = drop.current;
+      // The drop broke free (or, with less motion, the thumb is in the top third): a new agent.
+      const agent = d ? d.free && (joyRun.current?.agent ?? 0) > 0 : joyRun.current?.agent === 2;
+      drop.current = null;
+      if (d) void d.release(agent ? "agent" : "home");
       // Home goes back to its place; the agent appears where the thumb let go.
       stopJoy();
       if (agent) {
@@ -497,12 +544,11 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
             <Icon d={SEARCH} />
           </button>
         </div>
-        {joy != null && <LiquidNeck dx={joyX} dy={joy} broken={agentArm === 2} />}
         <button
           type="button"
           data-zone="home"
-          className={`nav-home${atToday ? " at-today" : ""}${agentArm === 2 ? " agent-arm" : ""}`}
-          style={joy != null ? ({ "--joy": `${joy}px`, "--joy-x": `${joyX}px` } as React.CSSProperties) : undefined}
+          className={`nav-home${atToday ? " at-today" : ""}${agentArm === 2 && !dropping ? " agent-arm" : ""}${dropping ? " dropping" : ""}`}
+          style={joy != null && !dropping ? ({ "--joy": `${joy}px`, "--joy-x": `${joyX}px` } as React.CSSProperties) : undefined}
           onClick={press(() => {
             const now = Date.now();
             if (now - lastHome.current < 320) {
@@ -514,8 +560,8 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
           })}
           aria-label="Today's note (double-tap: write at its end; hold: scroll)"
         >
-          {joy != null && agentArm === 2 ? <span className="nav-agent-star" aria-hidden>✦</span> : joy != null ? <span className="nav-joy-arrows" aria-hidden>▲<span>◀<i />▶</span>▼</span> : <Icon d={HOME} size={28} />}
-          {joy != null && agentArm > 0 && <span className="nav-joy-day nav-agent-hint">{agentArm === 2 ? "Let go: new agent" : "↑ Higher for an agent"}</span>}
+          {joy != null && agentArm === 2 && !dropping ? <span className="nav-agent-star" aria-hidden>✦</span> : joy != null && !dropping ? <span className="nav-joy-arrows" aria-hidden>▲<span>◀<i />▶</span>▼</span> : <Icon d={HOME} size={28} />}
+          {joy != null && agentArm > 0 && <span className="nav-joy-day nav-agent-hint">{agentArm === 2 ? "Let go: new agent" : "↑ Pull it free for an agent"}</span>}
           {joy != null && !agentArm && joyDays !== 0 && <span className="nav-joy-day">{joyDays > 0 ? `+${joyDays}` : joyDays} day{Math.abs(joyDays) === 1 ? "" : "s"}</span>}
         </button>
         <div className="nav-side">
@@ -1102,44 +1148,3 @@ export function MacTabBar({ tabs, today, canBack, canForward, onBack, onForward,
   );
 }
 
-/**
- * 💧 Home drawn up (Hapi, 25 Nov): a liquid neck holds the button to its place, like water's surface
- * tension, thinning as it's pulled; past halfway up it snaps and the button is a free drop (the agent).
- * SVG "goo" (blur + alpha threshold) so the blobs merge and part like liquid. Only while dragging.
- */
-function LiquidNeck({ dx, dy, broken }: { dx: number; dy: number; broken: boolean }) {
-  const origin = useRef<{ x: number; y: number } | null>(null);
-  const [o, setO] = useState<{ x: number; y: number } | null>(null);
-  useEffect(() => {
-    const el = document.querySelector<HTMLElement>(".nav-island .nav-home");
-    if (!el || origin.current) return;
-    const r = el.getBoundingClientRect();
-    origin.current = { x: r.left + r.width / 2 - dx, y: r.top + r.height / 2 - dy };
-    setO(origin.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  if (!o) return null;
-  const dist = Math.hypot(dx, dy);
-  const reach = window.innerHeight * 0.5;
-  const t = Math.min(1, dist / reach);
-  const neck = broken ? 0 : Math.max(3, 22 * (1 - t) ** 1.4);
-  const base = broken ? 10 : 26 - 12 * t;
-  const bx = o.x + dx;
-  const by = o.y + dy;
-  return createPortal(
-    <svg className={`nav-liquid${broken ? " broken" : ""}`} width="100%" height="100%" aria-hidden>
-      <defs>
-        <filter id="nav-goo">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="b" />
-          <feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9" />
-        </filter>
-      </defs>
-      <g filter="url(#nav-goo)" fill="#8b5cf6">
-        <circle className="nav-liquid-base" cx={o.x} cy={o.y} r={base} />
-        {neck > 0 && <line x1={o.x} y1={o.y} x2={bx} y2={by} stroke="#8b5cf6" strokeWidth={neck} strokeLinecap="round" />}
-        <circle cx={bx} cy={by} r={30} />
-      </g>
-    </svg>,
-    document.body,
-  );
-}

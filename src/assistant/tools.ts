@@ -119,8 +119,9 @@ async function runTool(call: ToolCall, ctx: RunCtx): Promise<Out> {
     const note = agentNoteOf(call.name, a, ctx.live) ?? moreNoteOf(call.name, a, ctx) ?? noteOf(call.name, a, now);
     const second = !note.startsWith("pocket:") && ctx.touched.size > 0 && !ctx.touched.has(note);
     // 25 Nov, Hapi: "it asks me whenever it has to delete anything". Small deletions (Settings ›
-    // Agent: a few words, or one block) go ahead; Undo is in Settings › AI changes as always.
-    const del = isDelete(call.name, a) && !(await smallDelete(call, ctx));
+    // Agent: a few words, or one block) go ahead while the person is there; Undo is in Settings ›
+    // AI changes as always. A scheduled run (nobody to ask) still never deletes.
+    const del = isDelete(call.name, a) && !(ctx.confirm && (await smallDelete(call, ctx)));
     // One OK covers the whole job on that note (Hapi, 18 Nov: one deletion asked once per
     // paragraph and per empty line). Removing only empty lines never asks.
     ctx.approved ??= new Set();
