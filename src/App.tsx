@@ -999,7 +999,6 @@ function App() {
     { icon: "🔔", label: "Coming up", run: () => setUpcomingOpen(true) },
     { icon: "💰", label: "Money", run: () => setMoneyOpen(true) },
     { icon: "📺", label: "YouTube", run: () => setYtHistOpen(true) },
-    { icon: "🕸", label: "Graph", run: () => setGraphOpen(true) },
     { icon: "🧠", label: "Mind map", run: () => setMindOpen(true) },
     { icon: "⏳", label: "Timelines", run: () => openTimelines() },
     { icon: "⑂", label: "History", run: () => void openNexus() },
@@ -1355,9 +1354,9 @@ function App() {
       group: "Find & see",
       items: [
         { icon: "🔍", label: "Search", title: "Search (Cmd/Ctrl+K)", run: () => (setDrawerOpen(false), setSearchOpen(true)) },
-        { icon: "🕸", label: "Graph", title: "Graph view", run: () => (setDrawerOpen(false), setGraphOpen(true)) },
-        { icon: "🧠", label: "Mind map", title: "Mind map", run: () => (setDrawerOpen(false), setMindOpen(true)) },
+        { icon: "🧠", label: "Mind map", title: "Mind map · 🕸 graph is one tap inside", run: () => (setDrawerOpen(false), setMindOpen(true)) },
         { icon: "⏳", label: "Timelines", title: "Timelines", run: () => (setDrawerOpen(false), openTimelines()) },
+        { icon: "⑂", label: "History", title: "Nexus: this note's history", run: () => (setDrawerOpen(false), void openNexus()) },
       ],
     },
     {
@@ -1367,7 +1366,6 @@ function App() {
         { icon: "🎙️", label: "Talk", title: "Talk out loud: English or ગુજરાતી", run: () => (setDrawerOpen(false), openTalk()) },
         { icon: "💭", label: "Quick thought", title: "Say a thought, pick the block today (⌘⇧T; phone: side key)", run: () => (setDrawerOpen(false), setThoughtOpen(true)) },
         { icon: "🎙", label: "Talk + type", title: "Talk + type: a new prompt session", run: () => void newTalkSession() },
-        { icon: "⑂", label: "History", title: "Nexus: this note's history", run: () => void openNexus() },
       ],
     },
   ];
@@ -1512,9 +1510,7 @@ function App() {
                 <>
                   <button type="button" onClick={() => setDrawerOpen(true)} aria-label="Open menu">☰</button>
                   <button type="button" onClick={() => setSearchOpen(true)} aria-label="Search">🔍</button>
-                  <button type="button" onClick={() => openTalk()} aria-label="Talk" title="🎙️ Talk: it asks about your day out loud, you talk, press Send. English or ગુજરાતી inside.">🎙️</button>
                   <button type="button" onClick={() => setRoutineOpen(true)} aria-label="Routine">🧭</button>
-                  <button type="button" onClick={() => openAssist({ mode: "type" })} aria-label="Assistant and chat" title="✦ Assistant · 💬 chat is inside">✦</button>
                 </>
               }
             />
@@ -1660,7 +1656,7 @@ function App() {
       {store && <TimelinesHost store={store} onOpenDay={(d) => void goTo(d)} />}
       {store && <FocusHost store={store} />}
       {mindOpen && store && (
-        <MindMapView store={store} today={today} graph={mindGraph} onClose={() => (setMindOpen(false), setMindGraph(null))} onOpenDay={(d) => (setMindOpen(false), void goTo(d))} onOpenPage={(t) => (setMindOpen(false), void handlers.onOpenLink(t))} />
+        <MindMapView store={store} today={today} graph={mindGraph} onGraph={() => (setMindOpen(false), setGraphOpen(true))} onClose={() => (setMindOpen(false), setMindGraph(null))} onOpenDay={(d) => (setMindOpen(false), void goTo(d))} onOpenPage={(t) => (setMindOpen(false), void handlers.onOpenLink(t))} />
       )}
       {graphOpen && store && (
         <GraphView

@@ -14,7 +14,7 @@ const shortDay = (day: string) => dayDate(day).toLocaleDateString(undefined, { d
 const signed = (n: number) => `${n >= 0 ? "+" : "−"}${r2(Math.abs(n))}`;
 
 /** End-of-day balance as steps, the safety margin as a dashed line, drag/tap to go back to a day. */
-function HistoryChart({ days, margin, pick, onPick }: { days: DayBalance[]; margin: number; pick: number; onPick: (i: number) => void }) {
+export function HistoryChart({ days, margin, pick, onPick }: { days: DayBalance[]; margin: number; pick: number; onPick: (i: number) => void }) {
   const ref = useRef<SVGSVGElement>(null);
   const w = 320;
   const h = 120;
@@ -76,9 +76,13 @@ function HistoryChart({ days, margin, pick, onPick }: { days: DayBalance[]; marg
         const top = y(day.close);
         return <rect key={day.day} className="bh-tint" x={x0} y={top} width={Math.max(0.6, x1 - x0)} height={Math.max(0, h - 12 - top)} fill={dayTint(day.day, 0.42)} />;
       })}
+      {margin > 0 && (
+        <>
       <rect className="bh-danger" x="0" y={my} width={w} height={Math.max(0, h - 10 - my)} />
       <line className="bh-margin" x1="0" x2={w} y1={my} y2={my} />
       <text className="bh-margin-label" x={w - 6} y={my - 4} textAnchor="end">safety {r0(margin)}</text>
+        </>
+      )}
       <path className="bh-line" d={d} />
       <path className="bh-line bh-line-under" d={d} clipPath="url(#bank-under)" />
       <line className="bh-cursor" x1={sx} x2={sx} y1="4" y2={h - 12} />

@@ -79,6 +79,35 @@ export function readPocketLine(line: string, day: string, order = 0): PocketEntr
   return { kind, amount, what, category, day, at, line };
 }
 
+/**
+ * Several amounts listed on one line (Hapi, 25 Nov: "I added +50, +500 and 200 — I shouldn't have to
+ * split it into 3 lines"): "Added: +50, +500 and 200" → three entries. Only a plain list of amounts
+ * (separated by commas, "+", "and", "&"); a sum with "=" stays one total.
+ */
+export function listedAmounts(text: string): number[] | null {
+  const clean = text.replace(new RegExp(TIMESTAMP_RE.source, "g"), " ").replace(/\[\[[^\]]*\]\]/g, " ");
+  if (clean.includes("=")) return null;
+  const re = /(?:₹|rs\.?\s*|inr\s*)?\+?\s*(\d[\d,]*(?:\.\d{1,2})?)\s*(?:rs\b|rupees?|₹|\/-)?/gi;
+  const hits = [...clean.matchAll(re)];
+  if (hits.length < 2) return null;
+  for (let i = 1; i < hits.length; i++) {
+    const gap = clean.slice(hits[i - 1].index! + hits[i - 1][0].length, hits[i].index!);
+    if (!/^[\s,+&]*(?:and|n|plus)?[\s,+&]*$/i.test(gap)) return null;
+  }
+  const nums = hits.map((h) => Number(h[1].replace(/,/g, ""))).filter((n) => Number.isFinite(n) && n > 0);
+  return nums.length >= 2 ? nums : null;
+}
+
+/** A line → its entries: usually one; one per amount when the line lists several. */
+export function readPocketLines(line: string, day: string, order = 0): PocketEntry[] {
+  const e = readPocketLine(line, day, order);
+  if (!e) return [];
+  const list = listedAmounts(line);
+  if (!list) return [e];
+  const what = e.what.replace(/[+&,]|\band\b|\bplus\b/gi, " ").replace(/\s+/g, " ").trim() || (e.kind === "in" ? "Added" : "Spent");
+  return list.map((amount, i) => ({ ...e, what, amount, at: e.at + i }));
+}
+
 /** The spending group for something bought with cash. */
 export function spendCategory(what: string): string {
   if (/hair ?cut|barber|salon|beard|shave|parlou?r|spa\b|massage/i.test(what)) return "personal";
@@ -95,10 +124,7 @@ export function pocketIn(doc: JSONContent | null | undefined, day: string): Pock
   const out: PocketEntry[] = [];
   const blocks = doc?.content ?? [];
   const textOf = (b: JSONContent): string => (b.text ?? "") + (b.content ?? []).map(textOf).join("");
-  const push = (text: string) => {
-    const e = readPocketLine(text, day, out.length);
-    if (e) out.push(e);
-  };
+  const push = (text: string) => out.push(...readPocketLines(text, day, out.length));
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i];
     if (b.type === "codeBlock") continue;
@@ -127,8 +153,7 @@ export function pocketPageEntries(doc: JSONContent | null | undefined, day: stri
     if (n.type === "codeBlock") return;
     if (n.type === "paragraph" || n.type === "heading") {
       const text = (n.content ?? []).map((c) => c.text ?? "").join("");
-      const e = readPocketLine(text, day, out.length);
-      if (e) out.push(e);
+      out.push(...readPocketLines(text, day, out.length));
       return;
     }
     for (const c of n.content ?? []) walk(c);
@@ -202,8 +227,16 @@ export function pocketLine(kind: PocketKind, amount: number, what: string): stri
  * from my pocket", "spent 370 on food from pocket", "paid 40 cash for chai", "took 2000 from ATM".
  */
 export function pocketFromSentence(text: string): { kind: PocketKind; amount: number; what: string } | null {
+  return pocketsFromSentence(text)?.[0] ?? null;
+}
+
+/** Cash that people are paid by hand: "paid the rickshawala 50", "gave 20 to the chaiwala". */
+const CASH_PAYEE = /\b(?:\w*-?wall?a|rickshaw\w*|auto ?wala|auto|chai|panipuri|kaka|bhaiya|bhai|maid|watchman|dhobi|vendor|tip)\b/i;
+
+/** The same, with every amount when several are listed ("added +50, +500 and 200 to pocket" → three). */
+export function pocketsFromSentence(text: string): { kind: PocketKind; amount: number; what: string }[] | null {
   const t = text.trim();
-  if (!/\b(pocket|wallet|cash|atm)\b/i.test(t)) return null;
+  if (!/\b(pocket|wallet|cash|atm)\b/i.test(t) && !(CASH_PAYEE.test(t) && /\b(paid|gave|spent|pay)\b/i.test(t))) return null;
   const m = /(?:₹|rs\.?|inr)\s*(\d[\d,]*(?:\.\d{1,2})?)|(\d[\d,]*(?:\.\d{1,2})?)\s*(?:₹|rs\b|rupees?|bucks|\/-)|\b(?:cost(?:ing|s)?|spent|paid|for|of|took|withdrew|got|added|counted|have|has)\s+(?:₹|rs\.?\s*)?(\d[\d,]*(?:\.\d{1,2})?)|\b(\d[\d,]*(?:\.\d{1,2})?)\b/i.exec(t);
   const raw = m?.[1] ?? m?.[2] ?? m?.[3] ?? m?.[4];
   if (!raw) return null;
@@ -214,17 +247,42 @@ export function pocketFromSentence(text: string): { kind: PocketKind; amount: nu
     : /\b(took|withdrew|withdrawn|atm|got|received|added|put .* in(?:to)? (?:my )?(?:pocket|wallet)|gave me)\b/i.test(t) && !/\b(spent|paid|bought|cost)/i.test(t)
       ? "in"
       : "out";
+  const list = listedAmounts(t);
   let what = t
-    .replace(/^(?:i\s+)?(?:just\s+)?(?:had|have|did|got|bought|brought|paid for|spent on|spent)\s+(?:a|an|the|my|some)?\s*/i, "")
+    .replace(/^(?:i\s+)?(?:just\s+)?(?:had|have|did|got|bought|brought|paid for|spent on|spent|paid|gave|added)\s+(?:a|an|the|my|some)?\s*/i, "")
+    .replace(/^(?:₹|rs\.?|inr)?\s*[\d,+.\s]*(?:₹|rs|rupees?)?\s*(?:to|for)\s+(?:the|a|my)?\s*/i, "")
+    .replace(/\+/g, " ")
+    .replace(/\b(?:and|plus)\b(?=\s*(?:₹|rs\.?)?\s*\d)/gi, " ")
     .replace(/\b(?:it\s+)?(?:cost(?:ing|s)?|for|of|worth|total)\b.*$/i, "")
     .replace(/(?:₹|rs\.?|inr)?\s*\d[\d,]*(?:\.\d{1,2})?\s*(?:₹|rs|rupees?|bucks|\/-)?/gi, " ")
-    .replace(/\b(?:from|out of|in|into|with)\s+(?:my\s+)?(?:pocket|wallet|cash)\b.*$/i, "")
+    .replace(/\b(?:from|out of|in|into|with|to)\s+(?:my\s+)?(?:pocket|wallet|cash)\b.*$/i, "")
     .replace(/\b(?:just|done|and|which|that|it)\b\s*$/i, "")
     .replace(/[.,;!]+$/, "")
     .replace(/\s+/g, " ")
     .trim();
   if (kind === "in") what = /atm/i.test(t) ? "From ATM" : what || "Added";
   if (kind === "count") what = "Counted";
+  what = what.replace(/^(?:to|for|the)\s+/i, "").replace(/\b(?:and|to|in)\s*$/i, "").replace(/[,\s]+$/, "").trim();
   if (what) what = what[0].toUpperCase() + what.slice(1);
-  return { kind, amount, what: what || "Spent" };
+  return (list ?? [amount]).map((n) => ({ kind, amount: n, what: what || "Spent" }));
+}
+
+/**
+ * 👛 The pocket as days (Hapi, 25 Nov: "the same graph as the statement history in Pocket"): the
+ * cash after each entry, from the first count on (a count sets it, cash in adds, spending takes).
+ * Shaped like a bank statement so the same chart and list draw it.
+ */
+export function pocketStatement(entries: PocketEntry[]): { day: string; order: number; amount: number; balance: number; text: string; who: string }[] {
+  const list = [...entries].sort((a, b) => a.at - b.at);
+  const first = list.findIndex((e) => e.kind === "count");
+  let bal = 0;
+  const out: { day: string; order: number; amount: number; balance: number; text: string; who: string }[] = [];
+  list.slice(Math.max(0, first)).forEach((e, i) => {
+    const before = bal;
+    bal = e.kind === "count" ? e.amount : e.kind === "in" ? bal + e.amount : bal - e.amount;
+    bal = Math.round(bal * 100) / 100;
+    if (e.kind === "count" && i > 0 && Math.abs(bal - before) < 0.005) return;
+    out.push({ day: e.day, order: i, amount: Math.round((bal - before) * 100) / 100, balance: bal, text: e.line, who: e.kind === "count" ? "Counted" : e.what });
+  });
+  return out;
 }

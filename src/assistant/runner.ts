@@ -11,7 +11,7 @@ import { dayKey, formatTimestamp } from "../lib/timestamp";
 import { fastPath } from "./fastPath";
 import { assistantToolList, runAssistantTool, type RunCtx } from "./tools";
 import type { FoundFormula } from "../lib/mathFind";
-import { pocketFromSentence } from "../lib/pocket";
+import { pocketsFromSentence } from "../lib/pocket";
 import { addPocket, loadPocket, pocketSummary } from "../finance/pocket";
 import { pocketState } from "../lib/pocket";
 import { cursorFx } from "./AgentCursors";
@@ -130,13 +130,15 @@ async function runStep(step: Step, opts: RunOpts, ctx: RunCtx, model: string, be
   if (fast?.kind === "answer") return { answer: fast.text, fast: true };
   // "Haircut 350 from my pocket": straight into today's [[pocket]] box, no AI needed (and it
   // works when Gemini is busy). A longer message (more to write) goes to the AI, which calls pocket.
-  const cash = step.text.length < 160 && !/\b(?:and|then|also|write|note)\b.*\b(?:about|that|how)\b/i.test(step.text) ? pocketFromSentence(step.text) : null;
-  if (cash) {
+  const cash = step.text.length < 160 && !/\b(?:then|also|write|note)\b.*\b(?:about|that|how)\b/i.test(step.text) ? pocketsFromSentence(step.text) : null;
+  if (cash?.length) {
     await window.__journalFlush?.();
-    cursorFx({ key: ctx.actor, phase: "act", tool: "pocket", text: cash.what });
-    const r = await addPocket(opts.store, cash, { actor: ctx.actor });
-    step.lines.push(`✓ pocket “${r.line}”`);
-    return { answer: `👛 Added “${r.line}” under [[pocket]] in today's note. ${pocketSummary(pocketState(await loadPocket(opts.store)))}.`, fast: true };
+    cursorFx({ key: ctx.actor, phase: "act", tool: "pocket", text: cash[0].what });
+    // One line per amount ("+50, +500 and 200" → three lines).
+    const lines: string[] = [];
+    for (const c of cash) lines.push((await addPocket(opts.store, c, { actor: ctx.actor })).line);
+    for (const l of lines) step.lines.push(`✓ pocket “${l}”`);
+    return { answer: `👛 Added ${lines.map((l) => `“${l}”`).join(", ")} under [[pocket]] in today's note. ${pocketSummary(pocketState(await loadPocket(opts.store)))}.`, fast: true };
   }
   // "Bank balance 45230": today's [[bank]] box, no AI (kept apart from the pocket).
   const bank = step.text.length < 80 ? bankFromSentence(step.text) : null;

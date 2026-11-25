@@ -4050,8 +4050,7 @@ html.dl-dragging * { overflow-anchor: none !important; touch-action: none !impor
    Still: a coloured line under the event's tile and the list under the grid. When the month opens
    (once): each event pulses and a wave runs over the days after it, dim → lit, fading with distance.
    Only opacity, transform and a short box-shadow; paused at rest and off for reduced motion. */
-.cal-day.ev { position: relative; box-shadow: inset 0 -3px 0 var(--ev); }
-.month-grid.mini .cal-day.ev { box-shadow: inset 0 -1px 0 var(--ev); }
+.cal-day.ev { position: relative; } /* 25 Nov: no coloured line under the day (Hapi) */
 .month-calendar.compact .cal-day.ev { box-shadow: none; }
 .ev-legend { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 8px 0 4px; }
 .ev-chip { display: inline-flex; align-items: baseline; gap: 3px; padding: 3px 9px 3px 7px; border-radius: 999px; font-size: 11.5px; border: 1px solid color-mix(in srgb, var(--ev) 55%, transparent); background: color-mix(in srgb, var(--ev) 12%, transparent); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -4720,3 +4719,14 @@ html.agent-dragging .ac-arrow:not(.away) { transition: none; }
 .thought-blocks button.today { border-color: var(--accent); }
 .thought-note { color: var(--muted); margin: 0; font-size: 13px; }
 .thought-cancel { border: 0; background: none; color: var(--muted); padding: 8px 16px; }
+
+/* ⑂ Nexus on a wide Mac window: one comfortable column in the middle instead of edge to edge (25 Nov). */
+@media (min-width: 860px) {
+  .nexus-view > * { width: 100%; max-width: 760px; margin-left: auto; margin-right: auto; box-sizing: border-box; }
+  .nexus-view .nexus-graph { max-width: 100%; }
+}
+.pocket-day-list { list-style: none; margin: 4px 0 8px; padding: 0; display: grid; gap: 2px; font-size: 13px; }
+.pocket-day-list li { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; font-variant-numeric: tabular-nums; }
+.pocket-day-list li.debit span:nth-child(2) { color: #d9534f; }
+.pocket-day-list li.credit span:nth-child(2) { color: #2fa86a; }
+.pocket-day-list .bt-bal { color: var(--muted); }

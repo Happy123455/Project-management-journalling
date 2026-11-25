@@ -43,7 +43,7 @@ function fitView(placed: Map<string, Placed>, c: HTMLCanvasElement | null) {
 const short = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
 /** 🧠 The evolving mind map: grows a day at a time from the journal; replay it with the slider. */
-export function MindMapView({ store, today, graph, onClose, onOpenDay, onOpenPage }: { store: JournalStore; today: string; graph?: string | null; onClose: () => void; onOpenDay: (day: string) => void; onOpenPage: (title: string) => void }) {
+export function MindMapView({ store, today, graph, onClose, onOpenDay, onOpenPage, onGraph }: { store: JournalStore; today: string; graph?: string | null; onClose: () => void; onGraph?: () => void; onOpenDay: (day: string) => void; onOpenPage: (title: string) => void }) {
   const [map, setMap] = useState<MindMap | null>(null);
   // Whose map: yours ("Me", from every note) or one project's (from its own text only).
   const [projects, setProjects] = useState<NamedPage[]>([]);
@@ -283,6 +283,7 @@ export function MindMapView({ store, today, graph, onClose, onOpenDay, onOpenPag
     <div className="settings-view mindmap-view" role="dialog" aria-label="Mind map">
       <header className="graph-bar">
         <button type="button" onClick={onClose} aria-label="Close">✕</button>
+        {onGraph && <button type="button" onClick={onGraph} title="The links graph">🕸 Graph</button>}
         <h1 className="settings-title">🧠 Mind map</h1>
         <button type="button" onClick={() => void grow()} disabled={growing || !!graphName} hidden={!!graphName}>{growing ? progress || "Growing…" : "🌱 Grow"}</button>
       </header>

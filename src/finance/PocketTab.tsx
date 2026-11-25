@@ -4,6 +4,9 @@ import { CATEGORY_ICONS, rupees, type Txn } from "../lib/finance";
 import { atmTopUps, pocketState, type PocketEntry, type PocketKind } from "../lib/pocket";
 import { showError, showToast } from "../lib/toast";
 import { addPocket, loadPocket } from "./pocket";
+import { HistoryChart } from "./BankHistory";
+import { balanceDays, dayTint } from "../lib/bankStatement";
+import { listedAmounts, pocketStatement } from "../lib/pocket";
 import { FINANCE_EVENT } from "./capture";
 
 const r0 = (n: number) => rupees(n, 0);
@@ -41,14 +44,21 @@ export function PocketTab({ store, txns, onOpenDay }: { store: JournalStore; txn
   const cats = [...s.byCategory.entries()].sort((a, b) => b[1] - a[1]);
   const maxCat = Math.max(1, ...cats.map((c) => c[1]));
 
+  const days = useMemo(() => balanceDays({ version: 1, periods: [], txns: pocketStatement(all) }), [all]);
+  const [pick, setPick] = useState<number | null>(null);
+  const at = pick === null ? days.length - 1 : Math.min(pick, days.length - 1);
+
   const add = async () => {
-    const n = Number(amount.replace(/[₹,\s]/g, ""));
-    if (!Number.isFinite(n) || n <= 0) return showToast("The amount needs to be a number above 0", "error");
+    // "50, 500 and 200" → three entries (25 Nov).
+    const list = kind === "count" ? null : listedAmounts(amount);
+    const nums = list ?? [Number(amount.replace(/[₹,\s+]/g, ""))];
+    if (nums.some((n) => !Number.isFinite(n) || n <= 0)) return showToast("The amount needs to be a number above 0", "error");
     if (kind === "out" && !what.trim()) return showToast("What was it for?", "error");
     setBusy(true);
     try {
-      const r = await addPocket(store, { kind, amount: n, what: kind === "count" ? "Counted" : what.trim() || (kind === "in" ? "Added" : "Spent") });
-      showToast(`👛 “${r.line}” in today's [[pocket]]`);
+      const lines: string[] = [];
+      for (const n of nums) lines.push((await addPocket(store, { kind, amount: n, what: kind === "count" ? "Counted" : what.trim() || (kind === "in" ? "Added" : "Spent") })).line);
+      showToast(`👛 ${lines.map((l) => `“${l}”`).join(", ")} in today's [[pocket]]`);
       setWhat("");
       setAmount("");
     } catch (e) {
@@ -71,6 +81,28 @@ export function PocketTab({ store, txns, onOpenDay }: { store: JournalStore; txn
         </div>
       </div>
       {s.balance !== null && s.balance < 0 && <p className="hint pocket-warn">⚠ Below zero: some cash came in without a line (an ATM withdrawal from another bank, money from someone). Count the wallet again to set it right.</p>}
+      {days.length > 1 && (
+        <section className="bank-history pocket-history">
+          <HistoryChart days={days} margin={0} pick={at} onPick={setPick} />
+          <div className="bank-scrub">
+            <button type="button" aria-label="Day before" disabled={at <= 0} onClick={() => setPick(at - 1)}>‹</button>
+            <div style={{ borderLeft: `4px solid ${dayTint(days[at].day)}`, paddingLeft: 8 }}>
+              <strong>{new Date(`${days[at].day}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}</strong>
+              <small>{r0(days[at].open)} → <b>{r0(days[at].close)}</b>{days[at].out ? ` · out ${r0(days[at].out)}` : ""}{days[at].in ? ` · in ${r0(days[at].in)}` : ""}</small>
+            </div>
+            <button type="button" aria-label="Day after" disabled={at >= days.length - 1} onClick={() => setPick(at + 1)}>›</button>
+          </div>
+          <ul className="pocket-day-list">
+            {days[at].txns.map((t) => (
+              <li key={t.order} className={t.amount < 0 ? "debit" : "credit"}>
+                <span>{t.who}</span>
+                <span>{t.amount >= 0 ? "+" : "−"}{r0(Math.abs(t.amount))}</span>
+                <span className="bt-bal">{r0(t.balance)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <dl className="trend-stats finance-stats">
         <div>
           <dt>Cash today</dt>
