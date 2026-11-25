@@ -1,3 +1,4 @@
+import { trackCamera } from "../ai/mic";
 import { useEffect, useRef, useState } from "react";
 import { pickRecorderType } from "../lib/capture";
 
@@ -37,6 +38,8 @@ export function Capture({ onDone, onClose }: { onDone: (result: CaptureResult) =
         s = await navigator.mediaDevices.getUserMedia(constraints);
       }
       if (!live) return s.getTracks().forEach((t) => t.stop());
+      // The camera's sound is on the mic register too (its watchdog closes it if this screen goes).
+      if (s.getAudioTracks().length) trackCamera(s, () => live);
       stream.current = s;
       if (video.current) {
         video.current.srcObject = s;

@@ -143,6 +143,12 @@ function App() {
     return () => window.removeEventListener(YT_HISTORY_EVENT, on);
   }, []);
   const [moneyOpen, setMoneyOpen] = useState<false | true | "bank">(false);
+  // 🧾 An order with no payment seen offers "Money" from its toast.
+  useEffect(() => {
+    const open = () => setMoneyOpen(true);
+    window.addEventListener("journal:open-money", open);
+    return () => window.removeEventListener("journal:open-money", open);
+  }, []);
   // 🎤 Reflective interview / 📞 Gujarati call (talk/TalkPanel.tsx), one tap from the day header.
   const [talkMode, setTalkMode] = useState<TalkMode | null>(null);
   useEffect(() => {

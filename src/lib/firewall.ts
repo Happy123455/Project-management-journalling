@@ -166,7 +166,9 @@ Ignore the speaker's prestige, confidence, tone, urgency, jargon, flags and appl
 - plain: one blunt sentence in plain English of what is actually going on.
 - heat: 0–100, how much of its pull is emotional rather than logical.
 
-Be brutal by being exact, not cynical. A sound point is sound even from someone with an interest: say so. Don't take a side on the topic itself; judge the structure, not the conclusion. Name a fallacy only when it really is one. Then: heat for the whole (0–100), verdict (one exact sentence), steelman (the strongest honest version of their case), holds (points that stand up), ask (2–3 questions that would settle it if answered), and contradictions as pairs of claim numbers with why. If earlier claims by the same speaker are given, list in past any that a new claim contradicts. Write in the language of the source.`;
+Be brutal by being exact, not cynical. A sound point is sound even from someone with an interest: say so. Don't take a side on the topic itself; judge the structure, not the conclusion. Name a fallacy only when it really is one. Then: heat for the whole (0–100), verdict (one exact sentence), steelman (the strongest honest version of their case), holds (points that stand up), ask (2–3 questions that would settle it if answered), and contradictions as pairs of claim numbers with why. If earlier claims by the same speaker are given, list in past any that a new claim contradicts. Write in the language of the source.
+
+Short and concise (25 Nov, Hapi): think it through fully, but write little. Keep only the arguments that carry the case (at most 8; merge small ones into them). quote at most 12 words; claim, premise, incentive and plain one short sentence each; verdict one sentence; steelman at most two sentences; holds and ask at most 3 items each.`;
 
 export const LIVE_SYSTEM = `${FIREWALL_SYSTEM}
 

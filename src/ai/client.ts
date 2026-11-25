@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getKey } from "./secrets";
 import { loadAiSettings, modelFor, recordUsage } from "./settings";
 import { actorFor, OLLAMA_URL, type AiTask, type Provider } from "./providers";
-import { answerText, fallbackChain, fallbackPrefs, geminiCall, usageOf } from "./gemini";
+import { answerText, canSetThinking, DEEP_MODELS, deepModel, fallbackChain, fallbackPrefs, geminiCall, tierOf, usageOf } from "./gemini";
 
 /** Thrown when AI is off or no key is set; the UI shows "add your key in Settings". */
 export class AiUnavailableError extends Error {
@@ -38,6 +38,8 @@ export interface AiRequest {
   model?: string;
   /** How long to wait for the answer, instead of the task's usual limit. */
   timeoutMs?: number;
+  /** Gemini: the deep-thinking model (ai/gemini.ts DEEP_MODELS) thinking hard, for judgements. */
+  deep?: boolean;
 }
 
 export interface AiAnswer<T = unknown> {
@@ -72,13 +74,15 @@ async function callGemini(key: string, model: string, req: AiRequest) {
         // A video at low resolution: about a third of the tokens, and speech is what matters.
         ...(req.files?.length ? { mediaResolution: "MEDIA_RESOLUTION_LOW" } : {}),
         ...(req.schema ? { responseMimeType: "application/json", responseSchema: req.schema } : {}),
+        ...(req.deep && tierOf(m) === "pro" && canSetThinking(m) ? { thinkingConfig: { thinkingLevel: "high" } } : {}),
       },
     };
   };
   // Pro waits as long as Settings says; quick tasks give up on a slow fast model sooner.
   // 21 Nov: Flash often sat 10–30 s on a 503 (busy at Google): give up sooner, a Lite answers in ~1 s.
   const fast = req.task === "organise" ? 90_000 : req.images?.length ? 30_000 : 12_000;
-  const r = await geminiCall({ key, model, body, timeoutMs: req.timeoutMs, fastTimeoutMs: fast });
+  const chain = req.deep ? [...new Set([model, ...DEEP_MODELS, ...fallbackChain(model, fallbackPrefs().order)])] : undefined;
+  const r = await geminiCall({ key, model, chain, body, timeoutMs: req.timeoutMs, fastTimeoutMs: fast });
   const [input, output] = usageOf(r.json);
   return { text: answerText(r.json), model: r.model, input, output, note: r.note };
 }
@@ -207,7 +211,7 @@ export async function askAi<T = unknown>(req: AiRequest): Promise<AiAnswer<T>> {
     if (!(await getKey("gemini"))) throw new Error("The local model (Ollama) isn't running, and there's no Gemini key to fall back on.");
     settings = { ...settings, provider: "gemini" };
   }
-  let model = req.model && settings.provider === wanted ? req.model : modelFor(settings, req.task);
+  let model = req.model && settings.provider === wanted ? req.model : req.deep && settings.provider === "gemini" ? deepModel() : modelFor(settings, req.task);
   let result;
   if (settings.provider === "local") result = await callOllama(model, req);
   else {

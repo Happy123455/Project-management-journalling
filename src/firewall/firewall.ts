@@ -235,6 +235,7 @@ export async function checkSource(store: JournalStore, o: { input: string; speak
       {
         task: "organise",
         provider,
+        deep: true,
         system: FIREWALL_SYSTEM,
         text: checkRequest({ source, text: body, speaker, prior }),
         ...(source.kind === "youtube" ? { files: [{ uri: watchUrl(youtubeId(source.url!)!) }] } : {}),
@@ -348,7 +349,7 @@ export async function startListening(store: JournalStore, o: { speaker?: string;
         void auditPiece(piece.slice(0, upto));
       }
       set({ step: "", live: { ...state.live, text: s.text, seconds: s.seconds, level: s.level, pending, note: s.note ?? state.live.note } });
-    });
+    }, undefined, false, undefined, { owner: "firewall", background: true, alive: () => state.phase === "listening" });
     void store;
   } catch (e) {
     rec = null;

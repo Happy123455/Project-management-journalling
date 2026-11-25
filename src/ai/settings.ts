@@ -37,6 +37,8 @@ export interface AiSettings {
   agentEngine?: "live" | "whisper";
   /** Floating agent: says what it did out loud (off unless turned on). */
   agentSpeak?: boolean;
+  /** Floating agent: it acts when you stop talking (Gemini Live's voice detection); off = tap when done. Default on. */
+  agentHandsFree?: boolean;
   /** Per-task model overrides, e.g. { organise: "gemini-4-argon" }. */
   models: Partial<Record<Provider, Partial<Record<AiTask, string>>>>;
 }

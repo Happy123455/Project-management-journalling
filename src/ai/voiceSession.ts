@@ -54,7 +54,7 @@ export async function startVoice(name: string, engine?: Engine) {
   if (recordingVoice() || session.phase === "building") return;
   set({ phase: "starting", name, live: null, result: undefined, transcript: undefined, error: undefined });
   try {
-    rec = await startLive((live) => set({ live }), engine);
+    rec = await startLive((live) => set({ live }), engine, false, undefined, { owner: "voice", background: true, alive: () => recordingVoice() });
     set({ phase: "recording" });
   } catch (e) {
     rec = null;

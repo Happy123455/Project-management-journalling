@@ -51,9 +51,9 @@ export function ThoughtCapture({ store, onClose, switcher }: { store: JournalSto
   useEffect(() => {
     let live = true;
     haptic("press", 0.6);
-    startListening((t) => live && setText(t), (n) => live && setNote(n), { onLevel: (l) => (lvl.current = l) })
+    startListening((t) => live && setText(t), (n) => live && setNote(n), { onLevel: (l) => (lvl.current = l), mic: { owner: "thought", alive: () => live } })
       .then((l) => (live ? (ear.current = l) : l.cancel()))
-      .catch((e) => (setNote(`Can't use the microphone: ${e instanceof Error ? e.message : String(e)}`), setPhase("failed")));
+      .catch((e) => (e as { name?: string })?.name !== "AbortError" && (setNote(`Can't use the microphone: ${e instanceof Error ? e.message : String(e)}`), setPhase("failed")));
     // The blocks to offer: today's [[…]] blocks first, then active projects.
     void (async () => {
       const page = await store.getDay(day.current).catch(() => null);

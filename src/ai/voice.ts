@@ -7,6 +7,7 @@ import { pickAudioType } from "../lib/capture";
 import { holdAwake } from "../lib/power";
 import { base64, downsample, pcm16, PauseChunker, SpeechChunker, wavFile } from "../lib/wav";
 import { geminiText } from "./decide";
+import { micAudio, openMic, type MicUse } from "./mic";
 
 export type Engine = "whisper" | "gemini";
 
@@ -140,9 +141,10 @@ async function getWhisper(onNote?: (note: string) => void) {
 }
 
 /** live: cut at every pause (live agents), not every 12–24 s. lang: Whisper's language ("" = guess). */
-export async function startLive(onState: (s: LiveState) => void, engine0?: Engine, live = false, lang0?: string): Promise<LiveRecording> {
+export async function startLive(onState: (s: LiveState) => void, engine0?: Engine, live = false, lang0?: string, use: MicUse = { owner: "voice" }): Promise<LiveRecording> {
   let engine = engine0 ?? (await pickEngine());
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  const mic = await openMic(use, micAudio());
+  const stream = mic.stream;
   const startedAt = new Date();
   const release = holdAwake();
   const state: LiveState = { seconds: 0, level: 0, text: "", waiting: 0, engine };
@@ -195,8 +197,17 @@ export async function startLive(onState: (s: LiveState) => void, engine0?: Engin
 
   const ctx = new AudioContext();
   const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
-  await ctx.audioWorklet.addModule(url);
-  URL.revokeObjectURL(url);
+  try {
+    await ctx.audioWorklet.addModule(url);
+  } catch (e) {
+    // Nothing is left open when the audio graph can't start.
+    mic.done();
+    release();
+    void ctx.close().catch(() => {});
+    throw e;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
   const source = ctx.createMediaStreamSource(stream);
   const tap = new AudioWorkletNode(ctx, "journal-tap");
   // A silent output keeps the worklet running everywhere (some engines skip unconnected nodes).
@@ -220,20 +231,29 @@ export async function startLive(onState: (s: LiveState) => void, engine0?: Engin
     }
   };
 
-  const shutdown = async () => {
-    tap.port.onmessage = null;
-    source.disconnect();
-    tap.disconnect();
-    await ctx.close().catch(() => {});
-    const done = new Promise<void>((ok) => {
-      rec.onstop = () => ok();
-      if (rec.state === "inactive") ok();
-    });
-    if (rec.state !== "inactive") rec.stop();
-    await done;
-    stream.getTracks().forEach((t) => t.stop());
-    release();
-  };
+  let shut: Promise<void> | null = null;
+  const shutdown = () =>
+    (shut ??= (async () => {
+      tap.port.onmessage = null;
+      source.disconnect();
+      tap.disconnect();
+      const done = new Promise<void>((ok) => {
+        rec.onstop = () => ok();
+        if (rec.state === "inactive") ok();
+      });
+      if (rec.state !== "inactive") rec.stop();
+      // The mic itself goes first (it's what shows as "recording"), the rest after.
+      await done;
+      mic.done();
+      release();
+      await ctx.close().catch(() => {});
+    })());
+  // Closed from outside (its screen went, the app went to the background): the same clean-up.
+  mic.onKill(() => {
+    // Already stopping (its words are being written down): those are kept.
+    if (!shut) cancelled = true;
+    void shutdown();
+  });
   const freeWhisper = async () => {
     if (!inApp()) return;
     try {
@@ -300,24 +320,22 @@ export interface PcmRecording {
 }
 
 /** Records the microphone as 16 kHz samples, nothing transcribed (the 📞 call sends the audio itself). */
-export async function recordPcm(onLevel?: (level: number) => void, onChunk?: (samples16k: Float32Array) => void): Promise<PcmRecording> {
+export async function recordPcm(onLevel?: (level: number) => void, onChunk?: (samples16k: Float32Array) => void, use: MicUse = { owner: "pcm" }): Promise<PcmRecording> {
   // 25 Nov, Hapi: slow to start, the phone's volume jumped while listening, and the mic stayed on.
   // Echo cancellation / noise suppression put Android into "call" audio mode (the call volume
   // stream), so they're off; the mic and the audio graph start side by side; and anything opened
   // is closed again if a later step fails.
   const ctx = new AudioContext();
   const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
-  const [got, loaded] = await Promise.allSettled([
-    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 } }),
-    ctx.audioWorklet.addModule(url),
-  ]);
+  const [got, loaded] = await Promise.allSettled([openMic(use, { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 }), ctx.audioWorklet.addModule(url)]);
   URL.revokeObjectURL(url);
   if (got.status === "rejected" || loaded.status === "rejected") {
-    if (got.status === "fulfilled") got.value.getTracks().forEach((t) => t.stop());
+    if (got.status === "fulfilled") got.value.done();
     await ctx.close().catch(() => {});
     throw got.status === "rejected" ? got.reason : (loaded as PromiseRejectedResult).reason;
   }
-  const stream = got.value;
+  const mic = got.value;
+  const stream = mic.stream;
   const release = holdAwake();
   const source = ctx.createMediaStreamSource(stream);
   const tap = new AudioWorkletNode(ctx, "journal-tap");
@@ -346,13 +364,14 @@ export async function recordPcm(onLevel?: (level: number) => void, onChunk?: (sa
   const shutdown = async () => {
     if (closed) return;
     closed = true;
-    stream.getTracks().forEach((t) => t.stop());
+    mic.done();
     tap.port.onmessage = null;
     source.disconnect();
     tap.disconnect();
     await ctx.close().catch(() => {});
     release();
   };
+  mic.onKill(() => void shutdown());
   return {
     async stop() {
       await shutdown();

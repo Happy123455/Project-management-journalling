@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { JournalStore } from "../store";
-import { decide, DECIDE_MODELS, loadConfigs, newQuestion, NODE_PLACEMENT, saveConfigs, type DecisionConfig, type Question, type Verdict } from "./decide";
+import { decide, DECIDE_CHOICES, modelLabel, loadConfigs, newQuestion, NODE_PLACEMENT, saveConfigs, type DecisionConfig, type Question, type Verdict } from "./decide";
 import { showError, showToast } from "../lib/toast";
 
 /**
@@ -157,7 +157,7 @@ export function DecidePanel({ store, onClose }: { store: JournalStore; onClose: 
     const fresh: DecisionConfig = {
       id: `dm-${Date.now().toString(36)}`,
       name: "New decision",
-      input: { content: "text", delivery: "inline", mediaResolution: "low", model: DECIDE_MODELS[0] },
+      input: { content: "text", delivery: "inline", mediaResolution: "low", model: DECIDE_CHOICES[0] },
       questions: [newQuestion(1)],
       scoring: { mode: "all", minConfidence: 0.6 },
     };
@@ -242,9 +242,9 @@ export function DecidePanel({ store, onClose }: { store: JournalStore; onClose: 
             <label>
               Model
               <select value={c.input.model} onChange={(e) => input({ model: e.target.value })}>
-                {DECIDE_MODELS.map((m) => (
+                {[...new Set([...DECIDE_CHOICES, c.input.model])].map((m) => (
                   <option key={m} value={m}>
-                    {m}
+                    {modelLabel(m)}
                   </option>
                 ))}
               </select>

@@ -3,6 +3,7 @@
 // Whisper on the device (ai/voice.ts, Mac and phone; Gemini only until the model is there).
 // Android's own engine only when the page can't get the microphone (or journal.liveEar = "android").
 import { liveLang, startLive, type LiveRecording } from "../ai/voice";
+import type { MicUse } from "../ai/mic";
 
 declare global {
   interface Window {
@@ -43,7 +44,7 @@ export const canListen = () => !!window.JournalListen?.available?.() || (typeof 
 export async function startListening(
   onText: (text: string) => void,
   onNote?: (note: string) => void,
-  o: { lang?: string; onLevel?: (level: number) => void; onWaiting?: (pieces: number) => void } = {},
+  o: { lang?: string; onLevel?: (level: number) => void; onWaiting?: (pieces: number) => void; mic?: MicUse } = {},
 ): Promise<Listening> {
   const bridge = window.JournalListen;
   if (bridge?.available?.() && androidWanted()) return androidListen(bridge, onText, onNote);
@@ -59,8 +60,11 @@ export async function startListening(
       undefined,
       false,
       o.lang ?? liveLang(),
+      o.mic,
     );
   } catch (e) {
+    // Let go of on purpose (the screen closed while it was opening): nothing else to try.
+    if ((e as { name?: string })?.name === "AbortError") throw e;
     // The page can't have the microphone: Android's engine after all.
     if (bridge?.available?.()) return androidListen(bridge, onText, onNote);
     throw e;
@@ -138,6 +142,7 @@ export async function listenLive(
   onHeard: (text: string) => void,
   onNote?: (note: string) => void,
   onLevel?: (level: number) => void,
+  mic?: MicUse,
 ): Promise<LiveEar> {
   // Android's own engine misheard words and kept failing with "error 11" (server disconnected)
   // between sentences (Hapi, 21 Nov). Live talk now records and transcribes each sentence with
@@ -148,7 +153,7 @@ export async function listenLive(
   if (!useAndroid && bridge?.available?.()) {
     // The microphone may be refused to the page: then Android's engine after all.
     try {
-      return await recorderLive(onSentence, onHeard, onNote, onLevel);
+      return await recorderLive(onSentence, onHeard, onNote, onLevel, mic);
     } catch (e) {
       onNote?.(`Recorder unavailable (${e instanceof Error ? e.message : String(e)}); using Android's listening.`);
       useAndroid = true;
@@ -187,10 +192,10 @@ export async function listenLive(
       },
     };
   }
-  return recorderLive(onSentence, onHeard, onNote, onLevel);
+  return recorderLive(onSentence, onHeard, onNote, onLevel, mic);
 }
 
-async function recorderLive(onSentence: (text: string) => void, onHeard: (text: string) => void, onNote?: (note: string) => void, onLevel?: (level: number) => void): Promise<LiveEar> {
+async function recorderLive(onSentence: (text: string) => void, onHeard: (text: string) => void, onNote?: (note: string) => void, onLevel?: (level: number) => void, mic?: MicUse): Promise<LiveEar> {
   // The recorder (Whisper on the Mac, Gemini on the phone): it cuts at pauses; each new piece of text is a sentence once
   // nothing is waiting and nothing new came for a moment.
   let sent = 0;
@@ -215,7 +220,7 @@ async function recorderLive(onSentence: (text: string) => void, onHeard: (text: 
     onHeard(s.waiting ? `✍️ Writing down… (${s.engine === "whisper" ? "Whisper" : "Gemini"})` : s.speaking ? "🎙️ Hearing you…" : "");
     window.clearTimeout(timer);
     if (!s.waiting && latest.length > sent) timer = window.setTimeout(flush, 250);
-  }, undefined, true);
+  }, undefined, true, undefined, mic);
   return {
     engine: "recorder",
     stop: () => {

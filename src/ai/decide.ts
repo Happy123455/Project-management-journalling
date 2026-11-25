@@ -3,7 +3,7 @@
 // (evaluation schema) and when the answer counts (scoring and thresholds). One built-in config
 // decides where a new node goes in a graph (src/ai/voiceGraph.ts uses it), many lines per request.
 import type { JournalStore } from "../store";
-import { answerText, fallbackChain, fallbackPrefs, geminiCall, usageOf } from "./gemini";
+import { answerText, DEEP_MODELS, fallbackChain, fallbackPrefs, geminiCall, tierOf, usageOf } from "./gemini";
 import { getKey } from "./secrets";
 import { recordUsage } from "./settings";
 
@@ -52,6 +52,10 @@ export interface DecisionConfig {
 }
 
 export const DECIDE_MODELS = ["gemini-flash-lite-latest", "gemini-3.5-flash-lite", "gemini-flash-latest"];
+/** What a decision model can run on: the deep-thinking model first (25 Nov, Hapi), then the cheap ones. */
+export const DECIDE_CHOICES = [...DEEP_MODELS, ...DECIDE_MODELS];
+/** Shown in the model list. */
+export const modelLabel = (m: string) => (tierOf(m) === "pro" ? `${m} (thinks deeply, slower)` : m);
 
 export interface Answer {
   value: boolean | string | number;
@@ -160,9 +164,10 @@ export async function geminiJson(models: string[], contents: unknown[], schema: 
   let last: Error | null = null;
   for (let i = 0; i < chain.length; i++) {
     const { text, model } = await geminiText(chain.slice(i), {
-      systemInstruction: { parts: [{ text: opts.system ?? "You are a careful classifier. Answer only in the JSON asked for; give each answer an honest confidence from 0 to 1." }] },
+      systemInstruction: { parts: [{ text: opts.system ?? "You are a careful classifier. Answer only in the JSON asked for; give each answer an honest confidence from 0 to 1. Keep each why to one short sentence." }] },
       contents,
-      generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0, mediaResolution: resolution[opts.mediaResolution ?? "low"], maxOutputTokens: 4096 },
+      // A thinking model spends part of the budget thinking: room for that, then a short answer.
+      generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0, mediaResolution: resolution[opts.mediaResolution ?? "low"], maxOutputTokens: tierOf(chain[i]) === "pro" ? 12_288 : 4096 },
     }, opts.fetchImpl);
     try {
       return JSON.parse(text);
@@ -175,7 +180,7 @@ export async function geminiJson(models: string[], contents: unknown[], schema: 
 }
 
 const gemini = (c: DecisionConfig, contents: unknown[], schema: unknown, fetchImpl?: typeof fetch) =>
-  geminiJson([c.input.model, ...DECIDE_MODELS], contents, schema, { mediaResolution: c.input.mediaResolution, fetchImpl });
+  geminiJson([c.input.model, ...(tierOf(c.input.model) === "pro" ? DEEP_MODELS : []), ...DECIDE_MODELS], contents, schema, { mediaResolution: c.input.mediaResolution, fetchImpl });
 
 const toAnswers = (raw: unknown, qs: Question[]): Record<string, Answer> => {
   const out: Record<string, Answer> = {};

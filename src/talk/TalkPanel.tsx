@@ -9,6 +9,7 @@ import { createPortal } from "react-dom";
 import type { JournalStore } from "../store";
 import { startListening, type Listening } from "../assistant/listen";
 import { recordPcm, type PcmRecording } from "../ai/voice";
+import { releaseMics } from "../ai/mic";
 import { haptic } from "../lib/haptic";
 import { dayKey } from "../lib/timestamp";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
@@ -143,19 +144,31 @@ export function TalkPanel({ store, mode: mode0, onClose, switcher }: { store: Jo
 
   const listen = async () => {
     if (!alive.current || phaseRef.current === "listening") return;
+    // 25 Nov: two calls in one moment (a turn ending twice) each opened a mic and the first was
+    // never closed. The phase is set here at once, and anything still open is let go first.
+    setPhase((phaseRef.current = "listening"));
+    pcm.current?.cancel();
+    pcm.current = null;
+    ear.current?.cancel();
+    ear.current = null;
     setHeard("");
     setSecs(0);
-    setPhase("listening");
     haptic("tick", 0.5);
+    const mic = { owner: "talk", alive: () => alive.current };
     try {
       const s = live.current;
+      let p: PcmRecording | null = null;
+      let l: Listening | null = null;
       if (s) {
         s.begin();
-        pcm.current = await recordPcm(showLevel, (chunk) => s.audio(chunk));
-      } else if (modeRef.current === "call") pcm.current = await recordPcm(showLevel);
-      else ear.current = await startListening((t) => setHeard(t), (n) => setNote(n), { lang: "en", onLevel: showLevel });
-      if (!alive.current) (pcm.current?.cancel(), ear.current?.cancel());
+        p = await recordPcm(showLevel, (chunk) => s.audio(chunk), mic);
+      } else if (modeRef.current === "call") p = await recordPcm(showLevel, undefined, mic);
+      else l = await startListening((t) => setHeard(t), (n) => setNote(n), { lang: "en", onLevel: showLevel, mic });
+      if (!alive.current || phaseRef.current !== "listening") return void (p?.cancel(), l?.cancel());
+      pcm.current = p;
+      ear.current = l;
     } catch (e) {
+      if ((e as { name?: string })?.name === "AbortError") return;
       setNote(`Can't use the microphone: ${e instanceof Error ? e.message : String(e)}`);
       setPhase("failed");
     }
@@ -287,8 +300,11 @@ export function TalkPanel({ store, mode: mode0, onClose, switcher }: { store: Jo
     const l = ear.current;
     ear.current = null;
     pcm.current?.cancel();
+    pcm.current = null;
     void (async () => {
       const text = l ? ((await l.stop().catch(() => "")) ?? "").trim() : "";
+      // Whatever is still open (or opening) for Talk goes now.
+      releaseMics("talk", "Talk closed");
       if (text) turnsRef.current = [...turnsRef.current, { by: "me", text }];
       await save();
     })();
@@ -308,6 +324,7 @@ export function TalkPanel({ store, mode: mode0, onClose, switcher }: { store: Jo
       live.current?.close();
       ear.current?.cancel();
       pcm.current?.cancel();
+      releaseMics("talk", "Talk closed");
       void save();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

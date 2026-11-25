@@ -18,7 +18,7 @@ import { recordUsage } from "../ai/settings";
 import { watchEdit } from "./swarm/watch";
 import { runAssistant } from "./runner";
 
-export type LiveKind = "table" | "list" | "checklist" | "text";
+export type LiveKind = "table" | "list" | "checklist" | "text" | "numbered" | "heading" | "code" | "quote";
 
 /** The block this live agent made last (what "not cow, dinosaur" changes). */
 export interface LiveBlock {
@@ -41,6 +41,8 @@ export interface LivePlan {
   headers?: string[];
   rows?: unknown;
   lines?: string[];
+  /** code: its language. */
+  language?: string;
   say?: string;
 }
 
@@ -313,6 +315,16 @@ export function blockFor(plan: LivePlan): { node: JSONContent; kind: LiveKind; s
     };
   }
   if (plan.kind === "text") return { node: { type: "paragraph", content: [{ type: "text", text: lines.join(" ") }] }, kind: "text", shown: lines.join(" "), lines: [lines.join(" ")] };
+  // 25 Nov, Hapi: "it can create any block".
+  if (plan.kind === "numbered")
+    return { node: { type: "orderedList", content: lines.map((l) => ({ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: l }] }] })) }, kind: "numbered", shown: lines.map((l, i) => `${i + 1}. ${l}`).join("\n"), lines };
+  if (plan.kind === "heading") return { node: { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: lines.join(" ") }] }, kind: "heading", shown: `## ${lines.join(" ")}`, lines: [lines.join(" ")] };
+  if (plan.kind === "quote") return { node: { type: "blockquote", content: lines.map((l) => ({ type: "paragraph", content: [{ type: "text", text: l }] })) }, kind: "quote", shown: lines.map((l) => `> ${l}`).join("\n"), lines };
+  if (plan.kind === "code") {
+    // Code keeps its indentation (lines were trimmed above for lists).
+    const raw = (Array.isArray(plan.lines) ? plan.lines : String(plan.lines ?? "").split("\n")).map((l) => String(l ?? "")).join("\n").replace(/^\n+|\s+$/g, "");
+    return { node: { type: "codeBlock", attrs: { language: plan.language ?? null }, content: raw ? [{ type: "text", text: raw }] : [] }, kind: "code", shown: "```\n" + raw + "\n```", lines: raw.split("\n") };
+  }
   if (plan.kind === "list" || lines.length > 1) {
     return {
       node: { type: "bulletList", content: lines.map((l) => ({ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: l }] }] })) },

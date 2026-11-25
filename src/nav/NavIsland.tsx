@@ -518,6 +518,40 @@ export function NavIsland({ away, tabs, today, canBack, canForward, onBack, onFo
     }
   };
   useEffect(() => () => stopJoy(), []);
+  // 25 Nov: Home kept a purple halo (the held joystick's glow) after the finger had gone. Whatever
+  // happens to the island's own events, a finger lifted anywhere, or the app going to the
+  // background, ends the joystick.
+  const holding = joy != null || dropping;
+  useEffect(() => {
+    if (!holding) return;
+    const lifted = (e: PointerEvent) =>
+      window.setTimeout(() => {
+        const s = g.current;
+        if (s && s.id !== e.pointerId) return;
+        if (s) {
+          g.current = null;
+          window.clearTimeout(s.timer);
+        }
+        if (joyRun.current || drop.current || s) stopJoy();
+        else (setJoy(null), setDropping(false), setAgentArm(0));
+      }, 120);
+    const away = () => {
+      if (document.visibilityState !== "hidden") return;
+      const s = g.current;
+      g.current = null;
+      if (s) window.clearTimeout(s.timer);
+      stopJoy();
+    };
+    window.addEventListener("pointerup", lifted, true);
+    window.addEventListener("pointercancel", lifted, true);
+    document.addEventListener("visibilitychange", away);
+    return () => {
+      window.removeEventListener("pointerup", lifted, true);
+      window.removeEventListener("pointercancel", lifted, true);
+      document.removeEventListener("visibilitychange", away);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holding]);
 
   return (
     <>

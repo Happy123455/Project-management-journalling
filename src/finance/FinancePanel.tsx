@@ -8,7 +8,7 @@ import { CATEGORY_ICONS, dailySpend, forecastMonth, IGNORED, monthly, notSpendin
 import { editDayLine } from "../routine/routineData";
 import { STEP_COLORS } from "../routine/charts";
 import {
-  FINANCE_EVENT, importMoney, loadTxns, moneySettings, notificationsReady, onPhone, setMoneySettings, smsReady,
+  FINANCE_EVENT, importMoney, loadTxns, moneySettings, notificationsReady, onPhone, pendingOrders, setMoneySettings, settleOrder, smsReady, type PendingOrder,
 } from "./capture";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
 import { PocketTab } from "./PocketTab";
@@ -103,7 +103,11 @@ export function FinancePanel({ store, onClose, onOpenDay, startTab }: { store: J
           {!txns ? (
             <p className="loading">Loading…</p>
           ) : tab === "overview" ? (
-            <Overview txns={txns} onSetup={() => setTab("setup")} />
+            <>
+              <OrderCards store={store} />
+              <NotifyNudge onSetup={() => setTab("setup")} />
+              <Overview txns={txns} onSetup={() => setTab("setup")} />
+            </>
           ) : tab === "pocket" ? (
             <PocketTab store={store} txns={txns} onOpenDay={(d) => (onOpenDay(d), onClose())} />
           ) : tab === "bank" ? (
@@ -134,6 +138,67 @@ function useCategoryColors(txns: Txn[]) {
     order.forEach((c, i) => colors.set(c, i < STEP_COLORS.length - 1 ? STEP_COLORS[i] : "#8a8a85"));
     return colors;
   }, [txns]);
+}
+
+/** 🧾 Orders seen (La Pinoz, Zomato…) with no payment near them: one tap adds it. */
+function OrderCards({ store }: { store: JournalStore }) {
+  const [list, setList] = useState<PendingOrder[]>(() => pendingOrders());
+  const [other, setOther] = useState<string | null>(null);
+  const [amount, setAmount] = useState("");
+  useEffect(() => {
+    const on = () => setList(pendingOrders());
+    window.addEventListener(FINANCE_EVENT, on);
+    return () => window.removeEventListener(FINANCE_EVENT, on);
+  }, []);
+  if (!list.length) return null;
+  return (
+    <section className="finance-orders">
+      {list.map((o) => (
+        <div key={o.orderId} className="finance-order">
+          <p>
+            🧾 <b>{o.merchant}</b> order #{o.orderId} · {new Date(o.at).toTimeString().slice(0, 5)} {new Date(o.at).toDateString() === new Date().toDateString() ? "today" : new Date(o.at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+            <br />
+            <small>No bank SMS or payment notification came for it.</small>
+          </p>
+          {other === o.orderId ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const n = Number(amount.replace(/[^\d.]/g, ""));
+                if (n > 0) void settleOrder(store, o, n).then(() => setOther(null));
+              }}
+            >
+              <input autoFocus inputMode="decimal" placeholder="₹ paid" value={amount} onChange={(e) => setAmount(e.target.value)} />
+              <button type="submit" className="primary">Add</button>
+            </form>
+          ) : (
+            <div className="finance-order-acts">
+              {o.guess ? (
+                <button type="button" className="primary" onClick={() => void settleOrder(store, o, o.guess!)}>
+                  {rupees(o.guess)} like last time
+                </button>
+              ) : null}
+              <button type="button" onClick={() => (setAmount(""), setOther(o.orderId))}>Other amount</button>
+              <button type="button" onClick={() => void settleOrder(store, o, "skip")}>Not paid / cash</button>
+            </div>
+          )}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/** Payment notifications off on the phone: the reason a UPI payment with no bank SMS goes missing. */
+function NotifyNudge({ onSetup }: { onSetup: () => void }) {
+  if (!onPhone() || notificationsReady()) return null;
+  return (
+    <p className="finance-nudge">
+      Payments with no bank SMS (UPI Lite, some wallets) only show up from payment notifications, which aren't allowed yet.{" "}
+      <button type="button" onClick={() => (setMoneySettings({ notifications: true }), window.JournalFinance?.openNotifyAccess(), onSetup())}>
+        Allow
+      </button>
+    </p>
+  );
 }
 
 function Overview({ txns, onSetup }: { txns: Txn[]; onSetup: () => void }) {

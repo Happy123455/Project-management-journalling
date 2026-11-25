@@ -36,7 +36,8 @@ function fakeLive(script: (n: number, heard: string) => { calls?: { name: string
       const m = JSON.parse(raw);
       sent.push(m);
       if (m.setup) return this.emit({ setupComplete: {} });
-      if (m.realtimeInput?.activityEnd) {
+      // Hands-free (Live hears the end itself): the mic stream ending stands for the end of the turn here.
+      if (m.realtimeInput?.activityEnd || m.realtimeInput?.audioStreamEnd) {
         this.plan = script(turns++, "");
         if (this.plan.heard) this.emit({ serverContent: { inputTranscription: { text: this.plan.heard } } });
         if (this.plan.silent) return;
@@ -138,7 +139,11 @@ describe("the floating agent", () => {
     expect(stages.some((s) => s.startsWith("📋 Making a table in"))).toBe(true);
     // The sound was sent between the start and end of the turn, after a fresh note of context.
     const kinds = sent.map((m) => Object.keys(m as object)[0] + ((m as { realtimeInput?: object }).realtimeInput ? `:${Object.keys((m as { realtimeInput: object }).realtimeInput)[0]}` : ""));
-    expect(kinds.slice(0, 5)).toEqual(["setup", "clientContent", "realtimeInput:activityStart", "realtimeInput:audio", "realtimeInput:activityEnd"]);
+    // Hands-free (the default): Live hears where you stop; the app only says the mic stream ended.
+    expect(kinds.slice(0, 4)).toEqual(["setup", "clientContent", "realtimeInput:audio", "realtimeInput:audioStreamEnd"]);
+    const setup = (sent[0] as { setup: { realtimeInputConfig?: { automaticActivityDetection?: { disabled?: boolean; silenceDurationMs?: number } } } }).setup;
+    expect(setup.realtimeInputConfig?.automaticActivityDetection?.disabled).toBe(false);
+    expect(setup.realtimeInputConfig?.automaticActivityDetection?.silenceDurationMs).toBeGreaterThan(500);
 
     agent.begin();
     r = await agent.finish(speech);

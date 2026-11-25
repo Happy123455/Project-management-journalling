@@ -4,6 +4,7 @@
 // remove it. Everything else is the assistant's usual tool list (reminders, money, opening notes…).
 //
 // Also here: which deletions are small enough to do without asking (Settings › Agent).
+import type { JSONContent } from "@tiptap/react";
 import type { JournalStore } from "../store";
 import type { ToolCall } from "../ai/agent";
 import { applyBlockOp } from "../ai/blocks";
@@ -24,7 +25,12 @@ const obj = (properties: Record<string, unknown>, required: string[] = []) => ({
 const DATE = { type: "string", description: "YYYY-MM-DD of the day note (see the Days list). Leave out for the note on screen." };
 const TITLE = { type: "string", description: "a page's title instead of a day" };
 const BLOCK = {
-  kind: { type: "string", enum: ["table", "list", "checklist", "text"], description: "table for comparisons and anything with columns" },
+  kind: {
+    type: "string",
+    enum: ["table", "list", "numbered", "checklist", "text", "heading", "quote", "code"],
+    description: "table for comparisons and anything with columns; numbered for steps in order; checklist for tasks; heading for a title; quote; code (lines = the code)",
+  },
+  language: { type: "string", description: "code: its language" },
   headers: { type: "array", items: { type: "string" }, description: "table: the column names" },
   rows: { type: "array", items: { type: "array", items: { type: "string" } }, description: "table: the rows; each row is a list with one short cell per column" },
   lines: { type: "array", items: { type: "string" }, description: "list / checklist / text: one item per line (text: the sentence)" },
@@ -44,8 +50,32 @@ export const AGENT_BLOCK_TOOLS = [
     parameters: obj(BLOCK, ["kind"]),
   },
   { name: "remove_block", description: "Remove the block you made last in this talk ('delete it', 'undo that', 'never mind').", parameters: obj({}) },
+  {
+    name: "plan_deadline",
+    description:
+      "A ⏳ deadline with a worked-out plan: the deadline bar runs from today to the due day, and each step is a time block on its day (e.g. 'plan my ESD exam on 2 Dec': revise unit 1 Thu 18:00 90 min…). Spread the work sensibly before the due day, around the routine (see routine_today), with real, specific steps.",
+    parameters: obj(
+      {
+        title: { type: "string" },
+        due: { type: "string", description: "YYYY-MM-DD" },
+        time: { type: "string", description: "HH:MM due time (default 23:59)" },
+        steps: {
+          type: "array",
+          description: "the plan, in order",
+          items: obj({ text: { type: "string" }, day: { type: "string", description: "YYYY-MM-DD" }, start: { type: "string", description: "HH:MM" }, minutes: { type: "integer" } }, ["text", "day"]),
+        },
+      },
+      ["title", "due", "steps"],
+    ),
+  },
+  {
+    name: "routine_today",
+    description: "Hapi's routine today: what's been done and when, what's coming next and when it usually happens, habits so far. Read it before planning times, or when asked about the routine.",
+    parameters: obj({}),
+  },
 ];
-export const AGENT_BLOCK_WRITES = new Set(AGENT_BLOCK_TOOLS.map((t) => t.name));
+/** Tools here that change a note (routine_today only reads). */
+export const AGENT_BLOCK_WRITES = new Set(AGENT_BLOCK_TOOLS.map((t) => t.name).filter((n) => n !== "routine_today"));
 
 type Out = { out: string; bad: boolean };
 const ok = (out: string): Out => ({ out, bad: false });
@@ -70,6 +100,8 @@ export const whereSaid = (name: string, now = new Date()) => (isDay(name) ? shor
 
 /** make_block / change_block / remove_block; null for any other tool. */
 export async function runAgentBlockTool(call: ToolCall, ctx: NoteCtx & { live?: AgentMemory }): Promise<Out | null> {
+  if (call.name === "routine_today") return ok(await routineToday(ctx.store, ctx.now ?? new Date()));
+  if (call.name === "plan_deadline") return planDeadline(call.arguments ?? {}, ctx);
   if (!AGENT_BLOCK_WRITES.has(call.name)) return null;
   const a = call.arguments ?? {};
   const mem = (ctx.live ??= { last: null });
@@ -104,6 +136,75 @@ export async function runAgentBlockTool(call: ToolCall, ctx: NoteCtx & { live?: 
   const doc = under ? insertUnder(note.doc, under, [b.node]).doc : placeBlock(note.doc, b.node, null).doc;
   mem.last = { day: isDay(note.name) ? note.name : "", ...(isDay(note.name) ? {} : { title: note.name }), kind: b.kind, json: blockPrint(b.node), shown: b.shown, headers: b.headers, rows: b.rows, lines: b.lines };
   return ok(await saved(note, doc, `Made a ${b.kind} in ${note.name}${under ? ` under ${under}` : ""}:\n${b.shown}`));
+}
+
+const hm = (ms: number) => new Date(ms).toTimeString().slice(0, 5);
+
+/** routine_today: the day so far and what's next, in a few lines. */
+export async function routineToday(store: JournalStore, now: Date): Promise<string> {
+  const { loadConfig, loadEntries, viewOf } = await import("../routine/routineData");
+  const config = await loadConfig(store);
+  const today = dayKey(now);
+  const view = viewOf(config, await loadEntries(store, config, today), now.getTime());
+  const step = (id: string) => config.steps.find((s) => s.id === id);
+  const done: string[] = [];
+  for (const [id, sessions] of view.filled) {
+    const s = step(id);
+    if (!s) continue;
+    for (const x of sessions) if (!x.estimated) done.push(`${s.icon} ${s.label} ${hm(x.start)}${s.span && !x.open ? `–${hm(x.end)}` : x.open ? " (going on)" : ""}`);
+  }
+  const next = view.plan.slice(0, 8).map((p) => {
+    const s = step(p.id);
+    return s ? `${s.icon} ${s.label} ~${hm(p.start)}${s.span ? `–${hm(p.end)}` : ""}` : "";
+  });
+  const log = view.days.get(view.day);
+  const habits = config.habits.map((h) => `${h.icon} ${h.label} ×${log?.habits.get(h.id)?.length ?? 0}`);
+  return [
+    `Routine day ${view.day}, now ${hm(now.getTime())}.`,
+    `Done: ${done.length ? done.join(", ") : "nothing logged yet"}.`,
+    `Coming up (usual times): ${next.filter(Boolean).join(", ") || "nothing left"}.`,
+    habits.length ? `Habits today: ${habits.join(", ")}.` : "",
+    `Steps in the routine: ${config.steps.map((s) => `${s.icon} ${s.label}${s.minutes ? ` (${s.minutes} min)` : ""}`).join(", ")}.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** plan_deadline: the ⏳ bars to the due day with each step as a time block on its day. */
+async function planDeadline(a: Record<string, unknown>, ctx: NoteCtx & { live?: AgentMemory }): Promise<Out> {
+  const { deadlineRows } = await import("../editor/deadlineStore");
+  const now = ctx.now ?? new Date();
+  const due = String(a.due ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return bad("due must be YYYY-MM-DD");
+  const [h, m] = String(a.time ?? "23:59").split(":").map(Number);
+  const end = new Date(`${due}T00:00:00`);
+  end.setHours(Number.isFinite(h) ? h : 23, Number.isFinite(m) ? m : 59);
+  if (end.getTime() <= now.getTime()) return bad("The due time has passed.");
+  const title = String(a.title ?? "Deadline").trim() || "Deadline";
+  const steps = (Array.isArray(a.steps) ? a.steps : []) as { text?: string; day?: string; start?: string; minutes?: number }[];
+  const plans = steps
+    .map((s, i) => {
+      const day = /^\d{4}-\d{2}-\d{2}$/.test(String(s.day ?? "")) ? String(s.day) : dayKey(now);
+      const [sh, sm] = String(s.start ?? "18:00").split(":").map(Number);
+      const start = new Date(`${day}T00:00:00`);
+      start.setHours(Number.isFinite(sh) ? sh : 18, Number.isFinite(sm) ? sm : 0);
+      const mins = Math.max(10, Math.min(8 * 60, Number(s.minutes) || 60));
+      return { id: `p${Date.now().toString(36)}${i}`, start: start.getTime(), end: start.getTime() + mins * 60_000, text: String(s.text ?? "").trim(), ai: ctx.actor, kind: "focus" as const };
+    })
+    .filter((p) => p.text && p.end <= end.getTime() + 60_000 && p.end > now.getTime());
+  const rows = deadlineRows(end.getTime(), title, {}, dayKey(now)) as JSONContent[];
+  // Each plan sits on the bar of the day it starts.
+  for (const r of rows) if (r.type === "deadlineBar" && r.attrs) r.attrs = { ...r.attrs, plans: plans.filter((p) => dayKey(new Date(p.start)) === r.attrs!.day) };
+  const lost = plans.filter((p) => !rows.some((r) => r.type === "deadlineBar" && r.attrs?.day === dayKey(new Date(p.start))));
+  if (lost.length) {
+    const first = rows.find((r) => r.type === "deadlineBar");
+    if (first?.attrs) first.attrs = { ...first.attrs, plans: [...((first.attrs.plans as unknown[]) ?? []), ...lost] };
+  }
+  const note = await noteFor(ctx, { date: dayKey(now) });
+  if (typeof note === "string") return bad(note);
+  const doc = { ...(note.doc ?? { type: "doc" }), content: [...(note.doc?.content ?? []), ...rows] };
+  const list = plans.map((p) => `${shortDay(dayKey(new Date(p.start)), dayKey(now))} ${hm(p.start)}–${hm(p.end)} ${p.text}`).join("\n");
+  return ok(await saved(note, doc, `⏳ "${title}" due ${due} ${String(a.time ?? "23:59")} with ${plans.length} step${plans.length === 1 ? "" : "s"}, in today's note:\n${list}`));
 }
 
 /** How much a deletion would take away: words, and how many blocks. Null when it can't tell. */
@@ -145,10 +246,12 @@ export function agentSystem(o: { name: string; now: Date; onScreen: string | nul
   const last = o.last ? `\nThe block you made last (in ${o.last.title ? `“${o.last.title}”` : o.last.day}, a ${o.last.kind}):\n${o.last.shown.slice(0, 2500)}\n` : "";
   return (
     `You are ${o.name}, a voice helper inside Hapi's journal app. Now: ${formatTimestamp(o.now)}. ` +
-    "Hapi taps, says one request, and taps again. Do it straight away with the tools: never only talk about doing it, never ask a question back, pick the most likely meaning. " +
+    "Hapi taps and says one request (the turn ends when they stop talking). Do it straight away with the tools: never only talk about doing it, never ask a question back, pick the most likely meaning. " +
     "Speech can be unclear (Indian English, sometimes Gujarati or Hindi): go by what makes sense in a journal. If it's noise, not a request, or words you can't make sense of, call nothing and say \"Didn't catch that, say it again?\" rather than guessing.\n" +
     `${dayCheatSheet(o.now, o.onScreen)}\n` +
-    "Making things (tables, comparisons, lists, plans, ideas, checklists, a line of text): make_block, with the date (from the Days list) or title when they name a note, filled with real content; tables 4-7 rows unless they say. " +
+    "Making things: make_block makes any block (table for comparisons, numbered for steps, list, checklist for tasks, heading, quote, code, text), with the date (from the Days list) or title when they name a note, filled with real, specific content; tables 4-7 rows unless they say. " +
+    "A deadline, exam, submission or project due on a day ('plan my ESD exam on 2 Dec'): routine_today first, then plan_deadline with real steps spread over the days before it, at free times around the routine (never on top of sleep, meals or gym), 45-120 min each, the last step a review the day before. " +
+    "Their routine, what's next, when they usually do something: routine_today. " +
     "Fixing or extending what you just made: change_block with the whole new block. 'Delete it', 'undo that': remove_block. " +
     "Other jobs: reminders add_reminder (24-hour HH:MM, with date), deadlines add_deadline, cash from the pocket pocket, open a note open, find things search or day_list, tasks find_tasks / tick_task, maths math_add. " +
     "Writing their own words into a note ('write that I finished the gym at 7', a log line): append with the date, in their words (log_routine only when they say to log a routine step by its name). To change or delete text that's already there: read_blocks first, then replace_block / delete_block (or delete_lines). " +

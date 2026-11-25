@@ -58,6 +58,11 @@ export interface LiveOptions {
   setupMs?: number;
   /** Tokens used, per answer. */
   onUsage?: (model: string, input: number, output: number) => void;
+  /**
+   * Gemini hears when you've finished (its own voice detection) and answers then: no tap to end the
+   * turn (25 Nov, Hapi: "it will understand when I'm done"). `silenceMs`: the pause that ends it.
+   */
+  vad?: { silenceMs?: number };
 }
 
 /** Gemini's Schema wants upper-case type names in the Live API; the REST one takes either. */
@@ -105,6 +110,8 @@ export interface LiveSession {
   close(): void;
   /** Still connected. */
   open(): boolean;
+  /** Its own voice detection ends the turn. */
+  vad?: boolean;
 }
 
 /** Opens a Live session (🎙️ Talk). Rejects if there's no key or the model doesn't answer the setup in 8 s. */
@@ -182,7 +189,19 @@ export async function openLiveWith(system: string, h: LiveHandlers, o: LiveOptio
           ...(o.tools?.length ? { tools: [{ functionDeclarations: liveSchema(o.tools) }] } : {}),
           inputAudioTranscription: {},
           ...(o.modality === "TEXT" ? {} : { outputAudioTranscription: {} }),
-          realtimeInputConfig: { automaticActivityDetection: { disabled: true } },
+          realtimeInputConfig: o.vad
+            ? {
+                automaticActivityDetection: {
+                  disabled: false,
+                  startOfSpeechSensitivity: "START_SENSITIVITY_HIGH",
+                  // Low: a thinking pause mid-sentence isn't the end.
+                  endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
+                  prefixPaddingMs: 200,
+                  silenceDurationMs: o.vad.silenceMs ?? 1100,
+                },
+                activityHandling: "NO_INTERRUPTION",
+              }
+            : { automaticActivityDetection: { disabled: true } },
           contextWindowCompression: { slidingWindow: {} },
         },
       });
@@ -231,9 +250,12 @@ export async function openLiveWith(system: string, h: LiveHandlers, o: LiveOptio
   }
 
   return {
-    begin: () => (hush(), send({ realtimeInput: { activityStart: {} } })),
+    // With its own voice detection the turn starts with the voice and ends at the pause; done()
+    // then only says the sound has stopped (so it answers now).
+    begin: () => (hush(), o.vad ? undefined : send({ realtimeInput: { activityStart: {} } })),
     audio: (s) => send({ realtimeInput: { audio: { data: base64(toPcm16(s)), mimeType: "audio/pcm;rate=16000" } } }),
-    done: () => send({ realtimeInput: { activityEnd: {} } }),
+    done: () => send({ realtimeInput: o.vad ? { audioStreamEnd: true } : { activityEnd: {} } }),
+    vad: !!o.vad,
     text: (t) => send({ clientContent: { turns: [{ role: "user", parts: [{ text: t }] }], turnComplete: true } }),
     note: (t) => send({ clientContent: { turns: [{ role: "user", parts: [{ text: t }] }], turnComplete: false } }),
     hush,

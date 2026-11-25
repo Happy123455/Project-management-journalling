@@ -422,7 +422,8 @@ How you work:
 11. The verdict names one path and says why in a few direct sentences.
 12. Cite entries by date when you rely on them. Short, plain sentences; write in the language Hapi mostly writes in.
 13. Also update the rolling state (goal, people and their observed patterns, leverage, blind spots, key dated events, failed moves, lessons) so the next reading can start from it; keep it compact (it replaces the old one, so carry over what still matters).
-14. If anything suggests Hapi may be in danger or thinking of harming themself, say so kindly in the summary first and suggest talking to someone they trust or a helpline.`;
+14. If anything suggests Hapi may be in danger or thinking of harming themself, say so kindly in the summary first and suggest talking to someone they trust or a helpline.
+15. Short and concise (25 Nov, Hapi): think as long as you need, but write little. Each text field is one or two short sentences; each list holds the 3 items that matter most; no repeating the same point in two fields. Keep only what changes the decision.`;
 
 export const CLEAN_SYSTEM = `You help Hapi keep a readable copy of their journal. For each numbered entry, write a clean version: correct grammar, spelling, punctuation and flow, keep Hapi's voice, meaning, language, names, [[links]], #tags, times and every fact exactly. Never add, drop or soften anything; keep list lines as lines. Also rate how stressed the writing feels (0 calm – 100 very stressed) from how it is written, and name its tone in one word.`;
 

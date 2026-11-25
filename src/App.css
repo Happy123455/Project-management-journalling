@@ -4796,3 +4796,44 @@ html.agent-dragging .ac-arrow:not(.away) { transition: none; }
 /* The new bubble takes over from the drop where it stands (the drop fades into it). */
 .agent-bubble.from-drop { animation: agent-from-drop 0.3s ease-out both; }
 @keyframes agent-from-drop { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+
+/* 25 Nov: the agent's listening bubble in soft UI, with a tail that points at its agent. */
+.agent-cloud { --cloud-bg: color-mix(in srgb, var(--panel) 92%, var(--text) 4%); margin: -38px 0 0 46px; padding: 6px 12px 8px; border-radius: 22px; overflow: visible; background: var(--cloud-bg); -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: 8px 8px 18px rgba(0, 0, 0, 0.26), -6px -6px 16px rgba(255, 255, 255, 0.07), inset 1px 1px 0 rgba(255, 255, 255, 0.08); transform-origin: -16px 38px; }
+.agent-cloud.left { margin-left: calc(-46px - min(260px, 70vw)); border-radius: 22px; transform-origin: calc(100% + 16px) 38px; }
+.agent-cloud-tail { position: absolute; top: 27px; left: -13px; width: 24px; height: 22px; background: var(--cloud-bg); clip-path: polygon(0 50%, 100% 4%, 100% 96%); pointer-events: none; }
+.agent-cloud.left .agent-cloud-tail { left: auto; right: -13px; clip-path: polygon(0 4%, 100% 50%, 0 96%); }
+.agent-cloud .agent-cloud-wave { margin-top: 2px; border-radius: 16px; box-shadow: inset 3px 3px 8px rgba(0, 0, 0, 0.22), inset -3px -3px 8px rgba(255, 255, 255, 0.06); }
+:where(html[data-theme="neu"]) .agent-cloud { --cloud-bg: var(--bg); box-shadow: var(--neu-out); }
+:where(html[data-theme="neu"]) .agent-cloud .agent-cloud-wave { box-shadow: var(--neu-in-sm); }
+.voice-pill-wave { --ai-ink: #7c3aed; }
+@media (prefers-color-scheme: dark) { .voice-pill-wave { --ai-ink: #b794ff; } }
+:root[data-color-scheme="dark"] .voice-pill-wave { --ai-ink: #b794ff; }
+/* The AI's own words by the bubble: its colour, not yours. */
+.agent-caption .agent-said, .agent-caption .agent-ai-words { color: #d8c8ff; }
+.agent-caption .agent-ai-words { display: block; margin-top: 2px; font-size: 12.5px; }
+
+/* 👀 An agent reading a note: a soft glow breathes round the screen's edge with a heartbeat
+   (lub-dub, then rest), and a light passes slowly under the page, like something moving beneath
+   the soft surface. Only while it reads. */
+.agent-scan { --scan: 139, 92, 246; position: fixed; inset: 0; z-index: 39; pointer-events: none; overflow: hidden; animation: fade-in 0.35s ease both; }
+.agent-scan::before { content: ""; position: absolute; inset: 0; border-radius: 36px; box-shadow: inset 0 0 0 1.5px rgba(var(--scan), 0.3), inset 0 0 22px 4px rgba(var(--scan), 0.26), inset 0 0 64px 10px rgba(var(--scan), 0.1), inset 10px 10px 30px rgba(255, 255, 255, 0.05); animation: agent-heartbeat 1.3s cubic-bezier(0.3, 0, 0.3, 1) infinite; }
+.agent-scan-band { position: absolute; left: -15%; right: -15%; top: -30vh; height: 28vh; border-radius: 50%; background: radial-gradient(60% 50% at 50% 50%, rgba(255, 255, 255, 0.55), rgba(var(--scan), 0.35) 45%, transparent 72%); filter: blur(14px); mix-blend-mode: soft-light; opacity: 0.8; animation: agent-scan-pass 2.6s cubic-bezier(0.5, 0, 0.3, 1) infinite; }
+@keyframes agent-heartbeat {
+  0% { opacity: 0.4; box-shadow: inset 0 0 0 1.5px rgba(var(--scan), 0.25), inset 0 0 18px 2px rgba(var(--scan), 0.2), inset 0 0 50px 6px rgba(var(--scan), 0.08), inset 10px 10px 30px rgba(255, 255, 255, 0.04); }
+  12% { opacity: 1; box-shadow: inset 0 0 0 2px rgba(var(--scan), 0.55), inset 0 0 30px 8px rgba(var(--scan), 0.42), inset 0 0 90px 18px rgba(var(--scan), 0.16), inset 10px 10px 30px rgba(255, 255, 255, 0.08); }
+  24% { opacity: 0.55; }
+  36% { opacity: 0.95; box-shadow: inset 0 0 0 2px rgba(var(--scan), 0.45), inset 0 0 26px 6px rgba(var(--scan), 0.34), inset 0 0 76px 14px rgba(var(--scan), 0.13), inset 10px 10px 30px rgba(255, 255, 255, 0.07); }
+  62%, 100% { opacity: 0.4; box-shadow: inset 0 0 0 1.5px rgba(var(--scan), 0.25), inset 0 0 18px 2px rgba(var(--scan), 0.2), inset 0 0 50px 6px rgba(var(--scan), 0.08), inset 10px 10px 30px rgba(255, 255, 255, 0.04); }
+}
+@keyframes agent-scan-pass { from { transform: translateY(0); } to { transform: translateY(160vh); } }
+html.at-rest .agent-scan, html.at-rest .agent-scan::before, html.at-rest .agent-scan-band { animation-play-state: running !important; }
+@media (prefers-reduced-motion: reduce) { .agent-scan::before, .agent-scan-band { animation: none; } .agent-scan-band { display: none; } }
+/* 🧾 Orders with no payment seen (25 Nov) */
+.finance-orders { display: grid; gap: 8px; margin: 0 0 12px; }
+.finance-order { padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--accent) 9%, var(--panel)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
+.finance-order p { margin: 0 0 8px; line-height: 1.35; }
+.finance-order small { color: var(--muted); }
+.finance-order-acts, .finance-order form { display: flex; flex-wrap: wrap; gap: 6px; }
+.finance-order input { flex: 1; min-width: 90px; }
+.finance-nudge { margin: 0 0 12px; padding: 8px 12px; border-radius: 12px; font-size: 13px; color: var(--muted); background: color-mix(in srgb, var(--text) 5%, transparent); }
+.finance-nudge button { margin-left: 4px; }

@@ -48,6 +48,10 @@ export interface AgentEvents {
   onSaid?: (text: string) => void;
   /** Asks Hapi (a deletion bigger than the Settings allow, a second note). */
   confirm?: (q: string) => Promise<boolean>;
+  /** Hands-free: Gemini heard the end of the request and is answering (the mic can stop). */
+  onEndOfTurn?: () => void;
+  /** It's reading a note or looking something up (the scan glow), or done with that. */
+  onReading?: (on: boolean) => void;
 }
 
 export interface AgentOptions {
@@ -104,6 +108,10 @@ export function stageFor(name: string, a: Record<string, unknown>, now = new Dat
       return `⏰ Reminder for ${where()}…`;
     case "add_deadline":
       return "⏳ Adding the deadline…";
+    case "plan_deadline":
+      return "⏳ Planning the deadline…";
+    case "routine_today":
+      return "🗓 Reading your routine…";
     case "open":
       return `📖 Opening ${typeof a.target === "string" ? whereSaid(a.target, now) : "it"}…`;
     case "append":
@@ -125,7 +133,9 @@ export function stageFor(name: string, a: Record<string, unknown>, now = new Dat
 }
 
 /** Tools that only look (their result is the answer, not a change). */
-const LOOKS = /^(read|today|search|day_list|find|list_|usage|pocket_status|math_find|math_recalc|open)/;
+const LOOKS = /^(read|today|search|day_list|find|list_|usage|pocket_status|math_find|math_recalc|open|routine_today)/;
+/** Tools that read a note (the scan glow plays while they run). */
+const READS = /^(read|today|search|day_list|find_tasks|routine_today|pocket_status|math_find)/;
 
 /** One change, said short: "📋 Table → Fri 27 Nov", "⏰ 18:00 Call mom → tomorrow". */
 export function changeSaid(c: { name: string; args: Record<string, unknown>; out: string }, now = new Date()): string {
@@ -154,6 +164,10 @@ export function changeSaid(c: { name: string; args: Record<string, unknown>; out
       const n = typeof c.args.title === "string" && c.args.title ? c.args.title : typeof c.args.date === "string" && c.args.date ? c.args.date : note(/^Added (?:under .+ )?(?:to|in) ([^.(\n]+?)[.(]/);
       return `✍️ Written${n ? ` → ${where(n.trim())}` : ""}`;
     }
+    case "plan_deadline": {
+      const m = c.out.match(/^⏳ "([^"]+)" due (\S+).*?with (\d+) step/);
+      return m ? `⏳ ${m[1]} → ${where(m[2])}, ${m[3]} steps` : "⏳ Deadline planned";
+    }
     case "delete_lines":
     case "delete_block":
       return `🗑 ${c.out.split("\n")[0].replace(/^Done\.\s*/, "Deleted.").slice(0, 80)}`;
@@ -171,7 +185,28 @@ export function summaryOf(calls: { name: string; args: Record<string, unknown>; 
 }
 
 type Call = { name: string; args: Record<string, unknown>; out: string; bad: boolean };
-type Pending = { chunks: Float32Array[]; began: boolean; on?: LiveSession; sentAll?: boolean; ended: boolean; cancelled?: boolean; heard: string; said: string; calls: Call[]; activity: number; done?: (ok: boolean) => void; ctx?: RunCtx };
+type Pending = {
+  chunks: Float32Array[];
+  began: boolean;
+  on?: LiveSession;
+  sentAll?: boolean;
+  ended: boolean;
+  cancelled?: boolean;
+  heard: string;
+  said: string;
+  calls: Call[];
+  activity: number;
+  done?: (ok: boolean) => void;
+  ctx?: RunCtx;
+  /** Hands-free: the end of the turn is Gemini's to hear. */
+  auto?: boolean;
+  /** onEndOfTurn has been said. */
+  endSaid?: boolean;
+  /** The answer finished before anyone waited for it. */
+  turnDone?: boolean;
+};
+
+const stopped = () => new DOMException("The agent was closed", "AbortError");
 
 export class FloatingAgent {
   readonly mem: AgentMemory = { last: null };
@@ -186,6 +221,8 @@ export class FloatingAgent {
   private chain: Promise<unknown> = Promise.resolve();
   private history: { role: "user" | "assistant"; content: string }[] = [];
   private closed = false;
+  /** Stops everything in flight when the bubble closes (25 Nov: a closed agent still made its table later). */
+  private stop = new AbortController();
   /** Why Live couldn't be used. */
   liveTrouble = "";
 
@@ -195,6 +232,10 @@ export class FloatingAgent {
   private onScreen = () => this.o.onScreen?.() ?? (typeof window !== "undefined" ? window.__journalOpenDay?.() ?? null : null);
   private engine = () => this.o.engine ?? (loadAiSettings().agentEngine === "whisper" ? "text" : "live");
   private speak = () => this.o.speak ?? loadAiSettings().agentSpeak === true;
+  /** Hands-free (Gemini hears the end of the request). */
+  handsFree = () => this.engine() === "live" && loadAiSettings().agentHandsFree !== false;
+  /** A Live line is open now (hands-free works through it). */
+  liveNow = () => !!this.live?.open();
 
   /** Opens the Live line now (the bubble appeared, or a recording starts). Null when it can't. */
   warm(): Promise<LiveSession | null> {
@@ -231,14 +272,22 @@ export class FloatingAgent {
                 this.o.events?.onSaid?.(t);
               },
               onActivity: () => {
-                if (this.active) this.active.activity = Date.now();
+                const t = this.active;
+                if (!t) return;
+                t.activity = Date.now();
+                // Hands-free: it's answering, so the request is over; the bubble stops the mic.
+                if (t.auto && !t.ended && !t.endSaid) {
+                  t.endSaid = true;
+                  this.o.events?.onEndOfTurn?.();
+                }
               },
               onTurn: (me, ai) => {
                 const t = this.active;
                 if (!t) return;
                 if (me) t.heard = me;
                 if (ai) t.said = ai;
-                t.done?.(true);
+                if (t.done) t.done(true);
+                else t.turnDone = true;
               },
               onClose: (why) => {
                 if (this.live === s) this.live = null;
@@ -253,6 +302,7 @@ export class FloatingAgent {
               play: speak,
               voice: "Puck",
               setupMs: 7000,
+              vad: this.handsFree() ? { silenceMs: 1100 } : undefined,
               WebSocketImpl: this.o.WebSocketImpl,
               onToolCall: (calls) => this.runCalls(calls),
               onUsage: (m, i, out) => recordUsage(m, i, out),
@@ -302,8 +352,8 @@ export class FloatingAgent {
 
   /** A recording starts. Its sound goes to Live as it comes (kept until the line is open). */
   begin() {
-    if (this.rec && !this.rec.ended) return;
-    const t: Pending = { chunks: [], began: false, ended: false, heard: "", said: "", calls: [], activity: 0 };
+    if (this.closed || (this.rec && !this.rec.ended)) return;
+    const t: Pending = { chunks: [], began: false, ended: false, heard: "", said: "", calls: [], activity: 0, auto: this.handsFree() };
     this.rec = t;
     this.o.events?.onHeard?.("");
     // After the request before it is answered.
@@ -335,13 +385,20 @@ export class FloatingAgent {
     }
   }
 
+  /** The bubble is gone: nothing it was doing goes on (no late table from a closed agent). */
   close() {
     this.closed = true;
+    this.stop.abort();
     clearTimeout(this.idle);
+    const t = this.active ?? this.rec;
+    if (t) t.cancelled = true;
     this.rec = null;
     this.active = null;
     this.live?.close();
     this.live = null;
+    // A turn waiting on Live ends now (and, being cancelled, does nothing more).
+    t?.done?.(false);
+    this.o.events?.onReading?.(false);
   }
 
   /** Done talking. `samples`: the whole recording (for the written-down way). */
@@ -357,14 +414,18 @@ export class FloatingAgent {
 
   private async finishTurn(t: Pending, samples: Float32Array): Promise<AgentTurn> {
     const t0 = Date.now();
+    const gone = () => this.closed || !!t.cancelled;
+    if (gone()) throw stopped();
     this.o.events?.onStage?.("Thinking…");
     try {
-      if (this.engine() === "live" && !t.cancelled) {
+      if (this.engine() === "live") {
         const s = t.on && t.on === this.live && this.live.open() ? this.live : await Promise.race([this.warm(), new Promise<null>((r) => setTimeout(() => r(null), 4000))]);
+        if (gone()) throw stopped();
         if (s?.open()) {
           this.beginOn(s, t, samples);
           if (this.active === t && t.on === s) {
             const r = await this.awaitLive(t, s);
+            if (gone()) throw stopped();
             if (r) return { ...r, ms: Date.now() - t0 };
           }
         }
@@ -375,6 +436,7 @@ export class FloatingAgent {
         this.o.events?.onStage?.("✍️ Writing it down…");
         text = await writeDown(samples);
       }
+      if (gone()) throw stopped();
       if (!text) return { heard: "", say: "Didn't catch any words. Tap to try again.", ok: false, did: [], engine: "text", ms: Date.now() - t0 };
       this.o.events?.onHeard?.(text);
       const r = await this.text(text);
@@ -420,7 +482,12 @@ export class FloatingAgent {
         finish({ heard, say: (changed ? summaryOf(t.calls, this.now()) : said || summaryOf(t.calls, this.now())) || (heard ? "Done." : "Didn't catch that."), ok: okAll, did, engine: "live" });
       };
       t.done = end;
-      t.activity = 0;
+      // Hands-free: it may be answering already (or even finished) by the time this waits.
+      if (!t.auto) t.activity = 0;
+      if (t.turnDone) {
+        t.turnDone = false;
+        return void Promise.resolve().then(() => end(true));
+      }
       watch = setInterval(() => {
         if (!s.open()) return end(false);
         // No sign of an answer after "done talking" (and no tool running).
@@ -437,6 +504,7 @@ export class FloatingAgent {
 
   /** Runs Live's function calls with the journal's tools (one run context per request). */
   private async runCalls(calls: LiveCall[]): Promise<Record<string, unknown>[]> {
+    if (this.closed) return calls.map(() => ({ error: "The agent was closed; do nothing." }));
     const t = this.active;
     const ctx = t ? (t.ctx ??= this.runCtx()) : this.runCtx();
     const out: Record<string, unknown>[] = [];
@@ -459,11 +527,17 @@ export class FloatingAgent {
   }
 
   private async tool(name: string, args: Record<string, unknown>, ctx: RunCtx) {
+    if (this.closed) return { out: "The agent was closed.", bad: true };
     this.o.events?.onStage?.(stageFor(name, args, this.now(), this.onScreen()));
+    // Reading a note or looking something up: the scan glow (AgentBubbles).
+    const reading = READS.test(name);
+    if (reading) this.o.events?.onReading?.(true);
     try {
       return await runAssistantTool({ name, arguments: args }, ctx);
     } catch (e) {
       return { out: e instanceof Error ? e.message : String(e), bad: true };
+    } finally {
+      if (reading) this.o.events?.onReading?.(false);
     }
   }
 
@@ -494,6 +568,7 @@ export class FloatingAgent {
       maxRounds: 6,
       fastTimeoutMs: 12_000,
       retryForMs: 30_000,
+      signal: this.stop.signal,
       runTool: async (call) => {
         const out = await this.tool(call.name, call.arguments, ctx);
         calls.push({ name: call.name, args: call.arguments, out: out.out, bad: out.bad });

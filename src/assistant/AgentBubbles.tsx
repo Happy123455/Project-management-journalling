@@ -24,6 +24,7 @@ import { swarmOff } from "./swarm/run";
 import { BUBBLE_MOVED, cursorFx } from "./AgentCursors";
 import { VoicePill } from "../talk/VoicePill";
 import { recordPcm, type PcmRecording } from "../ai/voice";
+import { releaseMics } from "../ai/mic";
 import { FloatingAgent, undoSince } from "./liveAgent";
 import { showToast } from "../lib/toast";
 
@@ -61,6 +62,17 @@ interface Agent {
   undo?: string;
   /** Seconds the request has taken so far (shown after 2 s). */
   secs?: number;
+  /** What it's saying back (its own words, in the AI colour). */
+  said?: string;
+}
+
+interface Mic {
+  pcm: PcmRecording | null;
+  cancelled?: boolean;
+  started: number;
+  /** When the voice was first heard, and when it went quiet (hands-free). */
+  spoke: number;
+  quiet: number;
 }
 
 const HOLD_MS = 450;
@@ -122,16 +134,31 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
     return () => window.removeEventListener(AGENT_SPAWN, on);
   }, []);
 
-  // Home glows while a bubble is held over it.
+  // Home glows while a bubble is held over it, and never after (25 Nov: a purple halo stayed
+  // round Home): off when the finger lifts anywhere or the last bubble goes.
   useEffect(() => {
-    document.documentElement.classList.toggle("agent-near-home", nearHome);
-  }, [nearHome]);
+    document.documentElement.classList.toggle("agent-near-home", nearHome && has);
+    if (!nearHome) return;
+    const off = () => window.setTimeout(() => !document.querySelector(".agent-bubble.dragging") && setNearHome(false), 60);
+    window.addEventListener("pointerup", off, true);
+    window.addEventListener("pointercancel", off, true);
+    return () => {
+      window.removeEventListener("pointerup", off, true);
+      window.removeEventListener("pointercancel", off, true);
+    };
+  }, [nearHome, has]);
+  useEffect(() => () => document.documentElement.classList.remove("agent-near-home"), []);
+  // 👀 The scan glow while an agent reads a note (soft, round the screen's edge, a heartbeat).
+  const [reading, setReading] = useState(0);
+  const readingSince = useRef(0);
 
   const patch = useCallback((id: string, p: Partial<Agent>) => setAgents((list) => list.map((a) => (a.id === id ? { ...a, ...p } : a))), []);
   const remove = useCallback((id: string) => {
-    // Closing a bubble always lets go of the microphone (25 Nov: it kept recording).
+    // Closing a bubble always lets go of the microphone (25 Nov: it kept recording), even one
+    // that's still opening, and stops whatever it was doing (no late table from a closed agent).
     const m = mics.current.get(id);
     if (m) (mics.current.delete(id), (m.cancelled = true), m.pcm?.cancel());
+    releaseMics(`agent:${id}`, "agent closed");
     brains.current.get(id)?.close();
     brains.current.delete(id);
     setAgents((list) => list.filter((a) => a.id !== id));
@@ -157,8 +184,8 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
   // ── Live ──
   /** Each bubble's Gemini Live line and hands (liveAgent.ts). */
   const brains = useRef(new Map<string, FloatingAgent>());
-  /** The microphone, while a bubble records. */
-  const mics = useRef(new Map<string, { pcm: PcmRecording | null; cancelled?: boolean }>());
+  /** The microphone, while a bubble records (with what the voice has done so far, for hands-free). */
+  const mics = useRef(new Map<string, Mic>());
   /** A live agent's open yes/no (a deletion…): a tap or a spoken "yes" says yes. */
   const asks = useRef(new Map<string, (yes: boolean) => void>());
   const askLive = (id: string, q: string) =>
@@ -197,6 +224,18 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
             onHeard: (t) => patch(a.id, { heard: t }),
             onStage: (t) => patch(a.id, { stage: t }),
             confirm: (q) => askLive(a.id, q),
+            // Hands-free: Gemini heard the end and is answering, so the mic stops.
+            onEndOfTurn: () => {
+              const b = agentsRef.current.find((x) => x.id === a.id);
+              if (b && mics.current.has(a.id)) void submit(b);
+            },
+            onSaid: (t) => patch(a.id, { said: t }),
+            onReading: (on) => {
+              if (on) readingSince.current = Date.now();
+              // On long enough to be seen.
+              if (on) setReading((n) => n + 1);
+              else window.setTimeout(() => setReading((n) => Math.max(0, n - 1)), Math.max(0, 1400 - (Date.now() - readingSince.current)));
+            },
           },
         })),
       );
@@ -224,7 +263,7 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
     haptic("press", 0.8);
     levelEl(a.id)?.style.setProperty("--lvl", "0");
     const since = new Date(Date.now() - 1000).toISOString();
-    patch(a.id, { live: false, ear: "", status: "run", stage: "Thinking…", say: "", secs: 0, undo: undefined });
+    patch(a.id, { live: false, ear: "", status: "run", stage: "Thinking…", say: "", said: "", secs: 0, undo: undefined });
     const samples = (await m.pcm?.stop().catch(() => null)) ?? new Float32Array(0);
     const actor = actorOf(a);
     cursorFx({ key: actor, phase: "think", anchor: `.agent-bubble[data-agent-key="${a.id}"]` });
@@ -239,7 +278,8 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
       haptic(r.ok ? "tick" : "warn", 0.6);
       console.info(`[agent] ${r.engine} ${r.ms} ms: "${r.heard}" → ${r.did.join(", ") || "(no tools)"} → ${r.say}`);
     } catch (e) {
-      if ((e as { name?: string })?.name === "AbortError") return;
+      // Closed meanwhile: nothing more to show.
+      if ((e as { name?: string })?.name === "AbortError" || !agentsRef.current.some((x) => x.id === a.id)) return;
       patch(a.id, { status: "fail", stage: "" });
       say(a.id, e instanceof Error ? e.message : String(e), 8000);
     } finally {
@@ -263,11 +303,12 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
       if (other !== a.id) void (b ? submit(b) : stopLive(other));
     }
     if (mics.current.has(a.id)) return;
-    const m: { pcm: PcmRecording | null; cancelled?: boolean } = { pcm: null };
+    const m: Mic = { pcm: null, started: Date.now(), spoke: 0, quiet: 0 };
     mics.current.set(a.id, m);
     const brain = brainOf(a);
     brain.begin();
-    patch(a.id, { live: true, heard: "", ear: "🎙️ Opening the mic…", say: "", stage: "", undo: undefined });
+    const free = brain.handsFree();
+    patch(a.id, { live: true, heard: "", said: "", ear: "🎙️ Opening the mic…", say: "", stage: "", undo: undefined });
     haptic("press", 0.8);
     try {
       const pcm = await recordPcm(
@@ -275,20 +316,40 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
           levelOf(a.id).current = level;
           // The ring round the bubble swells with the voice (no re-render: a CSS variable).
           levelEl(a.id)?.style.setProperty("--lvl", Math.min(1, level * 4).toFixed(2));
+          if (free) handsFree(a, m, level);
         },
         (chunk) => brain.audio(chunk),
+        { owner: `agent:${a.id}`, alive: () => mics.current.get(a.id) === m && agentsRef.current.some((x) => x.id === a.id) },
       );
       // Tapped again, closed or dropped while the microphone was starting.
       if (m.cancelled || mics.current.get(a.id) !== m) return pcm.cancel();
       m.pcm = pcm;
-      patch(a.id, { ear: "🎙️ Listening… tap when done" });
+      m.started = Date.now();
+      patch(a.id, { ear: free ? "🎙️ Listening… it acts when you stop" : "🎙️ Listening… tap when done" });
       haptic("tick", 0.5);
     } catch (e) {
-      mics.current.delete(a.id);
+      if (mics.current.get(a.id) === m) mics.current.delete(a.id);
       brain.cancel();
       patch(a.id, { live: false, ear: "" });
-      say(a.id, `Can't use the microphone: ${e instanceof Error ? e.message : String(e)}`, 8000);
+      if ((e as { name?: string })?.name !== "AbortError") say(a.id, `Can't use the microphone: ${e instanceof Error ? e.message : String(e)}`, 8000);
     }
+  };
+  /**
+   * Hands-free (25 Nov, Hapi: "it will understand when I'm done"): Gemini Live hears the end of the
+   * request itself; this is the back-up. Nothing said in 10 s: it stops. A pause after speech with
+   * no answer starting: the request is sent (at once when Live isn't there to hear it).
+   */
+  const handsFree = (a: Agent, m: Mic, level: number) => {
+    if (!m.pcm || m.cancelled) return;
+    const now = Date.now();
+    if (level > 0.05) (m.spoke ||= now), (m.quiet = 0);
+    else if (m.spoke && !m.quiet) m.quiet = now;
+    if (!m.spoke && now - m.started > 10_000) {
+      stopLive(a.id);
+      return say(a.id, "Didn't hear anything. Tap to try again.", 4000);
+    }
+    const wait = brainOf(a).liveNow() ? 2600 : 1300;
+    if ((m.spoke && m.quiet && now - m.quiet > wait) || now - m.started > 60_000) void submit(a);
   };
   // The app goes to the background: no bubble keeps the microphone.
   useEffect(() => {
@@ -309,6 +370,7 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
     () => () => {
       for (const m of mics.current.values()) ((m.cancelled = true), m.pcm?.cancel());
       mics.current.clear();
+      releaseMics("agent:", "agents gone");
       for (const b of brains.current.values()) b.close();
       brains.current.clear();
     },
@@ -344,6 +406,13 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
   if (!agents.length) return null;
   return createPortal(
     <div className="agents" ref={hostRef}>
+      {reading > 0 && (
+        // 👀 Reading a note: a soft glow breathes round the screen's edge with a heartbeat, and a
+        // light passes under the page as if something moved beneath the soft surface.
+        <div className="agent-scan" aria-hidden>
+          <i className="agent-scan-band" />
+        </div>
+      )}
       {agents.map((a) => (
         <Bubble
           key={a.id}
@@ -386,6 +455,7 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
         a.live && !a.gone && open !== a.id ? (
           // 25 Nov: a little glass cloud comes out of the bubble while it records; the words form
           // in it as they're heard. Tap it (or the bubble) when you're done.
+          // 25 Nov: a soft UI speech bubble whose tail points at its agent.
           <button
             key={`v${a.id}`}
             type="button"
@@ -394,7 +464,8 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
             onClick={() => void submit(a)}
             aria-label="Done talking: send it"
           >
-            <VoicePill className="agent-cloud-wave" level={levelOf(a.id)} text={a.heard ?? ""} placeholder="Listening…" mode="listening" />
+            <i className="agent-cloud-tail" aria-hidden />
+            <VoicePill className="agent-cloud-wave" level={levelOf(a.id)} text={a.heard ?? ""} placeholder="Listening…" mode="listening" who="me" />
             <small>{a.ear || "Tap when done"}</small>
           </button>
         ) : (a.stage || a.say) && !a.gone && open !== a.id ? (
@@ -406,6 +477,7 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
             aria-live="polite"
           >
             {a.heard ? <i>“{a.heard}”</i> : null}
+            {a.stage && a.said ? <span className="agent-ai-words">{a.said.slice(-160)}</span> : null}
             {a.stage ? (
               <small className="agent-ear">
                 {a.stage}
@@ -439,6 +511,11 @@ export function AgentBubbles({ store }: { store: JournalStore }) {
             open: open === a.id && !a.merging,
             onCollapse: () => setOpen(null),
             onStatus: onStatus(a.id),
+            // 🎙 in its window: the window folds and the agent listens live (it acts when you stop).
+            talk: () => {
+              setOpen(null);
+              void goLive(a);
+            },
           }}
         />
         </div>

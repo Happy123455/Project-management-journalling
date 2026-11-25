@@ -266,20 +266,135 @@ export function rewriteLine(line: string, day: string, patch: TxnPatch): string 
   return `${head}${direction === "debit" ? "💸" : "💰"} ${rupees(amount)}${who} #${category}${paren ? ` (${paren[1]})` : ""}`;
 }
 
-/** Every transaction line in a day's note. */
+/**
+ * A line typed by hand inside the [[Finance]] box: an amount with or without words ("689.85",
+ * "689.85 la pinoz", "paid 120 for chai", "+5000 salary", "got 200 from mom"). 25 Nov, Hapi typed
+ * "689.85" under Finance and it never showed in Money: only 💸/💰 lines were read.
+ */
+export function readLooseLine(line: string, day: string): Txn | null {
+  let text = line.trim();
+  const ts = new RegExp(TIMESTAMP_RE.source).exec(text);
+  let at: number;
+  if (ts) {
+    at = new Date(Number(ts[3]), MONTHS.indexOf(ts[2]), Number(ts[1]), Number(ts[5]), Number(ts[6]), Number(ts[7])).getTime();
+    text = text.replace(ts[0], "").trim();
+  } else {
+    const [y, mo, d] = day.split("-").map(Number);
+    at = new Date(y, mo - 1, d, 12).getTime();
+  }
+  const m = /^(?:(paid|spent|gave|sent|bought|got|received|earned|\+|-)\s*)?(?:₹|rs\.?|inr)?\s*(\d[\d,]*(?:\.\d{1,2})?)\s*(?:₹|rs\.?|rupees?|inr|\/-)?(?=\s|$)\s*(?:(?:to|at|for|on|from)\s+)?(.*)$/iu.exec(text);
+  if (!m) return null;
+  const amount = num(m[2]);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) return null;
+  const direction: Direction = m[1] && /^(got|received|earned|\+)$/i.test(m[1]) ? "credit" : "debit";
+  const rest = m[3].trim();
+  const tag = /#([\p{L}\p{N}_-]+)/u.exec(rest)?.[1];
+  const party = clean(rest.replace(/#[\p{L}\p{N}_-]+/gu, "").replace(/[()]/g, " ")).trim();
+  return {
+    direction,
+    amount,
+    ...(party ? { party } : {}),
+    category: (tag ?? categorize(party || undefined, direction, rest)).toLowerCase(),
+    at,
+    source: "note",
+    line,
+    day,
+  };
+}
+
+/** Every transaction line in a day's note (and amounts typed by hand in its [[Finance]] box). */
 export function txnsIn(doc: JSONContent | null | undefined, day: string): Txn[] {
   const out: Txn[] = [];
-  const walk = (n: JSONContent) => {
+  let box = -1;
+  const walk = (n: JSONContent, top: boolean) => {
     if (n.type === "codeBlock") return;
     if (n.type === "paragraph" || n.type === "heading") {
-      const t = readLine((n.content ?? []).map((c) => c.text ?? "").join(""), day);
+      const text = (n.content ?? []).map((c) => c.text ?? "").join("");
+      const indent = Number(n.attrs?.indent ?? 0);
+      if (top) {
+        if (box >= 0 && indent <= box) box = -1;
+        if (text.trim() === FINANCE_BOX) return void (box = indent);
+      }
+      const t = readLine(text, day) ?? (top && box >= 0 && indent > box ? readLooseLine(text, day) : null);
       if (t) out.push(t);
       return;
     }
-    for (const c of n.content ?? []) walk(c);
+    for (const c of n.content ?? []) walk(c, false);
   };
-  if (doc) walk(doc);
+  if (doc) for (const n of doc.content ?? []) walk(n, true);
   return out;
+}
+
+/** An order message (a food or shopping app, its SMS): the shop and the order number. */
+export interface OrderSeen {
+  merchant: string;
+  orderId: string;
+  at: number;
+}
+
+const SHOPS: [RegExp, string][] = [
+  [/la\s*pino'?z|lapinoz/i, "La Pinoz"],
+  [/domino'?s/i, "Domino's"],
+  [/zomato/i, "Zomato"],
+  [/swiggy/i, "Swiggy"],
+  [/blinkit/i, "Blinkit"],
+  [/zepto/i, "Zepto"],
+  [/amazon/i, "Amazon"],
+  [/flipkart/i, "Flipkart"],
+  [/big\s*basket/i, "BigBasket"],
+  [/faasos/i, "Faasos"],
+  [/pizza\s*hut/i, "Pizza Hut"],
+  [/kfc/i, "KFC"],
+  [/mc\s*donald/i, "McDonald's"],
+  [/uber/i, "Uber"],
+  [/\bola\b/i, "Ola"],
+  [/rapido/i, "Rapido"],
+];
+const SHOP_APPS: Record<string, string> = {
+  "com.app.uengage.lapinoz": "La Pinoz",
+  "com.application.zomato": "Zomato",
+  "in.swiggy.android": "Swiggy",
+  "com.Dominos": "Domino's",
+  "com.grofers.customerapp": "Blinkit",
+  "com.zeptoconsumerapp": "Zepto",
+  "in.amazon.mShop.android.shopping": "Amazon",
+  "com.amazon.mShop.android.shopping": "Amazon",
+  "com.flipkart.android": "Flipkart",
+  "com.bigbasket.mobileapp": "BigBasket",
+  "com.done.faasos": "Faasos",
+  "com.ubercab": "Uber",
+  "com.olacabs.customer": "Ola",
+  "com.rapido.passenger": "Rapido",
+};
+
+/** "Order ID #50379213 is Accepted", "Online Order ID 50379213 has been received … Lapinoz". Null otherwise. */
+export function parseOrder(text: string, at: number, from = ""): OrderSeen | null {
+  const body = text.replace(/\s+/g, " ").trim();
+  // Offers and failed or cancelled orders aren't purchases.
+  if (/\b(offer|% off|cashback on|coupon|cancel+ed|refund|failed)\b/i.test(body)) return null;
+  const id = /\border\s*(?:id|no\.?|number)?\s*[:#-]?\s*#?\s*([A-Z0-9-]*\d{4,}[A-Z0-9-]*)/i.exec(body)?.[1];
+  if (!id) return null;
+  const merchant = SHOP_APPS[from] ?? SHOPS.find(([re]) => re.test(`${body} ${from}`))?.[1];
+  if (!merchant) return null;
+  return { merchant, orderId: id, at };
+}
+
+/** A payment for this order already in the notes: to that shop (or with no name) from an hour before to 3 hours after. */
+export function orderPaid(o: OrderSeen, txns: Txn[]): boolean {
+  const name = o.merchant.toLowerCase().replace(/[^a-z]/g, "");
+  return txns.some((t) => {
+    if (t.direction !== "debit" || t.at < o.at - 60 * 60_000 || t.at > o.at + 3 * 60 * 60_000) return false;
+    if (t.line?.includes(o.orderId)) return true;
+    const who = (t.party ?? "").toLowerCase().replace(/[^a-z]/g, "");
+    return !who || who.includes(name) || name.includes(who) || (t.category === "food" && /pinoz|domino|zomato|swiggy|pizza|kfc|faasos|mcdonald/.test(name));
+  });
+}
+
+/** What was paid to this shop last time (a guess for the one-tap button). */
+export function lastPaidTo(merchant: string, txns: Txn[]): number | null {
+  const name = merchant.toLowerCase().replace(/[^a-z]/g, "");
+  const hits = txns.filter((t) => t.direction === "debit" && (t.party ?? "").toLowerCase().replace(/[^a-z]/g, "").includes(name)).sort((a, b) => b.at - a.at);
+  return hits[0]?.amount ?? null;
 }
 
 /**

@@ -14,6 +14,7 @@ import { dayKey } from "../lib/timestamp";
 import { docText } from "../lib/words";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
 import { canListen, startListening, type Listening } from "./listen";
+import { releaseMics } from "../ai/mic";
 import { ASSISTANT_ACTOR, runAssistant, type Step, type Turn } from "./runner";
 import { describeSchedule, splitSchedule, type Schedule } from "./schedule";
 import { recordRun, setScheduled, thisDevice } from "./scheduler";
@@ -53,6 +54,8 @@ export interface AgentChrome {
   open: boolean;
   onCollapse: () => void;
   onStatus: (s: AgentStatus, last: string) => void;
+  /** 🎙 in an agent's window: that agent's own live voice (Gemini Live, it acts when you stop). */
+  talk?: () => void;
 }
 
 export const ASSIST_EVENT = "journal:assist";
@@ -187,6 +190,7 @@ export function CommandBar({ store, request, onClose, agent }: { store: JournalS
   const actor = agent?.actor ?? ASSISTANT_ACTOR;
   const close = () => {
     listening?.cancel();
+    releaseMics(`assistant:${agent?.key ?? "main"}`, "assistant closed");
     fx("close");
     onClose();
   };
@@ -311,7 +315,31 @@ export function CommandBar({ store, request, onClose, agent }: { store: JournalS
     keep(cur().turns.map((x) => (x.startedAt === t.startedAt ? { ...x, undo: undefined, answer: `${x.answer}\n↩ Undone (${n} of ${changes.length} change${changes.length === 1 ? "" : "s"}).` } : x)));
   };
 
+  // The mic belongs to this bar while it's on screen (25 Nov: it kept recording after closing).
+  const micOwner = `assistant:${key}`;
+  const shown = useRef(true);
+  shown.current = !agent || agent.open;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      listenRef.current?.cancel();
+      releaseMics(micOwner, "assistant closed");
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // An agent's window folded away: what was being said is kept in the box, the mic goes.
+  useEffect(() => {
+    if (agent && !agent.open && listenRef.current) void listen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent?.open]);
   const listen = async () => {
+    if (agent?.talk && !listening) {
+      // In an agent's window the 🎙 is the agent's own live voice.
+      agent.talk();
+      return "";
+    }
     if (listening) {
       const l = listening;
       setListening(null);
@@ -329,7 +357,10 @@ export function CommandBar({ store, request, onClose, agent }: { store: JournalS
       const l = await startListening(
         (t) => setHeard(t),
         (n) => setNote(n),
+        { mic: { owner: micOwner, alive: () => mounted.current && shown.current } },
       );
+      // Closed or folded while the mic was starting.
+      if (!mounted.current || !shown.current) return void l.cancel(), "";
       setListening(l);
       listenRef.current = l;
       fx("start");
@@ -338,6 +369,7 @@ export function CommandBar({ store, request, onClose, agent }: { store: JournalS
         void finishTalk(l);
       }
     } catch (e) {
+      if ((e as { name?: string })?.name === "AbortError") return "";
       setNote(e instanceof Error ? e.message : String(e));
     }
     return "";

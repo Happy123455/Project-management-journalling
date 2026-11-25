@@ -1,7 +1,9 @@
 import type { JSONContent } from "@tiptap/react";
 import type { DayPage, JournalStore } from "../store";
 import { addDays, dayKey } from "../lib/timestamp";
-import { alreadyHave, FINANCE_BOX, IGNORED, parseMessage, txnLine, txnsIn, type Txn } from "../lib/finance";
+import { alreadyHave, categorize, FINANCE_BOX, IGNORED, lastPaidTo, orderPaid, parseMessage, parseOrder, rupees, txnLine, txnsIn, type OrderSeen, type Txn } from "../lib/finance";
+import { formatTimestamp } from "../lib/timestamp";
+import { showToast } from "../lib/toast";
 import { withLogLine } from "../lib/routine";
 import { insertLogLinePM, openDayEditor } from "../editor/noteEdit";
 import { changeDay, currentDoc } from "../routine/routineData";
@@ -112,6 +114,7 @@ export function importMoney(store: JournalStore, since?: number): Promise<number
   running = (async () => {
     const s = moneySettings();
     const found: Txn[] = [];
+    const orders: OrderSeen[] = [];
     let smsUpTo = s.lastSms;
     if (s.sms && smsReady()) {
       const from = since ?? (s.lastSms || Date.now() - 2 * 86_400_000);
@@ -120,6 +123,10 @@ export function importMoney(store: JournalStore, since?: number): Promise<number
         for (const m of msgs) {
           const t = parseMessage(m.body, m.at, m.sender, "sms");
           if (t) found.push(t);
+          else {
+            const o = parseOrder(m.body, m.at, m.sender);
+            if (o) orders.push(o);
+          }
           smsUpTo = Math.max(smsUpTo, m.at);
         }
         if (!msgs.length) smsUpTo = Math.max(smsUpTo, from);
@@ -130,6 +137,10 @@ export function importMoney(store: JournalStore, since?: number): Promise<number
       for (const n of readNotifications()) {
         const t = parseMessage(`${n.title}. ${n.text}`, n.at, n.app, "notification");
         if (t) found.push(t);
+        else {
+          const o = parseOrder(`${n.title}. ${n.text}`, n.at, n.app);
+          if (o) orders.push(o);
+        }
         noteUpTo = Math.max(noteUpTo, n.at);
       }
     }
@@ -168,9 +179,96 @@ export function importMoney(store: JournalStore, since?: number): Promise<number
       // Taken again next time; duplicates are skipped.
     }
     if (added) window.dispatchEvent(new CustomEvent(FINANCE_EVENT, { detail: { added } }));
+    if (orders.length) void noteOrders(store, orders);
     return added;
   })().finally(() => (running = null));
   return running;
+}
+
+// ───── Orders with no payment seen (25 Nov, Hapi: a ₹689.85 La Pinoz order never showed) ─────
+// The bank sent no SMS for it (UPI Lite and some wallets send none) and payment notifications
+// weren't allowed, but La Pinoz's own "Order received" SMS and app notifications were there. An
+// order with no payment near it is kept here and offered with one tap ("₹689.85 like last time").
+
+const ORDERS = "journal.money.orders";
+export interface PendingOrder extends OrderSeen {
+  /** The amount paid there last time (the one-tap guess). */
+  guess?: number | null;
+}
+
+export function pendingOrders(): PendingOrder[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(ORDERS) ?? "[]");
+    return Array.isArray(list) ? list.filter((o) => Date.now() - o.at < 4 * 86_400_000) : [];
+  } catch {
+    return [];
+  }
+}
+function keepOrders(list: PendingOrder[]) {
+  try {
+    localStorage.setItem(ORDERS, JSON.stringify(list.slice(-20)));
+  } catch {
+    // This session only.
+  }
+  window.dispatchEvent(new Event(FINANCE_EVENT));
+}
+/** Orders already dealt with (paid, cash, not mine), so they never come back. */
+const SETTLED = "journal.money.orders-done";
+const settled = (): string[] => {
+  try {
+    return JSON.parse(localStorage.getItem(SETTLED) ?? "[]");
+  } catch {
+    return [];
+  }
+};
+
+async function noteOrders(store: JournalStore, seen: OrderSeen[]) {
+  const done = new Set(settled());
+  const list = pendingOrders();
+  let fresh: PendingOrder | null = null;
+  for (const o of seen) {
+    if (done.has(o.orderId) || list.some((x) => x.orderId === o.orderId)) continue;
+    list.push(o);
+  }
+  if (!list.length) return keepOrders([]);
+  // Paid already (the SMS came, or it was typed): no longer pending.
+  const txns = await loadTxns(store).catch(() => [] as Txn[]);
+  const open = list.filter((o) => !orderPaid(o, txns)).map((o) => ({ ...o, guess: lastPaidTo(o.merchant, txns.filter((t) => t.at < o.at - 60 * 60_000)) }));
+  const before = new Set(pendingOrders().map((o) => o.orderId));
+  fresh = open.find((o) => !before.has(o.orderId)) ?? null;
+  keepOrders(open);
+  if (fresh) {
+    const o = fresh;
+    showToast(
+      `🧾 ${o.merchant} order #${o.orderId}: no payment came in.${o.guess ? ` ${rupees(o.guess)} like last time?` : ""}`,
+      "info",
+      o.guess ? { label: `Add ${rupees(o.guess)}`, run: () => void settleOrder(store, o, o.guess!) } : { label: "Money", run: () => window.dispatchEvent(new CustomEvent("journal:open-money")) },
+      { background: true },
+    );
+  }
+}
+
+/** An order dealt with: paid (the line goes in that day's Finance box), cash, or not a purchase. */
+export async function settleOrder(store: JournalStore, o: PendingOrder, paid: number | "skip"): Promise<boolean> {
+  const done = [...settled(), o.orderId].slice(-60);
+  try {
+    localStorage.setItem(SETTLED, JSON.stringify(done));
+  } catch {
+    // This session only.
+  }
+  keepOrders(pendingOrders().filter((x) => x.orderId !== o.orderId));
+  if (paid === "skip") return true;
+  const line = `${formatTimestamp(new Date(o.at))} 💸 ${rupees(paid)} to ${o.merchant} #${categorize(o.merchant, "debit", /pinoz|domino|zomato|swiggy|pizza|kfc|faasos|mcdonald/i.test(o.merchant) ? "food" : "")} (order ${o.orderId})`;
+  const day = dayKey(new Date(o.at));
+  const ok = await changeDay(
+    store,
+    day,
+    (e) => (insertLogLinePM(e, line, FINANCE_BOX), true),
+    (doc) => withLogLine(doc, line, FINANCE_BOX),
+    ACTOR,
+  );
+  if (ok) window.dispatchEvent(new CustomEvent(FINANCE_EVENT, { detail: { added: 1 } }));
+  return ok;
 }
 
 let last = 0;

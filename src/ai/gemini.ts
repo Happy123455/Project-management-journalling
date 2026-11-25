@@ -24,7 +24,22 @@ export const TIER_MODELS: Record<Tier, string[]> = {
   flash: ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.6-flash"],
   lite: ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite"],
 };
-export const tierOf = (model: string): Tier => (/-pro\b|pro-/.test(model) ? "pro" : /lite/.test(model) ? "lite" : "flash");
+export const tierOf = (model: string): Tier => (/-pro\b|pro-|-argon\b/.test(model) ? "pro" : /lite/.test(model) ? "lite" : "flash");
+
+/**
+ * 25 Nov, Hapi: use the deep-thinking model for decisions, the rhetoric firewall and the
+ * consequence engine, with short answers. Google's flagship (ai.google.dev models page, 25 Nov
+ * 2026) first, then the usual Pro; a key without it falls back along the chain (404 → next).
+ * Override: localStorage journal.deepModel.
+ */
+export const DEEP_MODELS = ["gemini-4-argon", "gemini-3.1-pro-preview"];
+export function deepModel(): string {
+  try {
+    return localStorage.getItem("journal.deepModel") || DEEP_MODELS[0];
+  } catch {
+    return DEEP_MODELS[0];
+  }
+}
 
 export const DEFAULT_ORDER: Tier[] = ["pro", "flash", "lite"];
 export const DEFAULT_WAIT_S = 45;

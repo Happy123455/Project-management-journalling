@@ -1,3 +1,4 @@
+import { micAudio, openMic, releaseMics } from "../ai/mic";
 import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { formatDuration, pickAudioType } from "../lib/capture";
@@ -33,8 +34,11 @@ export function VoiceRecorder() {
     let meter: AudioContext | null = null;
     keep.current = true;
     setSeconds(0);
+    let alive = true;
     (async () => {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // A voice note may go on with the screen off; closing the recorder always lets go.
+      const mic = await openMic({ owner: "voicenote", background: true, alive: () => alive }, micAudio());
+      stream = mic.stream;
       const type = pickAudioType((t) => MediaRecorder.isTypeSupported(t));
       const rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
       const chunks: Blob[] = [];
@@ -66,10 +70,13 @@ export function VoiceRecorder() {
       };
       tick();
     })().catch((e) => {
+      if ((e as { name?: string })?.name === "AbortError") return;
       showError("The microphone couldn't start", e);
       setOpen(null);
     });
     return () => {
+      alive = false;
+      releaseMics("voicenote", "recorder closed");
       window.clearInterval(timer);
       cancelAnimationFrame(frame);
       // The level meter's audio graph is closed too: left open it kept the phone's audio output awake.

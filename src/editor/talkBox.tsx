@@ -139,8 +139,9 @@ function TalkView({ node, updateAttributes, editor }: NodeViewProps) {
           change(next);
         },
         (n) => setNote(n),
-        { onLevel: (v) => (level.current = v) },
+        { onLevel: (v) => (level.current = v), mic: { owner: "talkbox", alive: () => mountedRef.current } },
       );
+      if (!mountedRef.current) return void l.cancel();
       setListening(l);
       fx("start");
     } catch (e) {
@@ -150,7 +151,14 @@ function TalkView({ node, updateAttributes, editor }: NodeViewProps) {
   const level = useRef(0);
   const listenRef = useRef(listening);
   listenRef.current = listening;
-  useEffect(() => () => listenRef.current?.cancel(), []);
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+      listenRef.current?.cancel();
+    },
+    [],
+  );
 
   const open = graph.nodes.filter((n) => n.state === "open" && n.kind !== "topic" && (n.kind === "task" || n.kind === "question"));
 

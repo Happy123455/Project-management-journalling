@@ -448,7 +448,7 @@ async function deep(store: JournalStore, title: string, provider: Provider, page
     actor = actorFor("local", r.model);
   } else {
     set(title, { phase: "thinking", step: `Reading ${entries.length} entries with ${provider === "gemini" ? "Gemini" : "Claude"} (up to a few minutes)…`, provider });
-    const a = await askJson(deps, { task: "organise", provider, system: ENGINE_SYSTEM, text: ask, schema: ANALYSIS_SCHEMA, maxTokens: 12_000, timeoutMs: 240_000 }, ANALYSIS_SHAPE);
+    const a = await askJson(deps, { task: "organise", provider, deep: true, system: ENGINE_SYSTEM, text: ask, schema: ANALYSIS_SCHEMA, maxTokens: 12_000, timeoutMs: 300_000 }, ANALYSIS_SHAPE);
     raw = a.json;
     model = a.model;
     actor = a.actor;
