@@ -4771,3 +4771,15 @@ html.agent-dragging .ac-arrow:not(.away) { transition: none; }
 .agent-cloud .agent-cloud-wave { display: block; width: 100%; height: 92px; }
 .agent-cloud small { display: block; font-size: 11px; color: var(--muted); }
 @keyframes agent-cloud-in { from { opacity: 0; transform: scale(0.2) translateX(-10px); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+
+/* 25 Nov: the agent says what it heard, what it's doing (with seconds) and what it did, ↩ to put it back. */
+.agent-caption i { display: block; margin-bottom: 2px; }
+.agent-caption.busy .agent-ear { opacity: 0.92; font-size: 12px; }
+.agent-caption.busy .agent-ear::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #f0abfc; vertical-align: 1px; animation: agent-blink 0.9s ease-in-out infinite alternate; }
+.agent-caption .agent-secs { font-weight: 600; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.agent-caption .agent-said { display: flex; align-items: center; gap: 8px; }
+.agent-caption.bad .agent-said { color: #fecaca; }
+.agent-caption .agent-undo { pointer-events: auto; flex: none; width: 28px; height: 28px; margin: -3px -6px -3px 0; border: 0; border-radius: 50%; color: #fff; font-size: 15px; background: rgba(255, 255, 255, 0.16); transition: transform 0.15s var(--spring), background 0.15s; }
+.agent-caption .agent-undo:active { transform: scale(0.86); background: rgba(255, 255, 255, 0.3); }
+@keyframes agent-blink { from { opacity: 0.35; transform: scale(0.8); } to { opacity: 1; transform: scale(1.1); } }
+@media (prefers-reduced-motion: reduce) { .agent-caption.busy .agent-ear::before { animation: none; } }

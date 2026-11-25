@@ -192,26 +192,78 @@ export async function askFast(text: string, ctx: LiveCtx, signal?: AbortSignal):
   return { plan: parsePlan(out), model: r.model };
 }
 
+/** Cuts at commas that aren't inside brackets or quotes. */
+function commaCut(t: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let quote = "";
+  let cur = "";
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (quote) {
+      if (ch === quote && t[i - 1] !== "\\") quote = "";
+      cur += ch;
+      continue;
+    }
+    // A quote opens only at the start of a cell (an apostrophe in "Today's" doesn't).
+    if ((ch === '"' || ch === "'") && !cur.trim()) quote = ch;
+    else if ("([{".includes(ch)) depth++;
+    else if (")]}".includes(ch)) depth = Math.max(0, depth - 1);
+    if (ch === "," && depth === 0) {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out.map(unquote);
+}
+
+const unquote = (c: string) => c.trim().replace(/^(['"])([\s\S]*)\1$/, "$2").trim();
+
+/** A row written as an array in text: '["Diet","Grass"]', "['Diet', 'Grass']" or "[Diet, Grass]". */
+function arrayText(s: string): string[] | null {
+  const t = s.trim();
+  if (!/^\[[\s\S]*\]$/.test(t)) return null;
+  try {
+    const j = JSON.parse(t);
+    if (Array.isArray(j)) return j.map((x) => String(x ?? "").trim());
+  } catch {
+    // Not JSON: single quotes or none.
+  }
+  const cells = commaCut(t.slice(1, -1));
+  return cells.length ? cells : null;
+}
+
 /** Splits a row written as one line ("Dogs, loyal, 4 legs" or "| Dogs | loyal |") into cells. */
 function splitLine(line: string, want: number): string[] {
   const t = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  const arr = arrayText(t);
+  if (arr) return arr;
   const by = (sep: RegExp) => t.split(sep).map((c) => c.trim());
   if (t.includes("|")) return by(/\s*\|\s*/);
   if (t.includes("\t")) return by(/\t/);
-  // Commas inside a cell ("loyal, playful") are kept when cutting at every comma gives too many.
-  const commas = by(/,/);
-  if (want > 1 && commas.length > want) return [...commas.slice(0, want - 1), commas.slice(want - 1).join(", ")];
-  return commas;
+  let cells = commaCut(t);
+  // Too many: first put numbers like "10,000" back together…
+  for (let i = 0; want > 1 && cells.length > want && i < cells.length - 1; ) {
+    if (/\d$/.test(cells[i]) && /^\d{3}(?!\d)/.test(cells[i + 1])) cells = [...cells.slice(0, i), `${cells[i]},${cells[i + 1]}`, ...cells.slice(i + 2)];
+    else i++;
+  }
+  // …then commas inside the last cell ("loyal, playful") stay in it.
+  if (want > 1 && cells.length > want) cells = [...cells.slice(0, want - 1), cells.slice(want - 1).join(", ")];
+  return cells;
 }
 
 /**
  * Rows as cells, one per header. 25 Nov: a model sent each row as one comma line ("Dogs,Living
- * species,Loyalty") and the whole row landed in one cell; rows can also come as a flat list of
- * strings, or as {header: value} objects.
+ * species,Loyalty") and the whole row landed in one cell; rows also come as text arrays
+ * ("['Diet', 'Grass']"), as a flat list of strings, or as {header: value} objects.
  */
 export function normalizeRows(headers: string[], rows: unknown): string[][] {
   const want = Math.max(1, headers.length);
-  const list = Array.isArray(rows) ? rows : typeof rows === "string" ? rows.split(/\n+/) : [];
+  let list: unknown[] = Array.isArray(rows) ? rows : typeof rows === "string" ? (arrayText(rows) && /^\s*\[\s*\[/.test(rows) ? (JSON.parse(rows) as unknown[]) : rows.split(/\n+/)) : [];
+  if (!Array.isArray(list)) list = [];
   const cell = (v: unknown) => String(v ?? "").replace(/\*\*/g, "").trim();
   const out: string[][] = [];
   for (const r of list) {
@@ -219,6 +271,8 @@ export function normalizeRows(headers: string[], rows: unknown): string[][] {
     if (Array.isArray(r)) cells = r.map(cell);
     else if (r && typeof r === "object") cells = headers.length ? headers.map((h) => cell((r as Record<string, unknown>)[h])) : Object.values(r).map(cell);
     else cells = [cell(r)];
+    // A whole row as an array in text.
+    if (cells.length === 1 && arrayText(cells[0])) cells = arrayText(cells[0])!;
     // One long cell where several were wanted: it's a whole row in one line.
     if (want > 1 && cells.filter(Boolean).length === 1 && /[,|\t]/.test(cells.find(Boolean) ?? "")) cells = splitLine(cells.find(Boolean)!, want);
     // Several rows run together in one array ("Dogs,…", "Cats,…" each a row in one row).
@@ -226,7 +280,7 @@ export function normalizeRows(headers: string[], rows: unknown): string[][] {
       for (const c of cells) out.push(splitLine(c, want));
       continue;
     }
-    if (cells.some(Boolean)) out.push(cells);
+    if (cells.some(Boolean)) out.push(cells.map(unquote));
   }
   return out;
 }

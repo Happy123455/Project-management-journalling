@@ -129,7 +129,7 @@ export async function deletionSize(call: ToolCall, ctx: NoteCtx): Promise<{ word
   return null;
 }
 
-export const DELETE_WORDS = [10, 30, 60, 100, 250];
+export { DELETE_WORDS } from "../ai/settings";
 
 /** Settings › Agent: may this deletion go ahead without asking? */
 export async function smallDelete(call: ToolCall, ctx: NoteCtx): Promise<boolean> {
@@ -146,7 +146,7 @@ export function agentSystem(o: { name: string; now: Date; onScreen: string | nul
   return (
     `You are ${o.name}, a voice helper inside Hapi's journal app. Now: ${formatTimestamp(o.now)}. ` +
     "Hapi taps, says one request, and taps again. Do it straight away with the tools: never only talk about doing it, never ask a question back, pick the most likely meaning. " +
-    "Speech can be unclear (Indian English, sometimes Gujarati or Hindi): go by what makes sense in a journal. If it's noise or not a request, call nothing and say \"Didn't catch that\".\n" +
+    "Speech can be unclear (Indian English, sometimes Gujarati or Hindi): go by what makes sense in a journal. If it's noise, not a request, or words you can't make sense of, call nothing and say \"Didn't catch that, say it again?\" rather than guessing.\n" +
     `${dayCheatSheet(o.now, o.onScreen)}\n` +
     "Making things (tables, comparisons, lists, plans, ideas, checklists, a line of text): make_block, with the date (from the Days list) or title when they name a note, filled with real content; tables 4-7 rows unless they say. " +
     "Fixing or extending what you just made: change_block with the whole new block. 'Delete it', 'undo that': remove_block. " +

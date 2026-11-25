@@ -101,7 +101,13 @@ describe.skipIf(!KEY || !AUDIO)("floating agent with the real Gemini", () => {
           await wait(100);
         }
         const t0 = Date.now();
-        const r = await agent.finish(samples);
+        let r: Awaited<ReturnType<typeof agent.finish>>;
+        try {
+          r = await agent.finish(samples);
+        } catch (e) {
+          log({ voice, step: a, error: String(e) });
+          continue;
+        }
         const ms = Date.now() - t0;
         const days: Record<string, string> = {};
         for (const d of await store.listDays()) {
@@ -126,7 +132,7 @@ describe.skipIf(!KEY || !AUDIO)("floating agent with the real Gemini", () => {
           const store2 = new MemoryStore();
           const textAgent = new FloatingAgent({ store: store2, actor: "Assistant", name: "Agent 1", engine: "text", events: { confirm: async () => true } });
           const t1 = Date.now();
-          const r = await textAgent.text(words || "Make a table comparing cows and dogs in two days' note");
+          const r = await textAgent.text(words || "Make a table comparing cows and dogs in two days' note").catch((e) => ({ say: String(e), did: [] as string[] }));
           const d2 = await store2.getDay(addDays(today, 2));
           log({ voice, step: "text path a1", ms: Date.now() - t1, say: r.say, did: r.did, inTwoDays: !!d2?.content?.content?.some((n) => n.type === "sheetBlock") });
         }

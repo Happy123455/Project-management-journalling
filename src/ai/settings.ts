@@ -118,3 +118,6 @@ export function recordUsage(model: string, inputTokens: number, outputTokens: nu
   }
   window.dispatchEvent(new Event("journal:ai-usage"));
 }
+
+/** Settings › Agent: the word limits offered for "delete small things without asking". */
+export const DELETE_WORDS = [10, 30, 60, 100, 250];

@@ -89,6 +89,15 @@ describe("the floating agent", () => {
     ]);
     expect(normalizeRows(["A", "B"], ["x | y", "p, q"])).toEqual([["x", "y"], ["p", "q"]]);
     expect(normalizeRows(["Trait", "Cow"], [{ Trait: "Legs", Cow: "4" }])).toEqual([["Legs", "4"]]);
+    // The probe on the Mac, 25 Nov: rows as arrays written in text, numbers with thousands commas.
+    expect(normalizeRows(["Trait", "Cow", "Dog"], ["[Lifespan, 15-20 years, 10-13 years]", "['Diet', 'Herbivore (grass, hay)', 'Omnivore']"])).toEqual([
+      ["Lifespan", "15-20 years", "10-13 years"],
+      ["Diet", "Herbivore (grass, hay)", "Omnivore"],
+    ]);
+    expect(normalizeRows(["Trait", "Cow", "Dog"], [['["Domesticated", "~10,000 years ago", "~15,000-30,000 years ago"]']])).toEqual([["Domesticated", "~10,000 years ago", "~15,000-30,000 years ago"]]);
+    expect(normalizeRows(["Trait", "Cow", "Dog"], ["Domesticated, ~10,000 years ago, ~15,000 years ago"])).toEqual([["Domesticated", "~10,000 years ago", "~15,000 years ago"]]);
+    expect(normalizeRows(["A", "B", "C"], ["Legs,4,4"])).toEqual([["Legs", "4", "4"]]);
+    expect(normalizeRows(["A", "B"], '[["x","y"],["p","q"]]')).toEqual([["x", "y"], ["p", "q"]]);
     const b = blockFor({ action: "make", kind: "table", headers: ["Trait, Cow, Dog"], rows: [["Legs, 4, 4"]] })!;
     expect(b.headers).toEqual(["Trait", "Cow", "Dog"]);
     expect(b.rows).toEqual([["Legs", "4", "4"]]);

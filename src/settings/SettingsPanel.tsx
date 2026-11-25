@@ -7,6 +7,7 @@ import { localModels, testKey } from "../ai/client";
 import { DEFAULT_MODELS, PROVIDERS, type Provider } from "../ai/providers";
 import { getKey, removeKey, setKey } from "../ai/secrets";
 import { loadAiSettings, modelFor, monthUsage, saveAiSettings, type AiSettings } from "../ai/settings";
+import { DELETE_WORDS } from "../ai/settings";
 import { dayTitle } from "../lib/timestamp";
 import { KOKORO_EN_VOICES, MODEL_NAMES, onVoiceProgress, readAloud, setVoiceEngine, voiceAction, voiceEngine, voiceInfo, type VoiceInfo, type VoiceProgress } from "../lib/readAloud";
 import { downloadParadee, PARADEE_SIZE_MB, paradeeInstalled, removeParadee } from "../lib/paradee";
@@ -618,7 +619,84 @@ function BubbleSettings() {
   );
 }
 
-type SettingsPage = "general" | "editor" | "ai" | "voice" | "usage" | "mcp";
+/**
+ * 🫧 The floating agent (drag Home up into the top third). 25 Nov, Hapi: "it is asking me whenever
+ * it has to delete anything… there should be an option in settings where it should allow to delete
+ * small stuff, like a block, or words under some limit".
+ */
+function AgentSettings({ settings: s, update }: { settings: AiSettings; update: (p: Partial<AiSettings>) => void }) {
+  const [swarm, setSwarm] = useState(() => {
+    try {
+      return localStorage.getItem("journal.swarm") !== "off";
+    } catch {
+      return true;
+    }
+  });
+  const free = s.agentFreeDelete !== false;
+  const toggle = (checked: boolean, label: string, hint: string, on: (v: boolean) => void, disabled = false) => (
+    <label className="settings-toggle">
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => on(e.target.checked)} />
+      <span className="settings-toggle-text">
+        {label}
+        <small>{hint}</small>
+      </span>
+    </label>
+  );
+  return (
+    <>
+      <section className="settings-section">
+        <h2>Deleting</h2>
+        {toggle(free, "Delete small things without asking", "Bigger deletions still ask once. Anything it changes can be put back with ↩ by the bubble, or in Usage and AI changes.", (v) => update({ agentFreeDelete: v }))}
+        <label className="settings-row">
+          <span>Small means up to</span>
+          <select value={s.agentDeleteWords ?? 30} disabled={!free} onChange={(e) => update({ agentDeleteWords: Number(e.target.value) })} aria-label="Words it may delete without asking">
+            {DELETE_WORDS.map((n) => (
+              <option key={n} value={n}>
+                {n} words
+              </option>
+            ))}
+          </select>
+        </label>
+        {toggle(s.agentDeleteBlock !== false, "One whole block counts as small", "A line, a paragraph, a list or a table, whatever its length, as long as it's only one", (v) => update({ agentDeleteBlock: v }), !free)}
+      </section>
+      <section className="settings-section">
+        <h2>Listening</h2>
+        <div className="project-status" role="radiogroup" aria-label="How the agent listens">
+          {(
+            [
+              ["live", "Gemini Live (fastest)"],
+              ["whisper", "Write it down first"],
+            ] as const
+          ).map(([id, name]) => (
+            <button key={id} type="button" role="radio" aria-checked={(s.agentEngine ?? "live") === id} className={(s.agentEngine ?? "live") === id ? "active status-active" : ""} onClick={() => update({ agentEngine: id })}>
+              {name}
+            </button>
+          ))}
+        </div>
+        <p className="hint">
+          Gemini Live hears your voice itself while you talk and acts as soon as you tap again. "Write it down first" turns your words into text, then acts (slower; used anyway when Live can't be reached).
+        </p>
+        {toggle(s.agentSpeak === true, "Say what it did out loud", "A few words in Gemini's voice after each request", (v) => update({ agentSpeak: v }))}
+        {toggle(
+          swarm,
+          "Show the agents building",
+          "The little cursors that build a block before it appears. Off = edits appear at once.",
+          (v) => {
+            setSwarm(v);
+            try {
+              if (v) localStorage.removeItem("journal.swarm");
+              else localStorage.setItem("journal.swarm", "off");
+            } catch {
+              // Not kept.
+            }
+          },
+        )}
+      </section>
+    </>
+  );
+}
+
+type SettingsPage = "general" | "editor" | "ai" | "agent" | "voice" | "usage" | "mcp";
 
 function useNarrow() {
   const [narrow, setNarrow] = useState(() => !!window.matchMedia?.("(max-width: 760px)").matches);
@@ -657,6 +735,7 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
     { id: "general", icon: "✦", name: "Appearance", hint: "Theme, light, weather, sounds, gestures" },
     { id: "editor", icon: "✎", name: "Editor", hint: "Code blocks, quick log, bubble" },
     { id: "ai", icon: "✨", name: "AI", hint: "Provider, models, grammar" },
+    { id: "agent", icon: "🫧", name: "Agent", hint: "The floating AI bubble: listening, deleting without asking" },
     { id: "voice", icon: "🔊", name: "Read aloud", hint: "Voice and speed" },
     { id: "usage", icon: "📊", name: "Usage and AI changes", hint: "This month, undo AI edits" },
     ...(mcpAvailable() ? [{ id: "mcp" as const, icon: "⌁", name: "Claude Desktop", hint: "MCP server" }] : []),
@@ -738,6 +817,7 @@ export function SettingsPanel({ store, onClose }: { store: JournalStore | null; 
           </section>
 
       )}
+      {page === "agent" && <AgentSettings settings={s} update={update} />}
       {page === "voice" && (
         <section className="settings-section">
           <h2>Read aloud</h2>

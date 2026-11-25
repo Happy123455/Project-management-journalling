@@ -24,7 +24,7 @@ import { runAssistantTool, type RunCtx } from "./tools";
 /** Live models, best first (Hapi's key lists both, 25 Nov). Override: localStorage journal.agentLiveModel. */
 export const AGENT_LIVE_MODELS = ["gemini-3.8-live", "gemini-3.1-flash-live-preview"];
 /** The text fallback: quickest first. */
-export const AGENT_TEXT_MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-flash-lite-latest"];
+export const AGENT_TEXT_MODELS = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-3.6-flash"];
 
 export interface AgentTurn {
   /** What it heard. */
@@ -78,13 +78,6 @@ function storageGet(k: string): string | null {
     return localStorage.getItem(k);
   } catch {
     return null;
-  }
-}
-function storageSet(k: string, v: string) {
-  try {
-    localStorage.setItem(k, v);
-  } catch {
-    // Not kept.
   }
 }
 
@@ -142,7 +135,7 @@ export function summaryOf(calls: { name: string; args: Record<string, unknown>; 
 }
 
 type Call = { name: string; args: Record<string, unknown>; out: string; bad: boolean };
-type Pending = { chunks: Float32Array[]; began: boolean; ended: boolean; cancelled?: boolean; heard: string; said: string; calls: Call[]; activity: number; done?: (ok: boolean) => void; ctx?: RunCtx };
+type Pending = { chunks: Float32Array[]; began: boolean; on?: LiveSession; sentAll?: boolean; ended: boolean; cancelled?: boolean; heard: string; said: string; calls: Call[]; activity: number; done?: (ok: boolean) => void; ctx?: RunCtx };
 
 export class FloatingAgent {
   readonly mem: AgentMemory = { last: null };
@@ -184,11 +177,10 @@ export class FloatingAgent {
     const speak = this.speak();
     const forced = storageGet("journal.agentLiveModel");
     const models = forced ? [forced] : AGENT_LIVE_MODELS;
-    // Written answers when it doesn't speak (quicker), if the model takes them; else spoken, muted.
-    const textOk = storageGet("journal.agentLiveText");
-    const modalities: ("TEXT" | "AUDIO")[] = speak ? ["AUDIO"] : textOk === "0" ? ["AUDIO"] : ["TEXT", "AUDIO"];
+    // Live models answer in voice only (25 Nov, the Mac probe: "TEXT is not supported"); when the
+    // agent isn't speaking, the voice simply isn't played and its words come as a transcript.
     for (const model of models)
-      for (const modality of modalities) {
+      for (const modality of ["AUDIO"] as const) {
         if (this.closed) return null;
         try {
           const s: LiveSession = await openLiveWith(
@@ -230,7 +222,6 @@ export class FloatingAgent {
               onUsage: (m, i, out) => recordUsage(m, i, out),
             },
           );
-          if (modality === "TEXT") storageSet("journal.agentLiveText", "1");
           this.live = s;
           this.liveTrouble = "";
           this.touch();
@@ -238,8 +229,6 @@ export class FloatingAgent {
         } catch (e) {
           const why = e instanceof Error ? e.message : String(e);
           console.info(`[agent] Live ${model} ${modality} didn't open: ${why}`);
-          // The model doesn't do written answers: spoken (muted) from now on.
-          if (modality === "TEXT" && /modalit|TEXT|response/i.test(why)) storageSet("journal.agentLiveText", "0");
           this.liveTrouble = why;
           if (/key/i.test(why)) return null;
         }
@@ -259,14 +248,19 @@ export class FloatingAgent {
   }
 
   /** Starts `t` on the line: what time it is and what's on screen, then the sound so far. */
-  private beginOn(s: LiveSession, t: Pending) {
-    if (t.began || t.cancelled) return;
+  private beginOn(s: LiveSession, t: Pending, all?: Float32Array) {
+    if (t.cancelled || t.on === s) return;
+    // Begun on a line that has since closed: it starts again on this one with all its sound
+    // (25 Nov probe: "Unpaired activity_end" when a turn ended on a newer line than it began on).
+    const again = !!t.on;
     t.began = true;
+    t.on = s;
     this.active = t;
     const screen = this.onScreen();
     s.note(`(Now ${this.now().toTimeString().slice(0, 5)}. On screen: ${screen ? (/^\d{4}-\d{2}-\d{2}$/.test(screen) ? `the day note ${screen}` : `the page "${screen}"`) : "today's note"}. The block you made last: ${this.mem.last ? `a ${this.mem.last.kind} in ${this.mem.last.title ?? this.mem.last.day}` : "none yet"}.)`);
     s.begin();
-    for (const c of t.chunks) s.audio(c);
+    if (again && all) for (let i = 0; i < all.length; i += 16_000) s.audio(all.subarray(i, i + 16_000));
+    else for (const c of t.chunks) s.audio(c);
     t.chunks = [];
   }
 
@@ -287,7 +281,7 @@ export class FloatingAgent {
   audio(chunk: Float32Array) {
     const t = this.rec;
     if (!t || t.ended || t.cancelled) return;
-    if (t.began && this.active === t && this.live?.open()) this.live.audio(chunk);
+    if (t.on && t.on === this.live && this.active === t && this.live.open()) this.live.audio(chunk);
     else if (t.chunks.length < 4000) t.chunks.push(chunk);
   }
 
@@ -330,10 +324,10 @@ export class FloatingAgent {
     this.o.events?.onStage?.("Thinking…");
     try {
       if (this.engine() === "live" && !t.cancelled) {
-        const s = t.began && this.live?.open() ? this.live : await Promise.race([this.warm(), new Promise<null>((r) => setTimeout(() => r(null), 4000))]);
+        const s = t.on && t.on === this.live && this.live.open() ? this.live : await Promise.race([this.warm(), new Promise<null>((r) => setTimeout(() => r(null), 4000))]);
         if (s?.open()) {
-          this.beginOn(s, t);
-          if (this.active === t) {
+          this.beginOn(s, t, samples);
+          if (this.active === t && t.on === s) {
             const r = await this.awaitLive(t, s);
             if (r) return { ...r, ms: Date.now() - t0 };
           }
@@ -440,7 +434,9 @@ export class FloatingAgent {
     const ctx = this.runCtx();
     const calls: Call[] = [];
     this.o.events?.onStage?.("Thinking…");
-    const r = await geminiAgent({
+    let r: Awaited<ReturnType<typeof geminiAgent>>;
+    try {
+      r = await geminiAgent({
       store: this.o.store,
       system: agentSystem({ name: this.o.name, now: this.now(), onScreen: this.onScreen(), last: this.mem.last }),
       messages: [...this.history.slice(-6), { role: "user", content: heard }],
@@ -450,14 +446,22 @@ export class FloatingAgent {
       model: AGENT_TEXT_MODELS[0],
       think: "minimal",
       maxRounds: 6,
-      fastTimeoutMs: 15_000,
-      retryForMs: 20_000,
+      fastTimeoutMs: 12_000,
+      retryForMs: 30_000,
       runTool: async (call) => {
         const out = await this.tool(call.name, call.arguments, ctx);
         calls.push({ name: call.name, args: call.arguments, out: out.out, bad: out.bad });
         return out;
       },
     });
+    } catch (e) {
+      if ((e as { name?: string })?.name === "AbortError") throw e;
+      console.info("[agent] Gemini text failed:", e);
+      // Something may already be done; otherwise a plain word, no Gemini error text.
+      const done = summaryOf(calls, this.now());
+      const busy = /demand|overload|unavailable|503|429|rate|quota/i.test(String(e)) ? "Gemini is busy right now. Tap and say it again in a moment." : /reach|network|fetch/i.test(String(e)) ? "No connection. Tap and say it again." : "Couldn't do that one. Tap and say it again.";
+      return { heard, say: calls.some((c) => !c.bad) ? done : busy, ok: calls.some((c) => !c.bad), did: calls.map((c) => `${c.bad ? "⚠" : "✓"} ${c.name}`), engine: "text" };
+    }
     const say = r.text.split("\n")[0].slice(0, 160) || summaryOf(calls, this.now());
     this.history.push({ role: "user", content: heard }, { role: "assistant", content: say });
     this.history = this.history.slice(-8);
@@ -466,9 +470,23 @@ export class FloatingAgent {
   }
 }
 
-/** The recording in words: Gemini first (it heard Hapi best), Whisper when Gemini can't be reached. */
+/**
+ * The recording in words. The Mac: its own Whisper first (quick, no network). The phone: Gemini
+ * first (the phone's small Whisper misheard Hapi, 25 Nov), its Whisper when Gemini can't be reached.
+ */
 export async function writeDown(samples: Float32Array): Promise<string> {
   if (samples.length < 16_000 * 0.3) return "";
+  const mac = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window && !window.JournalSecrets;
+  if (mac) {
+    try {
+      if ((await pickEngine()) === "whisper") {
+        const t = await transcribe("whisper", samples, "", undefined, "en");
+        if (t) return t;
+      }
+    } catch (e) {
+      console.info("[agent] Whisper couldn't write it down:", e);
+    }
+  }
   try {
     const t = await transcribe("gemini", samples);
     if (t) return t;
@@ -486,4 +504,33 @@ export async function writeDown(samples: Float32Array): Promise<string> {
 /** The arrows that orbit a busy bubble (AgentCursors) for a run of the agent. */
 export function busyArrows(actor: string, key: string, on: boolean) {
   cursorFx(on ? { key: actor, phase: "think", anchor: `.agent-bubble[data-agent-key="${key}"]` } : { key: actor, phase: "done" });
+}
+
+/**
+ * ↩ by the bubble: puts back every note this agent changed since `since` (ISO time), as it was
+ * before. A note changed by hand since is left alone. Returns how many notes went back.
+ */
+export async function undoSince(store: JournalStore, actor: string, since: string): Promise<number> {
+  const { eventDocument } = await import("../sync/merge");
+  const { docText } = await import("../lib/words");
+  const changes = (await store.aiChanges(60)).filter((c) => c.event.actor === actor && c.event.createdAt >= since);
+  const byBlock = new Map<string, typeof changes>();
+  for (const c of changes) byBlock.set(c.event.blockId, [...(byBlock.get(c.event.blockId) ?? []), c]);
+  await window.__journalFlush?.();
+  let n = 0;
+  for (const list of byBlock.values()) {
+    // Only when this agent's edit is still the latest one there.
+    if (!list.some((c) => c.undoable)) continue;
+    const first = list.reduce((a, b) => (a.event.createdAt <= b.event.createdAt ? a : b));
+    const content = first.event.before ? eventDocument(first.event.before) : { type: "doc", content: [{ type: "paragraph" }] };
+    if (first.day) await store.saveDay({ day: first.day, content, plainText: docText(content) });
+    else {
+      const page = first.title ? await store.getPage(first.title) : null;
+      if (!page) continue;
+      await store.savePage({ id: page.id, content, plainText: docText(content) });
+    }
+    n++;
+  }
+  if (n && typeof window !== "undefined") window.dispatchEvent(new Event("journal:reload-page"));
+  return n;
 }
