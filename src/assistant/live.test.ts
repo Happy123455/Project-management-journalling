@@ -7,7 +7,7 @@ describe("live agents", () => {
     const p = parsePlan('<think>x</think>```json\n{"action":"make","headers":["Trait","Cow"],"rows":[["Legs","**4**"]]}\n```');
     expect(p?.action).toBe("make");
     expect(p?.kind).toBe("table");
-    expect(p?.rows?.[0][1]).toBe("4");
+    expect((p?.rows as string[][])[0][1]).toBe("4");
     expect(parsePlan("no json")).toBeNull();
     expect(parsePlan('{"action":"dance"}')).toBeNull();
   });

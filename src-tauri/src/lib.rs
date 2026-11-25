@@ -86,16 +86,80 @@ mod youtube;
 
 #[cfg(desktop)]
 mod secrets {
+    //! AI keys on the Mac. 25 Nov, Hapi: "every time I use AI on my Mac it asks for my password".
+    //! The Keychain ties an item to the exact app build that made it, and every new build is a
+    //! stranger to it, so macOS asked again (and again on each read when "Allow" was picked).
+    //! Keys now live in a private file only Hapi's Mac account can read (folder 0700, file 0600),
+    //! outside the journal's data folder, so never synced or copied with backups. The Keychain is
+    //! read once more to move an existing key over, and then never again.
+    use std::collections::BTreeMap;
+    use std::fs;
+    use std::io::Write;
+    use std::path::PathBuf;
+
     const SERVICE: &str = "com.hapi.dynamicjournal";
 
     fn entry(name: &str) -> Result<keyring::Entry, String> {
         keyring::Entry::new(SERVICE, name).map_err(|e| e.to_string())
     }
 
+    fn file() -> Option<PathBuf> {
+        let home = std::env::var_os("HOME")?;
+        let mut p = PathBuf::from(home);
+        if cfg!(target_os = "macos") {
+            p.push("Library/Application Support");
+            p.push(format!("{SERVICE}.keys"));
+        } else {
+            p.push(".dynamic-journal-keys");
+        }
+        p.push("keys.json");
+        Some(p)
+    }
+
+    fn load() -> BTreeMap<String, String> {
+        file()
+            .and_then(|p| fs::read_to_string(p).ok())
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    fn store(keys: &BTreeMap<String, String>) -> Result<(), String> {
+        let p = file().ok_or("no home folder")?;
+        let dir = p.parent().ok_or("no folder")?;
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
+            let tmp = p.with_extension("tmp");
+            let mut f = fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp).map_err(|e| e.to_string())?;
+            f.write_all(serde_json::to_string(keys).map_err(|e| e.to_string())?.as_bytes()).map_err(|e| e.to_string())?;
+            f.sync_all().map_err(|e| e.to_string())?;
+            fs::rename(&tmp, &p).map_err(|e| e.to_string())?;
+        }
+        #[cfg(not(unix))]
+        {
+            let mut f = fs::File::create(&p).map_err(|e| e.to_string())?;
+            f.write_all(serde_json::to_string(keys).map_err(|e| e.to_string())?.as_bytes()).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
     #[tauri::command]
     pub fn secret_get(name: String) -> Result<Option<String>, String> {
+        let mut keys = load();
+        if let Some(v) = keys.get(&name) {
+            return Ok(Some(v.clone()));
+        }
+        // Not moved over yet: the Keychain one last time.
         match entry(&name)?.get_password() {
-            Ok(value) => Ok(Some(value)),
+            Ok(value) => {
+                keys.insert(name, value.clone());
+                if let Err(e) = store(&keys) {
+                    eprintln!("[secrets] couldn't keep the key in the file: {e}");
+                }
+                Ok(Some(value))
+            }
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(e) => Err(e.to_string()),
         }
@@ -103,11 +167,21 @@ mod secrets {
 
     #[tauri::command]
     pub fn secret_set(name: String, value: String) -> Result<(), String> {
-        entry(&name)?.set_password(&value).map_err(|e| e.to_string())
+        let mut keys = load();
+        if value.is_empty() {
+            keys.remove(&name);
+        } else {
+            keys.insert(name, value);
+        }
+        store(&keys)
     }
 
     #[tauri::command]
     pub fn secret_delete(name: String) -> Result<(), String> {
+        let mut keys = load();
+        keys.remove(&name);
+        store(&keys)?;
+        // The old Keychain copy too, so it can't come back.
         match entry(&name)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(e.to_string()),

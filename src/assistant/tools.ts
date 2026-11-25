@@ -6,14 +6,12 @@ import type { JSONContent } from "@tiptap/core";
 import type { JournalStore } from "../store";
 import { runOneTool, toolsFor, type ToolCall } from "../ai/agent";
 import { AI_OPEN_EVENT } from "../ai/journalTools";
-import { openDayEditor as dayEd, openPageEditor } from "../editor/noteEdit";
 import { appendBlocks } from "../lib/append";
 import { readAloud } from "../lib/readAloud";
 import { showToast } from "../lib/toast";
 import { fx } from "../lib/fx";
 import { haptic } from "../lib/haptic";
 import { addDays, dayKey } from "../lib/timestamp";
-import { docText } from "../lib/words";
 import { emptySheet, setCells } from "../lib/sheet";
 import { deadlineRows } from "../editor/deadlineStore";
 import { loadConfig, writeLog } from "../routine/routineData";
@@ -22,6 +20,8 @@ import { deleteLines, insertUnder, linesToBlocks, nodeAt, taskBlock, tasksIn, ti
 import { cursorFx } from "./AgentCursors";
 import { watchEdit } from "./swarm/watch";
 import { MORE_TOOLS, MORE_WRITES, moreNoteOf, runMoreTool } from "./moreTools";
+import { noteFor, saved } from "./noteSave";
+import { AGENT_BLOCK_WRITES, agentNoteOf, runAgentBlockTool, smallDelete, type AgentMemory } from "./agentTools";
 import type { FoundFormula } from "../lib/mathFind";
 
 export interface RunCtx {
@@ -42,6 +42,8 @@ export interface RunCtx {
   media?: MediaHit[];
   /** Math formulas found by math_find, by their number. */
   formulas?: FoundFormula[];
+  /** A floating agent's memory between requests (the block it made last). */
+  live?: AgentMemory;
   /** Formula cards to show under the answer. */
   cards?: FoundFormula[];
 }
@@ -90,51 +92,6 @@ function noteOf(name: string, a: Record<string, unknown>, now: Date): string {
 
 const isDelete = (name: string, a: Record<string, unknown>) => name === "delete_block" || name === "delete_lines" || (name === "replace_text" && !String(a.replace ?? "").trim());
 
-interface Note {
-  name: string;
-  doc: JSONContent | null;
-  save: (doc: JSONContent) => Promise<unknown>;
-}
-async function noteFor(ctx: RunCtx, a: Record<string, unknown>): Promise<Note | string> {
-  const title = typeof a.title === "string" ? a.title.trim() : "";
-  if (title) {
-    const page = await ctx.store.getPage(title);
-    if (!page) return `No page called "${title}".`;
-    return { name: page.title, doc: page.content, save: (doc) => ctx.store.savePage({ id: page.id, content: doc, plainText: docText(doc), actor: ctx.actor }) };
-  }
-  const day = typeof a.date === "string" && a.date ? (a.date === "today" ? dayKey(ctx.now) : a.date) : dayKey(ctx.now);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return "date must be YYYY-MM-DD";
-  const page = await ctx.store.getDay(day);
-  return { name: day, doc: page?.content ?? null, save: (doc) => ctx.store.saveDay({ day, content: doc, plainText: docText(doc), actor: ctx.actor }) };
-}
-
-/**
- * Hapi, 25 Nov: "if it's editing something, I want to be in that note and see it". A note that isn't
- * on screen is opened first, the way a person would (Home / week / month / year, navShow.ts), so the
- * edit and its swarm play where Hapi can see them.
- */
-async function bringIntoView(name: string) {
-  const isDay = /^\d{4}-\d{2}-\d{2}$/.test(name);
-  // Only in the app itself (tests and the MCP server have no screen to show it on).
-  if (typeof document === "undefined" || !document.querySelector(".nav-island, .month-calendar, .journal-editor")) return;
-  if (isDay ? dayEd(name) : openPageEditor(name)) return;
-  await new Promise<void>((r) => {
-    let over = false;
-    const done = () => !over && ((over = true), window.setTimeout(r, 300));
-    window.dispatchEvent(new CustomEvent(AI_OPEN_EVENT, { detail: { target: name, newTab: false, now: true, show: true, done } }));
-    window.setTimeout(done, 12_000);
-  });
-}
-
-/** Saves a note the assistant changed and shows it as it is now. */
-async function saved(note: Note, doc: JSONContent, said: string) {
-  await bringIntoView(note.name).catch(() => {});
-  await window.__journalFlush?.();
-  await note.save(doc);
-  window.dispatchEvent(new Event("journal:reload-page"));
-  return said;
-}
-
 type Out = { out: string; bad: boolean };
 const ok = (out: string): Out => ({ out, bad: false });
 const bad = (out: string): Out => ({ out, bad: true });
@@ -143,7 +100,7 @@ let timers = 0;
 
 /** One tool call from the assistant. */
 export async function runAssistantTool(call: ToolCall, ctx: RunCtx): Promise<Out> {
-  const write = WRITES.has(call.name) || MORE_WRITES.has(call.name);
+  const write = WRITES.has(call.name) || MORE_WRITES.has(call.name) || AGENT_BLOCK_WRITES.has(call.name);
   if (!write) return runTool(call, ctx);
   const a = call.arguments ?? {};
   const words = [a.text, a.lines, a.title, a.what, a.latex, a.expr].find((v) => typeof v === "string" && v.trim());
@@ -158,10 +115,12 @@ async function runTool(call: ToolCall, ctx: RunCtx): Promise<Out> {
   const { store, now } = ctx;
   const words = [a.text, a.what, a.lines, a.question, a.task, a.title, a.target, a.query].find((v) => typeof v === "string" && v.trim());
   cursorFx({ key: ctx.actor, phase: "act", tool: call.name, text: typeof words === "string" ? words.split("\n")[0] : "" });
-  if (WRITES.has(call.name) || MORE_WRITES.has(call.name)) {
-    const note = moreNoteOf(call.name, a, ctx) ?? noteOf(call.name, a, now);
+  if (WRITES.has(call.name) || MORE_WRITES.has(call.name) || AGENT_BLOCK_WRITES.has(call.name)) {
+    const note = agentNoteOf(call.name, a, ctx.live) ?? moreNoteOf(call.name, a, ctx) ?? noteOf(call.name, a, now);
     const second = !note.startsWith("pocket:") && ctx.touched.size > 0 && !ctx.touched.has(note);
-    const del = isDelete(call.name, a);
+    // 25 Nov, Hapi: "it asks me whenever it has to delete anything". Small deletions (Settings ›
+    // Agent: a few words, or one block) go ahead; Undo is in Settings › AI changes as always.
+    const del = isDelete(call.name, a) && !(await smallDelete(call, ctx));
     // One OK covers the whole job on that note (Hapi, 18 Nov: one deletion asked once per
     // paragraph and per empty line). Removing only empty lines never asks.
     ctx.approved ??= new Set();
@@ -389,6 +348,8 @@ async function runTool(call: ToolCall, ctx: RunCtx): Promise<Out> {
         return ok("Reading it aloud now.");
       }
       default: {
+        const block = await runAgentBlockTool(call, ctx);
+        if (block) return block;
         const more = await runMoreTool(call, ctx);
         if (more) return more;
         const r = await runOneTool(store, call, ctx.actor, null, now);

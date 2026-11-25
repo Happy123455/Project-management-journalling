@@ -1,0 +1,169 @@
+// The floating agent's own tools (25 Nov, Hapi: "make a table comparing cows and dogs in 2 days'
+// note" did nothing). Gemini Live (or the text fallback) calls them directly: make a block in any
+// note, change the block it just made in place ("not cows, horses", "add a row for lifespan"),
+// remove it. Everything else is the assistant's usual tool list (reminders, money, opening notes…).
+//
+// Also here: which deletions are small enough to do without asking (Settings › Agent).
+import type { JournalStore } from "../store";
+import type { ToolCall } from "../ai/agent";
+import { applyBlockOp } from "../ai/blocks";
+import { loadAiSettings } from "../ai/settings";
+import { dayKey, formatTimestamp } from "../lib/timestamp";
+import { countWords, docText } from "../lib/words";
+import { blockFor, blockPrint, liveDay, placeBlock, type LiveBlock, type LivePlan } from "./live";
+import { deleteLines, insertUnder } from "./noteOps";
+import { noteFor, saved, type NoteCtx } from "./noteSave";
+import { dayCheatSheet, shortDay } from "./agentDays";
+
+/** What one bubble remembers between requests: the block it made last. */
+export interface AgentMemory {
+  last: LiveBlock | null;
+}
+
+const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object" as const, properties, required });
+const DATE = { type: "string", description: "YYYY-MM-DD of the day note (see the Days list). Leave out for the note on screen." };
+const TITLE = { type: "string", description: "a page's title instead of a day" };
+const BLOCK = {
+  kind: { type: "string", enum: ["table", "list", "checklist", "text"], description: "table for comparisons and anything with columns" },
+  headers: { type: "array", items: { type: "string" }, description: "table: the column names" },
+  rows: { type: "array", items: { type: "array", items: { type: "string" } }, description: "table: the rows; each row is a list with one short cell per column" },
+  lines: { type: "array", items: { type: "string" }, description: "list / checklist / text: one item per line (text: the sentence)" },
+};
+
+export const AGENT_BLOCK_TOOLS = [
+  {
+    name: "make_block",
+    description:
+      "Make something new in a note: a table (comparisons, anything with columns), a list, a checklist (tasks) or a line of text. It goes at the end of the note on screen unless date or title names another note. Fill it with real, useful content.",
+    parameters: obj({ ...BLOCK, date: DATE, title: TITLE, under: { type: "string", description: "optional: a heading or box line to put it under" } }, ["kind"]),
+  },
+  {
+    name: "change_block",
+    description:
+      "Change the block you made last in this talk, in place, when they correct or extend it ('not cows, horses', 'add a row for lifespan', 'make it shorter', 'add a column'). Give the WHOLE new block (every row), not only the change.",
+    parameters: obj(BLOCK, ["kind"]),
+  },
+  { name: "remove_block", description: "Remove the block you made last in this talk ('delete it', 'undo that', 'never mind').", parameters: obj({}) },
+];
+export const AGENT_BLOCK_WRITES = new Set(AGENT_BLOCK_TOOLS.map((t) => t.name));
+
+type Out = { out: string; bad: boolean };
+const ok = (out: string): Out => ({ out, bad: false });
+const bad = (out: string): Out => ({ out, bad: true });
+
+const target = (b: LiveBlock) => (b.title ? { title: b.title } : { date: b.day });
+const isDay = (name: string) => /^\d{4}-\d{2}-\d{2}$/.test(name);
+
+/** The note a block tool writes to, for the assistant's "second note" check. */
+export function agentNoteOf(name: string, a: Record<string, unknown>, mem?: AgentMemory): string | null {
+  if (!AGENT_BLOCK_WRITES.has(name)) return null;
+  if (name !== "make_block") {
+    const last = mem?.last;
+    return last ? (last.title ? `page:${last.title.toLowerCase()}` : `day:${last.day}`) : "day:?";
+  }
+  if (typeof a.title === "string" && a.title.trim()) return `page:${a.title.trim().toLowerCase()}`;
+  return `day:${typeof a.date === "string" && a.date ? a.date : liveDay()}`;
+}
+
+/** Where it went, said short: "Fri 27 Nov", "today", "“Plans”". */
+export const whereSaid = (name: string, now = new Date()) => (isDay(name) ? shortDay(name, dayKey(now)) : `“${name}”`);
+
+/** make_block / change_block / remove_block; null for any other tool. */
+export async function runAgentBlockTool(call: ToolCall, ctx: NoteCtx & { live?: AgentMemory }): Promise<Out | null> {
+  if (!AGENT_BLOCK_WRITES.has(call.name)) return null;
+  const a = call.arguments ?? {};
+  const mem = (ctx.live ??= { last: null });
+  if (call.name === "remove_block") {
+    const last = mem.last;
+    if (!last) return bad("You haven't made a block in this talk. To delete other text: read_blocks, then delete_block (or delete_lines).");
+    const note = await noteFor(ctx, target(last));
+    if (typeof note === "string") return bad(note);
+    const { doc, replaced } = placeBlock(note.doc, null, last.json);
+    if (!replaced) return bad("That block was changed by hand since; left it. Use read_blocks and delete_block if they still want it gone.");
+    mem.last = null;
+    return ok(await saved(note, doc, `Removed it from ${note.name}.`));
+  }
+  const plan: LivePlan = { action: "make", kind: a.kind as LivePlan["kind"], headers: a.headers as string[], rows: a.rows, lines: a.lines as string[] };
+  const b = blockFor(plan);
+  if (!b) return bad(plan.kind === "table" ? "A table needs headers and rows (each row a list of cells)." : "Give the lines to write.");
+  if (call.name === "change_block") {
+    const last = mem.last;
+    if (!last) return bad("Nothing made yet in this talk: use make_block (or read_blocks + replace_block for existing text).");
+    const note = await noteFor(ctx, target(last));
+    if (typeof note === "string") return bad(note);
+    const { doc, replaced } = placeBlock(note.doc, b.node, last.json);
+    if (!replaced) return bad("That block was changed by hand since; use make_block for a new one.");
+    mem.last = { ...last, kind: b.kind, json: blockPrint(b.node), shown: b.shown, headers: b.headers, rows: b.rows, lines: b.lines };
+    return ok(await saved(note, doc, `Changed the ${b.kind} in ${note.name}. It's now:\n${b.shown}`));
+  }
+  const title = typeof a.title === "string" ? a.title.trim() : "";
+  const date = typeof a.date === "string" && a.date.trim() ? a.date.trim() : liveDay();
+  const note = await noteFor(ctx, title ? { title } : { date });
+  if (typeof note === "string") return bad(note);
+  const under = typeof a.under === "string" ? a.under.trim() : "";
+  const doc = under ? insertUnder(note.doc, under, [b.node]).doc : placeBlock(note.doc, b.node, null).doc;
+  mem.last = { day: isDay(note.name) ? note.name : "", ...(isDay(note.name) ? {} : { title: note.name }), kind: b.kind, json: blockPrint(b.node), shown: b.shown, headers: b.headers, rows: b.rows, lines: b.lines };
+  return ok(await saved(note, doc, `Made a ${b.kind} in ${note.name}${under ? ` under ${under}` : ""}:\n${b.shown}`));
+}
+
+/** How much a deletion would take away: words, and how many blocks. Null when it can't tell. */
+export async function deletionSize(call: ToolCall, ctx: NoteCtx): Promise<{ words: number; blocks: number } | null> {
+  const a = call.arguments ?? {};
+  if (call.name === "replace_text") return { words: countWords(String(a.find ?? "")), blocks: 0 };
+  const note = await noteFor(ctx, a);
+  if (typeof note === "string" || !note.doc) return null;
+  const before = countWords(docText(note.doc));
+  if (call.name === "delete_lines") {
+    const want = (Array.isArray(a.lines) ? a.lines : [a.lines]).map((x) => String(x ?? "").trim().toLowerCase()).filter(Boolean);
+    const r = deleteLines(note.doc, want, a.keep_empty !== true);
+    if (!r.removed) return null;
+    const blocks = (note.doc.content?.length ?? 0) - (r.doc.content?.length ?? 0);
+    const empties = (note.doc.content ?? []).filter((n) => !docText(n).trim()).length - (r.doc.content ?? []).filter((n) => !docText(n).trim()).length;
+    return { words: Math.max(0, before - countWords(docText(r.doc))), blocks: Math.max(1, blocks - Math.max(0, empties)) };
+  }
+  if (call.name === "delete_block") {
+    const r = applyBlockOp(note.doc, { op: "delete", n: Number(a.n) });
+    if (typeof r === "string") return null;
+    return { words: Math.max(0, before - countWords(docText(r.doc))), blocks: 1 };
+  }
+  return null;
+}
+
+export const DELETE_WORDS = [10, 30, 60, 100, 250];
+
+/** Settings › Agent: may this deletion go ahead without asking? */
+export async function smallDelete(call: ToolCall, ctx: NoteCtx): Promise<boolean> {
+  const s = loadAiSettings();
+  if (s.agentFreeDelete === false) return false;
+  const size = await deletionSize(call, ctx).catch(() => null);
+  if (!size) return false;
+  return size.words <= (s.agentDeleteWords ?? 30) || (s.agentDeleteBlock !== false && size.blocks <= 1);
+}
+
+/** What the floating agent is told (Gemini Live and the text fallback alike). */
+export function agentSystem(o: { name: string; now: Date; onScreen: string | null; last: LiveBlock | null; speak?: boolean }): string {
+  const last = o.last ? `\nThe block you made last (in ${o.last.title ? `“${o.last.title}”` : o.last.day}, a ${o.last.kind}):\n${o.last.shown.slice(0, 2500)}\n` : "";
+  return (
+    `You are ${o.name}, a voice helper inside Hapi's journal app. Now: ${formatTimestamp(o.now)}. ` +
+    "Hapi taps, says one request, and taps again. Do it straight away with the tools: never only talk about doing it, never ask a question back, pick the most likely meaning. " +
+    "Speech can be unclear (Indian English, sometimes Gujarati or Hindi): go by what makes sense in a journal. If it's noise or not a request, call nothing and say \"Didn't catch that\".\n" +
+    `${dayCheatSheet(o.now, o.onScreen)}\n` +
+    "Making things (tables, comparisons, lists, plans, ideas, checklists, a line of text): make_block, with the date (from the Days list) or title when they name a note, filled with real content; tables 4-7 rows unless they say. " +
+    "Fixing or extending what you just made: change_block with the whole new block. 'Delete it', 'undo that': remove_block. " +
+    "Other jobs: reminders add_reminder (24-hour HH:MM, with date), deadlines add_deadline, cash from the pocket pocket, open a note open, find things search or day_list, tasks find_tasks / tick_task, maths math_add. " +
+    "Writing their own words into a note (a log line, 'write that…'): append with the date, in their words. To change or delete text that's already there: read_blocks first, then replace_block / delete_block (or delete_lines). " +
+    "Write in the language they speak. Use as few tool calls as you can. " +
+    (o.speak ? "After the tools, say what you did in at most 8 words." : "After the tools, answer in at most 8 words: what you did and where.") +
+    last
+  );
+}
+
+/** The tools the agent offers: its block tools, then the assistant's (add_table is make_block here). */
+export async function agentToolList(): Promise<{ name: string; description: string; parameters: { properties: Record<string, unknown>; required?: string[] } }[]> {
+  const { assistantToolList } = await import("./tools");
+  const skip = new Set(["add_table", "save_graph", "add_rule", "read_aloud", "usage_counts"]);
+  return [...AGENT_BLOCK_TOOLS, ...assistantToolList().filter((t) => !skip.has(t.name))];
+}
+
+/** For tests and the probe: a store-bound context. */
+export const agentCtx = (store: JournalStore, actor: string, now = new Date()) => ({ store, actor, now });

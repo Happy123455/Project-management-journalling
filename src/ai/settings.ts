@@ -27,6 +27,16 @@ export interface AiSettings {
   geminiOrder?: ("pro" | "flash" | "lite")[];
   /** Gemini: seconds to wait for Pro before moving on (45 unless changed). */
   geminiWaitS?: number;
+  /** Floating agent: small deletions (up to agentDeleteWords words, or one block) go ahead without asking (on unless turned off). */
+  agentFreeDelete?: boolean;
+  /** Floating agent: how many words count as small (30 unless changed). */
+  agentDeleteWords?: number;
+  /** Floating agent: any one block counts as small, whatever its length (on unless turned off). */
+  agentDeleteBlock?: boolean;
+  /** Floating agent: "live" = Gemini Live hears the voice and acts (default); "whisper" = written down first, then Gemini text. */
+  agentEngine?: "live" | "whisper";
+  /** Floating agent: says what it did out loud (off unless turned on). */
+  agentSpeak?: boolean;
   /** Per-task model overrides, e.g. { organise: "gemini-4-argon" }. */
   models: Partial<Record<Provider, Partial<Record<AiTask, string>>>>;
 }

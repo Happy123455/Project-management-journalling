@@ -57,6 +57,11 @@ export async function geminiAgent(opts: {
   maxRounds?: number;
   /** How hard the model thinks ("low" unless said; "default" leaves it to the model). */
   think?: "minimal" | "low" | "high" | "default";
+  /** Per model wait (45 s unless said) and how long to keep retrying a failed chain (4 min unless said). */
+  fastTimeoutMs?: number;
+  retryForMs?: number;
+  /** The models to try, in order (the model's usual fallback chain unless said). */
+  chain?: string[];
 }): Promise<GeminiAgentResult> {
   const key = await getKey("gemini");
   if (!key) throw new Error("Add a Gemini key in Settings → AI to use the journal's tools from here.");
@@ -64,7 +69,7 @@ export async function geminiAgent(opts: {
   let section = opts.section;
   const contents: Content[] = opts.messages.map((m) => ({ role: m.role === "user" ? "user" : "model", parts: [{ text: m.content }] }));
   const steps: string[] = [];
-  let chain = geminiChain(model0);
+  let chain = opts.chain?.length ? opts.chain : geminiChain(model0);
   const rounds = opts.maxRounds ?? 8;
   for (let round = 0; round < rounds; round++) {
     if (opts.signal?.aborted) throw new DOMException("Stopped", "AbortError");
@@ -76,7 +81,9 @@ export async function geminiAgent(opts: {
       model: chain[0],
       chain,
       signal: opts.signal,
-      fastTimeoutMs: 45_000,
+      fastTimeoutMs: opts.fastTimeoutMs ?? 45_000,
+      retryForMs: opts.retryForMs,
+      quiet: true,
       fetchImpl: opts.fetchImpl,
       // Low thinking: simple jobs (a math block, a table) don't need long thought (Hapi, 18 Nov:
       // "even simple tasks take too long"). A model that refuses the setting is asked without it.

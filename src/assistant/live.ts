@@ -18,11 +18,13 @@ import { recordUsage } from "../ai/settings";
 import { watchEdit } from "./swarm/watch";
 import { runAssistant } from "./runner";
 
-export type LiveKind = "table" | "list" | "text";
+export type LiveKind = "table" | "list" | "checklist" | "text";
 
 /** The block this live agent made last (what "not cow, dinosaur" changes). */
 export interface LiveBlock {
+  /** The day note it's in (or, with `title`, the page's name). */
   day: string;
+  title?: string;
   kind: LiveKind;
   /** The node's fingerprint (blockPrint), to find it again after the editor adds its ids. */
   json: string;
@@ -37,7 +39,7 @@ export interface LivePlan {
   action: "make" | "edit" | "delete" | "other" | "none";
   kind?: LiveKind;
   headers?: string[];
-  rows?: string[][];
+  rows?: unknown;
   lines?: string[];
   say?: string;
 }
@@ -119,7 +121,7 @@ export function parsePlan(raw: string): LivePlan | null {
     if (!j || !["make", "edit", "delete", "other", "none"].includes(j.action)) return null;
     const cell = (v: unknown) => String(v ?? "").replace(/\*\*/g, "").trim();
     if (Array.isArray(j.headers)) j.headers = j.headers.map(cell);
-    if (Array.isArray(j.rows)) j.rows = j.rows.map((r) => (Array.isArray(r) ? r.map(cell) : [cell(r)]));
+    if (Array.isArray(j.headers) && j.rows != null) j.rows = normalizeRows(j.headers, j.rows);
     if (Array.isArray(j.lines)) j.lines = j.lines.map(cell).filter(Boolean);
     if (!j.kind) j.kind = j.headers?.length ? "table" : j.lines?.length ? "list" : undefined;
     return j;
@@ -190,11 +192,52 @@ export async function askFast(text: string, ctx: LiveCtx, signal?: AbortSignal):
   return { plan: parsePlan(out), model: r.model };
 }
 
+/** Splits a row written as one line ("Dogs, loyal, 4 legs" or "| Dogs | loyal |") into cells. */
+function splitLine(line: string, want: number): string[] {
+  const t = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  const by = (sep: RegExp) => t.split(sep).map((c) => c.trim());
+  if (t.includes("|")) return by(/\s*\|\s*/);
+  if (t.includes("\t")) return by(/\t/);
+  // Commas inside a cell ("loyal, playful") are kept when cutting at every comma gives too many.
+  const commas = by(/,/);
+  if (want > 1 && commas.length > want) return [...commas.slice(0, want - 1), commas.slice(want - 1).join(", ")];
+  return commas;
+}
+
+/**
+ * Rows as cells, one per header. 25 Nov: a model sent each row as one comma line ("Dogs,Living
+ * species,Loyalty") and the whole row landed in one cell; rows can also come as a flat list of
+ * strings, or as {header: value} objects.
+ */
+export function normalizeRows(headers: string[], rows: unknown): string[][] {
+  const want = Math.max(1, headers.length);
+  const list = Array.isArray(rows) ? rows : typeof rows === "string" ? rows.split(/\n+/) : [];
+  const cell = (v: unknown) => String(v ?? "").replace(/\*\*/g, "").trim();
+  const out: string[][] = [];
+  for (const r of list) {
+    let cells: string[];
+    if (Array.isArray(r)) cells = r.map(cell);
+    else if (r && typeof r === "object") cells = headers.length ? headers.map((h) => cell((r as Record<string, unknown>)[h])) : Object.values(r).map(cell);
+    else cells = [cell(r)];
+    // One long cell where several were wanted: it's a whole row in one line.
+    if (want > 1 && cells.filter(Boolean).length === 1 && /[,|\t]/.test(cells.find(Boolean) ?? "")) cells = splitLine(cells.find(Boolean)!, want);
+    // Several rows run together in one array ("Dogs,…", "Cats,…" each a row in one row).
+    else if (want > 1 && cells.length > 1 && cells.length < want && cells.every((c) => splitLine(c, want).length === want)) {
+      for (const c of cells) out.push(splitLine(c, want));
+      continue;
+    }
+    if (cells.some(Boolean)) out.push(cells);
+  }
+  return out;
+}
+
 /** The block for a plan, and how the model will see it next time. */
 export function blockFor(plan: LivePlan): { node: JSONContent; kind: LiveKind; shown: string; headers?: string[]; rows?: string[][]; lines?: string[] } | null {
-  if (plan.kind === "table" || (plan.headers?.length && plan.rows?.length)) {
-    const headers = (plan.headers ?? []).slice(0, 26);
-    const rows = (plan.rows ?? []).slice(0, 199);
+  if (plan.kind === "table" || (plan.headers?.length && Array.isArray(plan.rows) && plan.rows.length)) {
+    let headers = (plan.headers ?? []).map((h) => String(h ?? "").trim()).slice(0, 26);
+    // Headers as one comma line too.
+    if (headers.length === 1 && /[,|]/.test(headers[0])) headers = splitLine(headers[0], 0).slice(0, 26);
+    const rows = normalizeRows(headers, plan.rows).slice(0, 199);
     if (!headers.length) return null;
     const cols = Math.min(26, Math.max(headers.length, ...rows.map((r) => r.length)));
     const col = (i: number) => String.fromCharCode(65 + i);
@@ -205,8 +248,17 @@ export function blockFor(plan: LivePlan): { node: JSONContent; kind: LiveKind; s
     const shown = [headers, ...rows].map((r) => `| ${r.join(" | ")} |`).join("\n");
     return { node: { type: "sheetBlock", attrs: { data: JSON.stringify(data) } }, kind: "table", shown, headers, rows };
   }
-  const lines = (plan.lines ?? []).filter(Boolean);
+  const lines = (Array.isArray(plan.lines) ? plan.lines : typeof plan.lines === "string" ? String(plan.lines).split(/\n+/) : []).map((l) => String(l ?? "").replace(/^\s*(?:[-*•]|\d+[.)]|\[[ x]\])\s*/i, "").trim()).filter(Boolean);
   if (!lines.length) return null;
+  if (plan.kind === "checklist") {
+    return {
+      node: { type: "taskList", content: lines.map((l) => ({ type: "taskItem", attrs: { checked: false }, content: [{ type: "paragraph", content: [{ type: "text", text: l }] }] })) },
+      kind: "checklist",
+      shown: lines.map((l) => `- [ ] ${l}`).join("\n"),
+      lines,
+    };
+  }
+  if (plan.kind === "text") return { node: { type: "paragraph", content: [{ type: "text", text: lines.join(" ") }] }, kind: "text", shown: lines.join(" "), lines: [lines.join(" ")] };
   if (plan.kind === "list" || lines.length > 1) {
     return {
       node: { type: "bulletList", content: lines.map((l) => ({ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: l }] }] })) },
