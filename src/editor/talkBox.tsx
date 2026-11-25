@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { mergeAttributes, Node, NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { graphFor, layoutGraph, makeMyPrompt, parseGraph, worthUpdating, type TalkGraph } from "../ai/talkGraph";
 import { canListen, startListening, type Listening } from "../assistant/listen";
+import { VoicePill } from "../talk/VoicePill";
 import { fx } from "../lib/fx";
 import { ImproveSheet } from "./ImproveSheet";
 
@@ -138,6 +139,7 @@ function TalkView({ node, updateAttributes, editor }: NodeViewProps) {
           change(next);
         },
         (n) => setNote(n),
+        { onLevel: (v) => (level.current = v) },
       );
       setListening(l);
       fx("start");
@@ -145,6 +147,7 @@ function TalkView({ node, updateAttributes, editor }: NodeViewProps) {
       setNote(e instanceof Error ? e.message : String(e));
     }
   };
+  const level = useRef(0);
   const listenRef = useRef(listening);
   listenRef.current = listening;
   useEffect(() => () => listenRef.current?.cancel(), []);
@@ -187,6 +190,7 @@ function TalkView({ node, updateAttributes, editor }: NodeViewProps) {
             }}
             onKeyDown={(e) => e.stopPropagation()}
           />
+          {listening && <VoicePill className="talkbox-cloud" level={level} text={seg.current.text} mode="listening" />}
           {(listening || note) && (
             <p className={`talk-note${listening ? " live" : ""}`}>
               {listening && <span className="cmd-dot" aria-hidden />}

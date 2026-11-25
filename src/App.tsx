@@ -55,8 +55,10 @@ import { findBlock, recordRun, setScheduled, startScheduler, thisDevice } from "
 import { ChatView } from "./ChatView";
 import { AiBadge } from "./AiBadge";
 import { VoiceBadge } from "./ai/VoicePanel";
-import { OPEN_TALK, openTalk, TalkPanel } from "./talk/TalkPanel";
+import { OPEN_TALK, TalkPanel } from "./talk/TalkPanel";
 import { OPEN_THOUGHT, ThoughtCapture } from "./talk/ThoughtCapture";
+import { lastVoiceKind, OPEN_VOICE, openVoice, VoiceSwitch, type VoiceKind } from "./talk/VoiceSwitch";
+import { lastMode } from "./talk/TalkPanel";
 import type { TalkMode } from "./talk/talk";
 import { startMacWorker } from "./ai/chatRunner";
 import { RelativeTime } from "./calendar/RelativeTime";
@@ -185,12 +187,22 @@ function App() {
     const key = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "t") (e.preventDefault(), setThoughtOpen(true));
     };
+    const voice = (e: Event) => {
+      const k = (e as CustomEvent<VoiceKind>).detail ?? lastVoiceKind();
+      if (k === "thought") return setTalkMode(null), setThoughtOpen(true);
+      setThoughtOpen(false);
+      if (k === "talk") return void (window.__journalFlush?.() ?? Promise.resolve()).then(() => setTalkMode(lastMode()));
+      setTalkMode(null);
+      window.dispatchEvent(new Event("journal:talk-type"));
+    };
     fromPhone();
+    window.addEventListener(OPEN_VOICE, voice);
     window.addEventListener(OPEN_THOUGHT, open);
     window.addEventListener("journal:thought-launch", fromPhone);
     window.addEventListener("keydown", key);
     return () => {
       window.removeEventListener(OPEN_THOUGHT, open);
+      window.removeEventListener(OPEN_VOICE, voice);
       window.removeEventListener("journal:thought-launch", fromPhone);
       window.removeEventListener("keydown", key);
     };
@@ -987,10 +999,16 @@ function App() {
       window.setTimeout(() => (talkBusy.current = false), 600);
     }
   };
+  // ⌨︎ Talk + type from the 🎙️ switch (talk/VoiceSwitch.tsx).
+  const typeRef = useRef(newTalkSession);
+  typeRef.current = newTalkSession;
+  useEffect(() => {
+    const on = () => void typeRef.current();
+    window.addEventListener("journal:talk-type", on);
+    return () => window.removeEventListener("journal:talk-type", on);
+  }, []);
   const islandActions: MenuAction[] = [
-    { icon: "🎙️", label: "Talk (English / ગુજરાતી)", run: () => openTalk() },
-    { icon: "💭", label: "Quick thought", run: () => setThoughtOpen(true) },
-    { icon: "🎙", label: "Talk + type", run: () => void newTalkSession() },
+    { icon: "🎙️", label: "Talk", run: () => openVoice() },
     { icon: "☰", label: "Menu", run: () => setDrawerOpen(true) },
     { icon: "🔎", label: "Search text", run: () => setSearchOpen(true) },
     { icon: "🧭", label: "Routine", run: () => setRoutineOpen(true) },
@@ -1363,9 +1381,7 @@ function App() {
       group: "AI & talk",
       items: [
         { icon: "✦", label: "Assistant & chat", title: "Assistant (Cmd/Ctrl+J); 💬 chat is inside it", run: () => (setDrawerOpen(false), openAssist({ mode: "type" })) },
-        { icon: "🎙️", label: "Talk", title: "Talk out loud: English or ગુજરાતી", run: () => (setDrawerOpen(false), openTalk()) },
-        { icon: "💭", label: "Quick thought", title: "Say a thought, pick the block today (⌘⇧T; phone: side key)", run: () => (setDrawerOpen(false), setThoughtOpen(true)) },
-        { icon: "🎙", label: "Talk + type", title: "Talk + type: a new prompt session", run: () => void newTalkSession() },
+        { icon: "🎙️", label: "Talk", title: "Talk · 💭 Thought · ⌨︎ Talk + type, switched at the top (⌘⇧T = Thought; phone: side key)", run: () => (setDrawerOpen(false), openVoice()) },
       ],
     },
   ];
@@ -1798,8 +1814,8 @@ function App() {
       )}
       {assist && store && <CommandBar key={assist.n} store={store} request={assist} onClose={() => setAssist(null)} />}
       {store && <AgentBubbles store={store} />}
-      {store && thoughtOpen && <ThoughtCapture store={store} onClose={() => setThoughtOpen(false)} />}
-      {store && talkMode && <TalkPanel store={store} mode={talkMode} onClose={() => setTalkMode(null)} />}
+      {store && thoughtOpen && <ThoughtCapture store={store} switcher={<VoiceSwitch kind="thought" />} onClose={() => setThoughtOpen(false)} />}
+      {store && talkMode && <TalkPanel store={store} mode={talkMode} switcher={<VoiceSwitch kind="talk" />} onClose={() => setTalkMode(null)} />}
       <AgentCursors />
       {ytChart && store && <YoutubeChartSheet store={store} day={ytChart} onClose={() => setYtChart(null)} />}
       {tabsOpen && (

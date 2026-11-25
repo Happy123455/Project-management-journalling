@@ -12,10 +12,11 @@ import {
 } from "./capture";
 import { useEscapeToClose } from "../ui/useEscapeToClose";
 import { PocketTab } from "./PocketTab";
+import { SubscriptionsTab } from "./SubscriptionsTab";
 import { BankTab } from "./BankTab";
 import { POCKET } from "../lib/pocket";
 
-type Tab = "overview" | "pocket" | "bank" | "list" | "insights" | "setup";
+type Tab = "overview" | "pocket" | "bank" | "subs" | "list" | "insights" | "setup";
 const r0 = (n: number) => rupees(n, 0);
 const monthName = (m: string) => new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 1, 1).toLocaleDateString(undefined, { month: "short" });
 const thisMonth = () => dayKey(new Date()).slice(0, 7);
@@ -90,9 +91,9 @@ export function FinancePanel({ store, onClose, onOpenDay, startTab }: { store: J
         <header>
           <strong>💰 Money</strong>
           <nav>
-            {(["overview", "pocket", "bank", "list", "insights", "setup"] as Tab[]).map((t) => (
+            {(["overview", "pocket", "bank", "subs", "list", "insights", "setup"] as Tab[]).map((t) => (
               <button key={t} type="button" className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
-                {{ overview: "Overview", pocket: "👛 Pocket", bank: "🏦 Bank", list: "Payments", insights: "Insights", setup: "Setup" }[t]}
+                {{ overview: "Overview", pocket: "👛 Pocket", bank: "🏦 Bank", subs: "🔁 Subscriptions", list: "Payments", insights: "Insights", setup: "Setup" }[t]}
               </button>
             ))}
           </nav>
@@ -107,6 +108,8 @@ export function FinancePanel({ store, onClose, onOpenDay, startTab }: { store: J
             <PocketTab store={store} txns={txns} onOpenDay={(d) => (onOpenDay(d), onClose())} />
           ) : tab === "bank" ? (
             <BankTab store={store} onOpenDay={(d) => (onOpenDay(d), onClose())} />
+          ) : tab === "subs" ? (
+            <SubscriptionsTab store={store} txns={txns} />
           ) : tab === "list" ? (
             <Payments store={store} txns={txns} onOpenDay={(d) => (onOpenDay(d), onClose())} />
           ) : tab === "insights" ? (

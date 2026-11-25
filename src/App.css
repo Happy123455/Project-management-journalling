@@ -4730,3 +4730,26 @@ html.agent-dragging .ac-arrow:not(.away) { transition: none; }
 .pocket-day-list li.debit span:nth-child(2) { color: #d9534f; }
 .pocket-day-list li.credit span:nth-child(2) { color: #2fa86a; }
 .pocket-day-list .bt-bal { color: var(--muted); }
+
+/* 🎙️ One voice feature: the switch + the glass voice cloud (25 Nov) */
+.voice-switch { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: color-mix(in srgb, var(--panel) 70%, transparent); border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4); flex: 1; max-width: max-content; }
+.voice-switch button, .talk-top .voice-switch button { border: 0; background: transparent; color: var(--text); padding: 6px 12px; border-radius: 999px; font-size: 13px; white-space: nowrap; transition: background 0.25s, color 0.25s; }
+.voice-switch button.on, .talk-top .voice-switch button.on { background: var(--text); color: var(--bg); }
+.glass-card, .talk-bottom { background: linear-gradient(160deg, color-mix(in srgb, var(--panel) 82%, transparent), color-mix(in srgb, var(--panel) 64%, transparent)); backdrop-filter: blur(22px) saturate(1.6); -webkit-backdrop-filter: blur(22px) saturate(1.6); box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset, 0 -1px 0 rgba(0, 0, 0, 0.04) inset, 0 20px 50px rgba(0, 0, 0, 0.12); }
+.talk-bottom { border-radius: 26px 26px 0 0; border-top: 0; }
+.thought-card { padding: 12px 14px 8px; }
+.thought-card .thought-time { position: absolute; top: 12px; right: 16px; }
+.voice-pill-wave.thought-cloud { height: 150px; }
+.voice-pill-wave.talk-cloud { height: 110px; }
+.voice-pill-wave.talkbox-cloud { height: 96px; margin: 6px 0; border-radius: 18px; background: color-mix(in srgb, var(--panel) 70%, transparent); }
+.thought-wrap { justify-content: flex-start; padding-top: max(16px, env(safe-area-inset-top)); }
+.thought-wrap .voice-switch { margin-bottom: 18vh; }
+/* 🔁 Subscriptions (25 Nov) */
+.subs-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(26px, 1fr)); gap: 4px; margin: 8px 0 12px; }
+.subs-cell { aspect-ratio: 1; display: grid; place-items: center; font-size: 10.5px; border-radius: 8px; color: var(--muted); background: color-mix(in srgb, var(--text) 5%, transparent); }
+.subs-cell.on { color: #fff; font-weight: 700; }
+.subs-cell.today { outline: 2px solid var(--text); outline-offset: -2px; }
+.subs-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; align-self: center; }
+.subs-list .fl-row { display: flex; align-items: center; gap: 10px; padding: 8px 4px; }
+.subs-list .fl-who { flex: 1; }
+.subs-yearly { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }

@@ -37,7 +37,7 @@ export function blocksIn(doc: JSONContent | null | undefined): string[] {
 
 type Phase = "listening" | "writing" | "pick" | "failed";
 
-export function ThoughtCapture({ store, onClose }: { store: JournalStore; onClose: () => void }) {
+export function ThoughtCapture({ store, onClose, switcher }: { store: JournalStore; onClose: () => void; switcher?: React.ReactNode }) {
   const [phase, setPhase] = useState<Phase>("listening");
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
@@ -106,12 +106,10 @@ export function ThoughtCapture({ store, onClose }: { store: JournalStore; onClos
 
   return createPortal(
     <div className="thought-wrap" role="dialog" aria-label="Quick thought">
-      <div className="thought-card">
-        <div className="thought-top">
-          <p className={text ? "thought-text" : "thought-text muted"}>{text || (phase === "listening" ? "Say what's on your mind…" : "")}</p>
-          <span className="thought-time">{phase === "listening" ? `● ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}` : phase === "writing" ? "● writing" : ""}</span>
-        </div>
-        <VoicePill level={lvl} mode={phase === "listening" ? "listening" : phase === "writing" ? "thinking" : "idle"} />
+      {switcher}
+      <div className="thought-card glass-card">
+        <span className="thought-time">{phase === "listening" ? `● ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}` : phase === "writing" ? "● writing" : ""}</span>
+        <VoicePill className="thought-cloud" level={lvl} text={phase === "pick" ? "" : text} placeholder={phase === "listening" ? "Say what's on your mind…" : ""} mode={phase === "listening" ? "listening" : phase === "writing" ? "thinking" : "idle"} />
         {phase === "listening" && (
           <button type="button" className="thought-key stop" onClick={() => void stop()} aria-label="Stop and write it down">
             ■

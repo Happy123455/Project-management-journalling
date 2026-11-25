@@ -39,7 +39,7 @@ const voiceOn = () => {
   }
 };
 
-export function TalkPanel({ store, mode: mode0, onClose }: { store: JournalStore; mode: TalkMode; onClose: () => void }) {
+export function TalkPanel({ store, mode: mode0, onClose, switcher }: { store: JournalStore; mode: TalkMode; onClose: () => void; switcher?: React.ReactNode }) {
   const [mode, setMode] = useState<TalkMode>(mode0);
   const modeRef = useRef(mode);
   modeRef.current = mode;
@@ -329,7 +329,7 @@ export function TalkPanel({ store, mode: mode0, onClose }: { store: JournalStore
   return createPortal(
     <div className="talk-sheet" role="dialog" aria-label="Talk">
       <header className="talk-top">
-        <b>🎙️ Talk</b>
+        {switcher ?? <b>🎙️ Talk</b>}
         <div className="talk-lang" role="radiogroup" aria-label="Language">
           <button type="button" role="radio" aria-checked={mode === "interview"} className={mode === "interview" ? "on" : ""} onClick={() => switchMode("interview")} title="Reflective interview in English">English</button>
           <button type="button" role="radio" aria-checked={modeRef.current === "call"} className={modeRef.current === "call" ? "on" : ""} onClick={() => switchMode("call")} title="A call in Gujarati, saved in English with the Gujarati under it">ગુજરાતી</button>
@@ -354,7 +354,7 @@ export function TalkPanel({ store, mode: mode0, onClose }: { store: JournalStore
         {draft && <div className="talk-turn ai live"><p>{draft}</p></div>}
       </div>
       <footer className="talk-bottom">
-        <VoicePill level={lvl} mode={phase === "listening" ? "listening" : phase === "speaking" ? "speaking" : phase === "thinking" || phase === "writing" ? "thinking" : "idle"} />
+        <VoicePill className="talk-cloud" level={lvl} text={phase === "listening" ? heard : phase === "speaking" ? draft : ""} mode={phase === "listening" ? "listening" : phase === "speaking" ? "speaking" : phase === "thinking" || phase === "writing" ? "thinking" : "idle"} />
         {note && <p className="talk-note">{note}</p>}
         <p className="talk-status">{status}</p>
         {phase === "listening" ? (
